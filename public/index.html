@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FDC+ Serial Drive Server - Web Interface</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: white;
+            padding: 20px 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .status-bar {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-dot.connected {
+            background: #10b981;
+            box-shadow: 0 0 8px #10b981;
+        }
+
+        .status-dot.disconnected {
+            background: #ef4444;
+        }
+
+        .drives-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .drive-card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .drive-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e5e7eb;
+        }
+
+        .drive-title {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .drive-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 600;
+        }
+
+        .drive-badge.mounted {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .drive-badge.unmounted {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .drive-info {
+            margin-bottom: 15px;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #f3f4f6;
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: #6b7280;
+        }
+
+        .info-value {
+            color: #111827;
+            font-family: monospace;
+        }
+
+        .drive-controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        select {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #e5e7eb;
+            border-radius: 5px;
+            font-size: 1em;
+            background: white;
+        }
+
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn-primary {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2563eb;
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        .btn-secondary {
+            background: #6b7280;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #4b5563;
+        }
+
+        .checkbox-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            display: none;
+            z-index: 1000;
+            min-width: 300px;
+        }
+
+        .notification.show {
+            display: block;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .notification.success {
+            border-left: 4px solid #10b981;
+        }
+
+        .notification.error {
+            border-left: 4px solid #ef4444;
+        }
+
+        footer {
+            text-align: center;
+            color: white;
+            padding: 20px;
+            font-size: 0.9em;
+        }
+
+        .loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🖥️ FDC+ Serial Drive Server</h1>
+            <div class="status-bar">
+                <div class="status-item">
+                    <span class="status-dot" id="serialStatus"></span>
+                    <span>Serial: <strong id="serialDevice">Not Connected</strong></span>
+                </div>
+                <div class="status-item">
+                    <span>Baud Rate: <strong id="baudRate">-</strong></span>
+                </div>
+                <div class="status-item">
+                    <span>Last Update: <strong id="lastUpdate">-</strong></span>
+                </div>
+            </div>
+        </header>
+
+        <div class="drives-grid" id="drivesGrid">
+            <!-- Drive cards will be inserted here -->
+        </div>
+
+        <footer>
+            <p>FDC+ Serial Drive Server v2.0 - TypeScript Edition</p>
+            <p>Real-time updates via WebSocket</p>
+        </footer>
+    </div>
+
+    <div class="notification" id="notification">
+        <div id="notificationMessage"></div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        // Connect to WebSocket
+        const socket = io();
+
+        let availableImages = [];
+
+        // Socket event handlers
+        socket.on('connect', () => {
+            console.log('Connected to server');
+            socket.emit('request-status');
+            loadAvailableImages();
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Disconnected from server');
+            showNotification('Disconnected from server', 'error');
+        });
+
+        socket.on('status', (status) => {
+            updateStatus(status);
+        });
+
+        // Load available disk images
+        async function loadAvailableImages() {
+            try {
+                const response = await fetch('/api/images');
+                const data = await response.json();
+                availableImages = data.images;
+            } catch (error) {
+                console.error('Failed to load images:', error);
+            }
+        }
+
+        // Update status display
+        function updateStatus(status) {
+            // Update serial status
+            const serialStatus = document.getElementById('serialStatus');
+            const serialDevice = document.getElementById('serialDevice');
+            const baudRate = document.getElementById('baudRate');
+            const lastUpdate = document.getElementById('lastUpdate');
+
+            if (status.serial.connected) {
+                serialStatus.className = 'status-dot connected';
+                serialDevice.textContent = status.serial.device || 'Connected';
+                baudRate.textContent = status.serial.baudRate || '-';
+            } else {
+                serialStatus.className = 'status-dot disconnected';
+                serialDevice.textContent = 'Not Connected';
+                baudRate.textContent = '-';
+            }
+
+            lastUpdate.textContent = new Date(status.timestamp).toLocaleTimeString();
+
+            // Update drives
+            updateDrives(status.drives);
+        }
+
+        // Update drives display
+        function updateDrives(drives) {
+            const grid = document.getElementById('drivesGrid');
+
+            drives.forEach((drive, index) => {
+                let card = document.getElementById(`drive-${drive.id}`);
+
+                if (!card) {
+                    card = createDriveCard(drive);
+                    grid.appendChild(card);
+                } else {
+                    updateDriveCard(card, drive);
+                }
+            });
+        }
+
+        // Create drive card
+        function createDriveCard(drive) {
+            const card = document.createElement('div');
+            card.className = 'drive-card';
+            card.id = `drive-${drive.id}`;
+
+            card.innerHTML = `
+                <div class="drive-header">
+                    <div class="drive-title">Drive ${drive.id}</div>
+                    <div class="drive-badge ${drive.mounted ? 'mounted' : 'unmounted'}">
+                        ${drive.mounted ? 'Mounted' : 'Empty'}
+                    </div>
+                </div>
+                <div class="drive-info">
+                    <div class="info-row">
+                        <span class="info-label">Image File:</span>
+                        <span class="info-value">${drive.filename || '-'}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Current Track:</span>
+                        <span class="info-value">${drive.track}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Head Status:</span>
+                        <span class="info-value">${drive.headLoaded ? 'Loaded' : 'Unloaded'}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Write Protection:</span>
+                        <span class="info-value">${drive.readonly ? 'Read-Only' : 'Read-Write'}</span>
+                    </div>
+                </div>
+                <div class="drive-controls">
+                    <select id="select-${drive.id}">
+                        <option value="">Select disk image...</option>
+                    </select>
+                    <button class="btn-primary" onclick="mountDrive(${drive.id})">Mount</button>
+                    <button class="btn-danger" onclick="unmountDrive(${drive.id})" ${!drive.mounted ? 'disabled' : ''}>Unmount</button>
+                </div>
+                <div class="checkbox-container">
+                    <input type="checkbox" id="ro-${drive.id}" ${drive.readonly ? 'checked' : ''} onchange="toggleReadOnly(${drive.id}, this.checked)">
+                    <label for="ro-${drive.id}">Read-Only</label>
+                </div>
+            `;
+
+            // Populate select options
+            setTimeout(() => {
+                const select = document.getElementById(`select-${drive.id}`);
+                availableImages.forEach(img => {
+                    const option = document.createElement('option');
+                    option.value = img;
+                    option.textContent = img;
+                    if (img === drive.filename) {
+                        option.selected = true;
+                    }
+                    select.appendChild(option);
+                });
+            }, 100);
+
+            return card;
+        }
+
+        // Update drive card
+        function updateDriveCard(card, drive) {
+            const badge = card.querySelector('.drive-badge');
+            badge.className = `drive-badge ${drive.mounted ? 'mounted' : 'unmounted'}`;
+            badge.textContent = drive.mounted ? 'Mounted' : 'Empty';
+
+            const values = card.querySelectorAll('.info-value');
+            values[0].textContent = drive.filename || '-';
+            values[1].textContent = drive.track;
+            values[2].textContent = drive.headLoaded ? 'Loaded' : 'Unloaded';
+            values[3].textContent = drive.readonly ? 'Read-Only' : 'Read-Write';
+
+            const unmountBtn = card.querySelector('.btn-danger');
+            unmountBtn.disabled = !drive.mounted;
+
+            const checkbox = document.getElementById(`ro-${drive.id}`);
+            if (checkbox) {
+                checkbox.checked = drive.readonly;
+            }
+        }
+
+        // Mount drive
+        async function mountDrive(driveId) {
+            const select = document.getElementById(`select-${driveId}`);
+            const filename = select.value;
+
+            if (!filename) {
+                showNotification('Please select a disk image', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/drives/${driveId}/mount`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showNotification(`Drive ${driveId} mounted successfully`, 'success');
+                } else {
+                    showNotification(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Failed to mount drive: ${error.message}`, 'error');
+            }
+        }
+
+        // Unmount drive
+        async function unmountDrive(driveId) {
+            try {
+                const response = await fetch(`/api/drives/${driveId}/unmount`, {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showNotification(`Drive ${driveId} unmounted successfully`, 'success');
+                } else {
+                    showNotification(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Failed to unmount drive: ${error.message}`, 'error');
+            }
+        }
+
+        // Toggle read-only status
+        async function toggleReadOnly(driveId, readonly) {
+            try {
+                const response = await fetch(`/api/drives/${driveId}/readonly`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ readonly })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showNotification(`Drive ${driveId} ${readonly ? 'protected' : 'writable'}`, 'success');
+                } else {
+                    showNotification(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Failed to update protection: ${error.message}`, 'error');
+            }
+        }
+
+        // Show notification
+        function showNotification(message, type = 'success') {
+            const notification = document.getElementById('notification');
+            const messageEl = document.getElementById('notificationMessage');
+
+            notification.className = `notification ${type}`;
+            messageEl.textContent = message;
+            notification.classList.add('show');
+
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
