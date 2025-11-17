@@ -115,7 +115,7 @@ export class GpioLedManager {
    * Setup a GPIO pin for LED output
    * @param pin GPIO pin number (BCM numbering)
    */
-  public setupPin(pin: number): void {
+  public async setupPin(pin: number): Promise<void> {
     if (!this.isAvailable()) {
       // No-op on unsupported platforms
       return;
@@ -139,9 +139,12 @@ export class GpioLedManager {
       // Create GPIO instance
       const gpio = new Gpio(pin, 'out');
 
-      // Initialize to off state
+      // Small delay to allow kernel to finish exporting the pin
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      // Initialize to off state using async write
       const offValue = this.activeLow ? 1 : 0;
-      gpio.writeSync(offValue);
+      await gpio.write(offValue);
 
       this.pins.set(pin, { pin, gpio });
     } catch (error) {

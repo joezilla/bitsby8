@@ -94,13 +94,13 @@ export class GpioLedController {
     }
 
     // Setup drive pins
-    this.setupDrivePins(0, config.drive0);
-    this.setupDrivePins(1, config.drive1);
-    this.setupDrivePins(2, config.drive2);
-    this.setupDrivePins(3, config.drive3);
+    await this.setupDrivePins(0, config.drive0);
+    await this.setupDrivePins(1, config.drive1);
+    await this.setupDrivePins(2, config.drive2);
+    await this.setupDrivePins(3, config.drive3);
 
     // Setup terminal pins
-    this.setupTerminalPins(config.terminal);
+    await this.setupTerminalPins(config.terminal);
 
     this.initialized = true;
   }
@@ -108,7 +108,7 @@ export class GpioLedController {
   /**
    * Setup GPIO pins for a drive
    */
-  private setupDrivePins(driveNum: number, pinConfig?: GpioDrivePinConfig): void {
+  private async setupDrivePins(driveNum: number, pinConfig?: GpioDrivePinConfig): Promise<void> {
     if (!pinConfig) {
       this.driveConfigs.set(driveNum, {
         enablePin: null,
@@ -126,13 +126,13 @@ export class GpioLedController {
 
     // Setup each configured pin
     if (config.enablePin !== null) {
-      this.manager.setupPin(config.enablePin);
+      await this.manager.setupPin(config.enablePin);
     }
     if (config.headLoadPin !== null) {
-      this.manager.setupPin(config.headLoadPin);
+      await this.manager.setupPin(config.headLoadPin);
     }
     if (config.readOnlyPin !== null) {
-      this.manager.setupPin(config.readOnlyPin);
+      await this.manager.setupPin(config.readOnlyPin);
     }
 
     this.driveConfigs.set(driveNum, config);
@@ -141,7 +141,7 @@ export class GpioLedController {
   /**
    * Setup GPIO pins for terminal
    */
-  private setupTerminalPins(pinConfig?: GpioTerminalPinConfig): void {
+  private async setupTerminalPins(pinConfig?: GpioTerminalPinConfig): Promise<void> {
     if (!pinConfig) {
       this.terminalConfig = {
         rxPin: null,
@@ -159,13 +159,13 @@ export class GpioLedController {
 
     // Setup each configured pin
     if (this.terminalConfig.rxPin !== null) {
-      this.manager.setupPin(this.terminalConfig.rxPin);
+      await this.manager.setupPin(this.terminalConfig.rxPin);
     }
     if (this.terminalConfig.txPin !== null) {
-      this.manager.setupPin(this.terminalConfig.txPin);
+      await this.manager.setupPin(this.terminalConfig.txPin);
     }
     if (this.terminalConfig.connectedPin !== null) {
-      this.manager.setupPin(this.terminalConfig.connectedPin);
+      await this.manager.setupPin(this.terminalConfig.connectedPin);
     }
   }
 
@@ -249,6 +249,46 @@ export class GpioLedController {
    */
   public isInitialized(): boolean {
     return this.initialized;
+  }
+
+  /**
+   * Blink all configured LEDs once (startup test)
+   * Useful for verifying GPIO connections and LED functionality
+   */
+  public async blinkAllLeds(durationMs: number = 500): Promise<void> {
+    if (!this.initialized || !this.manager.isAvailable()) {
+      return; // No-op
+    }
+
+    // Collect all configured pins
+    const allPins: number[] = [];
+
+    // Add drive pins
+    for (const driveConfig of this.driveConfigs.values()) {
+      if (driveConfig.enablePin !== null) allPins.push(driveConfig.enablePin);
+      if (driveConfig.headLoadPin !== null) allPins.push(driveConfig.headLoadPin);
+      if (driveConfig.readOnlyPin !== null) allPins.push(driveConfig.readOnlyPin);
+    }
+
+    // Add terminal pins
+    if (this.terminalConfig) {
+      if (this.terminalConfig.rxPin !== null) allPins.push(this.terminalConfig.rxPin);
+      if (this.terminalConfig.txPin !== null) allPins.push(this.terminalConfig.txPin);
+      if (this.terminalConfig.connectedPin !== null) allPins.push(this.terminalConfig.connectedPin);
+    }
+
+    // Turn all LEDs on
+    for (const pin of allPins) {
+      this.manager.setLed(pin, true);
+    }
+
+    // Wait for the specified duration
+    await new Promise(resolve => setTimeout(resolve, durationMs));
+
+    // Turn all LEDs off
+    for (const pin of allPins) {
+      this.manager.setLed(pin, false);
+    }
   }
 
   /**

@@ -211,6 +211,11 @@ async function main(): Promise<void> {
 
       if (gpioController.isAvailable()) {
         console.log('GPIO LED status indicators enabled');
+
+        // Blink all LEDs once as a startup test
+        console.log('Testing GPIO LEDs...');
+        await gpioController.blinkAllLeds(500);
+        console.log('GPIO LED test complete');
       } else {
         console.log('GPIO LED support not available on this platform (continuing without LEDs)');
       }
