@@ -31,12 +31,26 @@ install: build
 # Build Debian package
 deb: build
 	@echo "Building Debian package..."
+	mkdir -p build
 	dpkg-buildpackage -us -uc -b
+	@echo "Moving packages to build/ directory..."
+	mv ../*.deb build/ 2>/dev/null || true
+	mv ../*.changes build/ 2>/dev/null || true
+	mv ../*.buildinfo build/ 2>/dev/null || true
+	@echo ""
+	@echo "Debian package created successfully!"
+	@echo "Package location: build/$(PACKAGE_NAME)_$(VERSION)-1_$(ARCH).deb"
 
 # Build source package (for uploading to repositories)
 deb-source:
 	@echo "Building Debian source package..."
+	mkdir -p build
 	dpkg-buildpackage -us -uc -S
+	@echo "Moving source packages to build/ directory..."
+	mv ../*.dsc build/ 2>/dev/null || true
+	mv ../*.tar.* build/ 2>/dev/null || true
+	mv ../*.changes build/ 2>/dev/null || true
+	mv ../*.buildinfo build/ 2>/dev/null || true
 
 # Clean Debian build artifacts
 deb-clean:
@@ -51,14 +65,11 @@ deb-clean:
 	rm -rf debian/tmp
 	dh_clean || true
 
-# Full clean (including parent directory .deb files)
+# Full clean (including build directory)
 distclean: clean deb-clean
 	@echo "Removing all generated files..."
-	rm -f ../*.deb
-	rm -f ../*.changes
-	rm -f ../*.buildinfo
-	rm -f ../*.dsc
-	rm -f ../*.tar.*
+	rm -rf build
+	rm -f ../*.deb ../*.changes ../*.buildinfo ../*.dsc ../*.tar.* 2>/dev/null || true
 
 # Install build dependencies
 install-build-deps:
@@ -69,7 +80,7 @@ install-build-deps:
 # Quick build and install (for testing)
 quick-install: deb
 	@echo "Installing package..."
-	sudo dpkg -i ../$(PACKAGE_NAME)_$(VERSION)-1_$(ARCH).deb || sudo apt-get install -f -y
+	sudo dpkg -i build/$(PACKAGE_NAME)_$(VERSION)-1_$(ARCH).deb || sudo apt-get install -f -y
 
 # Validate Debian package files
 validate:
@@ -97,7 +108,7 @@ info:
 	@echo "  Arch:    $(ARCH)"
 	@echo ""
 	@echo "Build output will be:"
-	@echo "  ../$(PACKAGE_NAME)_$(VERSION)-1_$(ARCH).deb"
+	@echo "  build/$(PACKAGE_NAME)_$(VERSION)-1_$(ARCH).deb"
 
 # Help target
 help:

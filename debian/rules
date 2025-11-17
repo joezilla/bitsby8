@@ -67,8 +67,8 @@ override_dh_auto_install:
 	mkdir -p debian/fdcsds/var/log/fdcsds
 
 	# Install systemd service file
-	mkdir -p debian/fdcsds/lib/systemd/system
-	cp debian/fdcsds.service debian/fdcsds/lib/systemd/system/
+	mkdir -p debian/fdcsds/usr/lib/systemd/system
+	cp debian/fdcsds.service debian/fdcsds/usr/lib/systemd/system/
 
 	# Install default environment file
 	mkdir -p debian/fdcsds/etc/default
