@@ -42,9 +42,11 @@ const commander_1 = require("commander");
 const protocol_1 = require("./protocol");
 const drive_1 = require("./drive");
 const serial_1 = require("./serial");
+const terminal_serial_1 = require("./terminal-serial");
 const display_1 = require("./ui/display");
 const server_1 = require("./server");
 const web_server_1 = require("./web-server");
+const config_1 = require("./config");
 const path = __importStar(require("path"));
 /**
  * Print help information
@@ -70,8 +72,16 @@ function printHelp() {
     console.log('  -w, --web              Enable web interface (default: disabled)');
     console.log('  --web-port <port>      Web interface port (default: 3000)');
     console.log('  --web-host <host>      Web interface host (default: localhost)');
+    console.log('  --terminal-port <device>  Second serial port for terminal emulation');
+    console.log('  --terminal-baud <rate>    Terminal port baud rate (default: 9600)');
+    console.log('  --terminal-autoconnect    Auto-connect terminal port on startup');
+    console.log('  -c, --config <file>       Configuration file path (default: .fdcsds.config)');
+    console.log('  --example-config          Print example configuration file and exit');
     console.log('  -h, --help             Display this help message\n');
     console.log('Supported baud rates: 9600, 19200, 38400, 57600, 76800, 230400, 460800\n');
+    console.log('Default config file locations (searched in order):');
+    config_1.DEFAULT_CONFIG_LOCATIONS.forEach(loc => console.log(`  - ${loc}`));
+    console.log();
 }
 /**
  * Main function
@@ -83,7 +93,7 @@ async function main() {
         .description('FDC+ Serial Drive Server')
         .version(protocol_1.FDCSDS_VERSION)
         .option('-p, --port <device>', 'Serial port (required)')
-        .option('-b, --baud <rate>', 'Set serial port speed', '230400')
+        .option('-b, --baud <rate>', 'Set serial port speed')
         .option('-0, --drive0 <file>', 'Mount disk image to drive 0')
         .option('-1, --drive1 <file>', 'Mount disk image to drive 1')
         .option('-2, --drive2 <file>', 'Mount disk image to drive 2')
@@ -91,11 +101,16 @@ async function main() {
         .option('-r, --readonly <drive>', 'Make drive read-only', (value, previous) => {
         return previous.concat([parseInt(value)]);
     }, [])
-        .option('-v, --verbose', 'Verbose display', false)
-        .option('-d, --debug', 'Debug mode', false)
-        .option('-w, --web', 'Enable web interface', false)
-        .option('--web-port <port>', 'Web interface port', '3000')
-        .option('--web-host <host>', 'Web interface host', 'localhost')
+        .option('-v, --verbose', 'Verbose display')
+        .option('-d, --debug', 'Debug mode')
+        .option('-w, --web', 'Enable web interface')
+        .option('--web-port <port>', 'Web interface port')
+        .option('--web-host <host>', 'Web interface host')
+        .option('--terminal-port <device>', 'Second serial port for terminal emulation')
+        .option('--terminal-baud <rate>', 'Terminal port baud rate')
+        .option('--terminal-autoconnect', 'Auto-connect terminal port on startup')
+        .option('-c, --config <file>', 'Configuration file path')
+        .option('--example-config', 'Print example configuration file and exit')
         .helpOption('-h, --help', 'Display help information');
     program.parse(process.argv);
     const options = program.opts();
@@ -104,14 +119,53 @@ async function main() {
         printHelp();
         process.exit(0);
     }
-    // Validate port is specified
-    if (!options.port) {
-        printHelp();
-        console.error('Error: You must specify a serial port with \'-p\' option.\n');
+    // Print example config if requested
+    if (options.exampleConfig) {
+        console.log('# Example FDC+ Serial Drive Server Configuration File');
+        console.log('# Save as .fdcsds.config, .config/fdcsds.json, or fdcsds.config.json\n');
+        console.log((0, config_1.getExampleConfig)());
+        process.exit(0);
+    }
+    // Load configuration file
+    let configFile = null;
+    try {
+        configFile = await (0, config_1.loadConfigFile)(options.config);
+        if (configFile) {
+            console.log('Configuration loaded successfully');
+            console.log(`  Port: ${configFile.port || '(not set)'}`);
+            console.log(`  Baud: ${configFile.baud || '(not set)'}`);
+        }
+    }
+    catch (error) {
+        console.error(error.message);
         process.exit(1);
     }
-    // Parse baud rate
-    const baudRate = parseInt(options.baud);
+    // Merge config file with command line options (CLI takes precedence)
+    const mergedOptions = (0, config_1.mergeConfig)(configFile, options);
+    console.log('Final configuration after merge:');
+    console.log(`  Port: ${mergedOptions.port || '(not set)'}`);
+    console.log(`  Baud: ${mergedOptions.baud || '(not set)'} (type: ${typeof mergedOptions.baud})`);
+    console.log(`  Web: ${mergedOptions.web}`);
+    console.log(`  WebPort: ${mergedOptions.webPort}`);
+    console.log(`  WebHost: ${mergedOptions.webHost}`);
+    console.log(`  Drive0: ${mergedOptions.drive0 || '(not set)'}`);
+    console.log(`  Drive1: ${mergedOptions.drive1 || '(not set)'}`);
+    console.log(`  TerminalPort: ${mergedOptions.terminalPort || '(not set)'}`);
+    console.log(`  TerminalBaud: ${mergedOptions.terminalBaud || '(not set)'}`);
+    console.log(`  TerminalAutoconnect: ${mergedOptions.terminalAutoconnect}`);
+    // Validate port is specified
+    if (!mergedOptions.port) {
+        printHelp();
+        console.error('Error: You must specify a serial port with \'-p\' option or in config file.\n');
+        process.exit(1);
+    }
+    // Parse baud rate (handle both string and number from config)
+    const baudRateValue = mergedOptions.baud || 230400;
+    const baudRate = typeof baudRateValue === 'string' ? parseInt(baudRateValue) : baudRateValue;
+    // Debug output
+    if (configFile) {
+        console.log(`Loaded config from file. Baud rate: ${baudRate}`);
+    }
     if (!Object.values(protocol_1.BaudRate).includes(baudRate)) {
         console.error(`Error: Invalid baud rate: ${baudRate}`);
         console.error('Supported rates: 9600, 19200, 38400, 57600, 76800, 230400, 460800\n');
@@ -119,22 +173,22 @@ async function main() {
     }
     // Create configuration
     const config = (0, protocol_1.createDefaultConfig)();
-    config.port = options.port;
+    config.port = mergedOptions.port;
     config.baudRate = baudRate;
-    config.verbose = options.verbose || false;
-    config.debug = options.debug || false;
-    // Parse drive mounts
-    if (options.drive0)
-        config.drives.set(0, options.drive0);
-    if (options.drive1)
-        config.drives.set(1, options.drive1);
-    if (options.drive2)
-        config.drives.set(2, options.drive2);
-    if (options.drive3)
-        config.drives.set(3, options.drive3);
+    config.verbose = mergedOptions.verbose || false;
+    config.debug = mergedOptions.debug || false;
+    // Parse drive mounts (skip empty strings)
+    if (mergedOptions.drive0 && mergedOptions.drive0.trim())
+        config.drives.set(0, mergedOptions.drive0);
+    if (mergedOptions.drive1 && mergedOptions.drive1.trim())
+        config.drives.set(1, mergedOptions.drive1);
+    if (mergedOptions.drive2 && mergedOptions.drive2.trim())
+        config.drives.set(2, mergedOptions.drive2);
+    if (mergedOptions.drive3 && mergedOptions.drive3.trim())
+        config.drives.set(3, mergedOptions.drive3);
     // Parse read-only drives
-    if (options.readonly && Array.isArray(options.readonly)) {
-        for (const drive of options.readonly) {
+    if (mergedOptions.readonly && Array.isArray(mergedOptions.readonly)) {
+        for (const drive of mergedOptions.readonly) {
             if (drive >= 0 && drive <= 3) {
                 config.readonlyDrives.add(drive);
             }
@@ -143,6 +197,7 @@ async function main() {
     // Get singleton instances
     const driveManager = (0, drive_1.getDriveManager)();
     const serialManager = (0, serial_1.getSerialPortManager)();
+    const terminalManager = (0, terminal_serial_1.getTerminalSerialManager)();
     const displayManager = (0, display_1.getDisplayManager)();
     // Initialize display
     displayManager.init();
@@ -167,15 +222,34 @@ async function main() {
         await serialManager.openPort(config.port, config.baudRate);
         displayManager.displayPort(config.port);
         displayManager.displayBaud(config.baudRate);
+        // Auto-connect terminal if requested
+        if (mergedOptions.terminalPort && mergedOptions.terminalAutoconnect) {
+            try {
+                const terminalBaudValue = mergedOptions.terminalBaud || 9600;
+                const terminalBaud = typeof terminalBaudValue === 'string' ? parseInt(terminalBaudValue) : terminalBaudValue;
+                await terminalManager.openPort(mergedOptions.terminalPort, {
+                    baudRate: terminalBaud,
+                });
+                console.log(`Terminal port connected: ${mergedOptions.terminalPort} @ ${terminalBaud} baud`);
+            }
+            catch (error) {
+                console.error('Failed to auto-connect terminal port:', error);
+            }
+        }
         // Create web server if enabled
         let webServer = null;
-        if (options.web) {
+        if (mergedOptions.web) {
             const webConfig = {
-                port: parseInt(options.webPort),
-                host: options.webHost,
+                port: parseInt(mergedOptions.webPort || '3000'),
+                host: mergedOptions.webHost || 'localhost',
                 disksDir: path.join(process.cwd(), 'disks'),
             };
-            webServer = new web_server_1.WebServer(webConfig, driveManager, serialManager);
+            // Pass preferred terminal settings from config
+            const preferredTerminalSettings = {
+                port: mergedOptions.terminalPort,
+                baud: mergedOptions.terminalBaud,
+            };
+            webServer = new web_server_1.WebServer(webConfig, driveManager, serialManager, terminalManager, preferredTerminalSettings);
             await webServer.start();
         }
         // Create and start server
@@ -187,6 +261,7 @@ async function main() {
                 await webServer.stop();
             }
             await serialManager.closePort();
+            await terminalManager.closePort();
             await driveManager.unmountAll();
             displayManager.reset();
             process.exit(0);

@@ -1,0 +1,34 @@
+{
+  "// Comment": "Example FDC+ Serial Drive Server Configuration File",
+  "// Instructions": "Copy this file to .fdcsds.config or .config/fdcsds.json and customize",
+
+  "// Serial port for FDC+ controller (required)": "",
+  "port": "/dev/ttyUSB0",
+  "baud": 230400,
+
+  "// Disk images to mount on startup": "",
+  "// Use null for empty drives": "",
+  "drive0": "disks/cpm22.dsk",
+  "drive1": "disks/games.dsk",
+  "drive2": "",
+  "drive3": "",
+
+  "// Read-only drives (array of drive numbers 0-3)": "",
+  "// Protect drives from accidental writes": "",
+  "readonly": [0],
+
+  "// Display options": "",
+  "verbose": false,
+  "debug": false,
+
+  "// Web interface configuration": "",
+  "web": true,
+  "webPort": 3000,
+  "webHost": "localhost",
+
+  "// Terminal serial port (optional second serial port)": "",
+  "// For VT102 terminal emulation via web interface": "",
+  "terminalPort": "/dev/ttyUSB1",
+  "terminalBaud": 9600,
+  "terminalAutoconnect": false
+}

@@ -1,0 +1,43 @@
+# Build output
+dist/
+*.js
+*.js.map
+
+# Dependencies
+node_modules/
+
+# Configuration files (personal settings)
+.fdcsds.config
+.config/fdcsds.json
+fdcsds.config.json
+*.config
+!*.config.example
+
+# Disk images (can be large)
+disks/*.dsk
+disks/*.img
+disks/*.ima
+.deps/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test coverage
+coverage/
+
+# Environment variables
+.env
+.env.local
+.env.*.local

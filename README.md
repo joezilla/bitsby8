@@ -16,6 +16,8 @@ This is a complete TypeScript rewrite of the original C implementation. The Type
 - Type-safe protocol implementation
 - Better error handling
 - Cross-platform support (Linux, macOS)
+- **Web interface with real-time status updates**
+- **VT102 terminal emulator for second serial port**
 - Easier maintenance and extensibility
 
 ---
@@ -26,20 +28,24 @@ The codebase is organized into modular TypeScript components:
 
 ```
 src/
-├── index.ts          # Entry point with CLI parsing
-├── server.ts         # Main server loop & command processing
-├── drive.ts          # Drive management & disk I/O
-├── serial.ts         # Serial port communication
-├── protocol.ts       # FDC+ protocol definitions & types
+├── index.ts            # Entry point with CLI parsing
+├── server.ts           # Main server loop & command processing
+├── drive.ts            # Drive management & disk I/O
+├── serial.ts           # FDC+ serial port communication
+├── terminal-serial.ts  # Terminal serial port manager
+├── web-server.ts       # Web interface & REST API
+├── protocol.ts         # FDC+ protocol definitions & types
 └── ui/
-    └── display.ts    # Terminal UI (blessed-based)
+    └── display.ts      # Terminal UI (blessed-based)
 ```
 
 ### Key Modules
 
 - **protocol.ts**: Type definitions, constants, and protocol structures
 - **drive.ts**: Async file operations using Node.js fs/promises
-- **serial.ts**: Serial communication using the `serialport` package
+- **serial.ts**: FDC+ serial communication using the `serialport` package
+- **terminal-serial.ts**: Terminal serial port manager for VT102 emulation
+- **web-server.ts**: Express-based REST API and Socket.IO WebSocket server
 - **display.ts**: Terminal UI using the `blessed` library
 - **server.ts**: Command processing (STAT, READ, WRIT)
 - **index.ts**: CLI argument parsing and initialization
@@ -64,6 +70,9 @@ This will install:
 - `serialport` - Serial port communication
 - `blessed` - Terminal UI
 - `commander` - CLI argument parsing
+- `express` - Web server framework
+- `socket.io` - WebSocket communication
+- `cors` - Cross-origin resource sharing
 - `typescript` - TypeScript compiler
 
 ### Build
@@ -99,22 +108,104 @@ npm start -- -p /dev/ttyUSB0 -0 disks/cpm22.dsk
 fdcsds -p /dev/ttyUSB0 -0 disks/cpm22.dsk
 ```
 
+### Configuration File
+
+The server supports configuration files to simplify startup and avoid long command lines.
+
+#### Default Locations
+
+The server automatically searches for config files in these locations (in order):
+1. `.fdcsds.config`
+2. `.config/fdcsds.json`
+3. `fdcsds.config.json`
+
+#### Creating a Configuration File
+
+Generate an example configuration file:
+```bash
+fdcsds --example-config > .fdcsds.config
+```
+
+Or copy the example:
+```bash
+cp .fdcsds.config.example .fdcsds.config
+```
+
+#### Configuration File Format
+
+The configuration file uses JSON format:
+
+```json
+{
+  "port": "/dev/ttyUSB0",
+  "baud": 230400,
+  "drive0": "disks/cpm22.dsk",
+  "drive1": "disks/games.dsk",
+  "drive2": null,
+  "drive3": null,
+  "readonly": [0],
+  "verbose": false,
+  "debug": false,
+  "web": true,
+  "webPort": 3000,
+  "webHost": "localhost",
+  "terminalPort": "/dev/ttyUSB1",
+  "terminalBaud": 9600,
+  "terminalAutoconnect": false
+}
+```
+
+#### Using a Configuration File
+
+**With default location:**
+```bash
+# Create config file
+fdcsds --example-config > .fdcsds.config
+# Edit it, then simply run:
+fdcsds
+```
+
+**With custom location:**
+```bash
+fdcsds --config /path/to/myconfig.json
+# or
+fdcsds -c myconfig.json
+```
+
+**Override config with CLI arguments:**
+```bash
+# Use config file but override port
+fdcsds -c production.config -p /dev/ttyUSB1
+```
+
+**Note:** Command-line arguments always take precedence over config file settings.
+
+---
+
 ### Command-Line Options
 
 ```
 Usage: fdcsds [options] -p <port>
 
 Options:
-  -p, --port <device>    Serial port (required)
-  -b, --baud <rate>      Set serial port speed (default: 230400)
-  -0, --drive0 <file>    Mount disk image to drive 0
-  -1, --drive1 <file>    Mount disk image to drive 1
-  -2, --drive2 <file>    Mount disk image to drive 2
-  -3, --drive3 <file>    Mount disk image to drive 3
-  -r, --readonly <n>     Make drive 0-3 read only
-  -v, --verbose          Verbose display
-  -d, --debug            Debug mode
-  -h, --help             Display help information
+  -p, --port <device>       Serial port for FDC+ (required if not in config)
+  -b, --baud <rate>         Set FDC+ serial port speed (default: 230400)
+  -0, --drive0 <file>       Mount disk image to drive 0
+  -1, --drive1 <file>       Mount disk image to drive 1
+  -2, --drive2 <file>       Mount disk image to drive 2
+  -3, --drive3 <file>       Mount disk image to drive 3
+  -r, --readonly <n>        Make drive 0-3 read only
+  -v, --verbose             Verbose display
+  -d, --debug               Debug mode
+  -w, --web                 Enable web interface (default: disabled)
+  --web-port <port>         Web interface port (default: 3000)
+  --web-host <host>         Web interface host (default: localhost)
+  --terminal-port <device>  Second serial port for terminal emulation
+  --terminal-baud <rate>    Terminal port baud rate (default: 9600)
+  --terminal-autoconnect    Auto-connect terminal port on startup
+  -c, --config <file>       Configuration file path
+  --example-config          Print example configuration file and exit
+  -h, --help                Display help information
 ```
 
 ### Supported Baud Rates
@@ -153,6 +244,44 @@ fdcsds -p /dev/ttyUSB0 -b 460800 -0 disks/cpm22.dsk
 fdcsds -p /dev/ttyUSB0 -v -0 disks/cpm22.dsk
 ```
 
+**Enable web interface:**
+```bash
+fdcsds -p /dev/ttyUSB0 -0 disks/cpm22.dsk -w
+# Access at http://localhost:3000
+```
+
+**Custom web interface host and port:**
+```bash
+fdcsds -p /dev/ttyUSB0 -0 disks/cpm22.dsk -w --web-port 8080 --web-host 0.0.0.0
+# Access at http://0.0.0.0:8080
+```
+
+**Two serial ports (FDC+ and Terminal):**
+```bash
+fdcsds -p /dev/ttyUSB0 -0 disks/cpm22.dsk \
+  --terminal-port /dev/ttyUSB1 --terminal-baud 9600 -w
+# Terminal accessible via web interface
+```
+
+**Auto-connect terminal on startup:**
+```bash
+fdcsds -p /dev/ttyUSB0 -0 disks/cpm22.dsk \
+  --terminal-port /dev/ttyUSB1 --terminal-autoconnect -w
+```
+
+**Using configuration file:**
+```bash
+# Generate and edit config file
+fdcsds --example-config > .fdcsds.config
+nano .fdcsds.config
+
+# Run with config (no other args needed!)
+fdcsds
+
+# Or use custom config location
+fdcsds --config production.config
+```
+
 ---
 
 ## Terminal UI
@@ -175,6 +304,189 @@ The server provides a real-time terminal interface showing:
 - **C** - Clear error message
 - **Q** - Quit program
 - **V** - Toggle verbose mode
+
+---
+
+## Web Interface
+
+The server includes an optional web interface for remote monitoring and control.
+
+### Features
+
+- **Real-time Status Updates**: Live drive status via WebSocket
+- **Drive Management**: Mount/unmount disk images remotely
+- **VT102 Terminal Emulator**: Interactive serial console in browser
+- **Multiple Serial Ports**: Separate FDC+ and terminal connections
+- **REST API**: Full HTTP API for automation
+
+### Enabling Web Interface
+
+Start the server with the `-w` flag:
+
+```bash
+fdcsds -p /dev/ttyUSB0 -0 disks/cpm22.dsk -w
+```
+
+Then open your browser to: **http://localhost:3000**
+
+### Web Interface Sections
+
+#### 1. Drive Management
+- View mounted drives and their status
+- Mount/unmount disk images via dropdown menus
+- Toggle read-only protection
+- Real-time track position and head load status
+
+#### 2. VT102 Terminal Emulator
+- Full xterm.js-based terminal emulator
+- Configurable serial port settings:
+  - Baud rate: 9600 - 115200
+  - Data bits: 5, 6, 7, 8
+  - Stop bits: 1, 2
+  - Parity: None, Even, Odd, Mark, Space
+  - Flow control: None, Hardware, Software
+- Serial port selection from available devices
+- Connect/disconnect controls
+- Clear screen function
+- Full VT102 escape sequence support
+
+### REST API Endpoints
+
+#### Drive Management
+```
+GET    /api/status              Get complete server status
+GET    /api/drives              Get all drive statuses
+GET    /api/images              List available disk images
+POST   /api/drives/:id/mount    Mount disk image
+POST   /api/drives/:id/unmount  Unmount drive
+PUT    /api/drives/:id/readonly Set write protection
+```
+
+#### Terminal Management
+```
+GET    /api/terminal/status     Get terminal connection status
+GET    /api/terminal/ports      List available serial ports
+POST   /api/terminal/open       Open terminal serial port
+POST   /api/terminal/close      Close terminal serial port
+PUT    /api/terminal/config     Update terminal configuration
+```
+
+#### Example API Usage
+```bash
+# Get server status
+curl http://localhost:3000/api/status
+
+# Mount disk image
+curl -X POST http://localhost:3000/api/drives/0/mount \
+  -H "Content-Type: application/json" \
+  -d '{"filename":"cpm22.dsk"}'
+
+# List available serial ports
+curl http://localhost:3000/api/terminal/ports
+
+# Open terminal port
+curl -X POST http://localhost:3000/api/terminal/open \
+  -H "Content-Type: application/json" \
+  -d '{"device":"/dev/ttyUSB1","config":{"baudRate":9600}}'
+```
+
+### WebSocket Events
+
+The web interface uses Socket.IO for real-time updates.
+
+#### Drive Events
+```javascript
+// Server → Client
+'status' - Drive and serial status update
+
+// Client → Server
+'request-status' - Request immediate status update
+```
+
+#### Terminal Events
+```javascript
+// Server → Client
+'terminal:data'   - Raw serial data from device
+'terminal:status' - Terminal connection status
+'terminal:error'  - Terminal error messages
+
+// Client → Server
+'terminal:write'   - Send data to serial device
+'terminal:control' - Control signals (DTR, RTS)
+```
+
+---
+
+## VT102 Terminal Emulator
+
+### Overview
+
+The web interface includes a fully-functional VT102 terminal emulator powered by xterm.js. This allows you to connect to a second serial port (separate from the FDC+ port) for interactive terminal sessions.
+
+### Use Cases
+
+- **CP/M Console**: Connect to CP/M system console
+- **Debugging**: Monitor system output
+- **Interactive Sessions**: Run programs interactively
+- **System Administration**: Configure devices via serial console
+
+### Configuration
+
+The terminal supports standard serial port configurations:
+
+| Setting | Options | Default |
+|---------|---------|---------|
+| Baud Rate | 9600, 19200, 38400, 57600, 115200 | 9600 |
+| Data Bits | 5, 6, 7, 8 | 8 |
+| Stop Bits | 1, 2 | 1 |
+| Parity | None, Even, Odd, Mark, Space | None |
+| Flow Control | None, Hardware (RTS/CTS), Software (XON/XOFF) | None |
+
+### Terminal Features
+
+- **VT102 Compatibility**: Full escape sequence support
+- **Color Support**: ANSI color codes
+- **Cursor Control**: Blinking cursor with position tracking
+- **Resizable**: Responsive terminal that fits browser window
+- **Copy/Paste**: Standard copy/paste support
+- **Scrollback**: Terminal history buffer
+- **Keyboard**: Full keyboard support including function keys
+
+### Hardware Setup
+
+Connect two serial ports:
+1. **Primary Port** (`-p /dev/ttyUSB0`): FDC+ disk controller
+2. **Terminal Port** (`--terminal-port /dev/ttyUSB1`): System console
+
+Example connection diagram:
+```
+Computer (fdcsds)          Altair 8800
+-----------------          -----------
+/dev/ttyUSB0  ←─────────→  FDC+ Port (Disk I/O)
+/dev/ttyUSB1  ←─────────→  Console Port (Terminal)
+```
+
+### Usage Example
+
+```bash
+# Start server with both ports
+fdcsds -p /dev/ttyUSB0 \
+  -0 disks/cpm22.dsk \
+  --terminal-port /dev/ttyUSB1 \
+  --terminal-baud 9600 \
+  --terminal-autoconnect \
+  -w
+
+# Access web interface
+open http://localhost:3000
+```
+
+Then in the browser:
+1. Navigate to the Terminal section
+2. Select serial port from dropdown
+3. Configure baud rate and other settings
+4. Click "Connect"
+5. Start typing to interact with the serial device
 
 ---
 
@@ -281,13 +593,21 @@ npx tsc --noEmit
 - `serialport` ^12.0.0 - Serial port I/O
 - `blessed` ^0.1.81 - Terminal UI
 - `commander` ^11.0.0 - CLI parsing
+- `express` ^4.18.0 - Web server
+- `socket.io` ^4.6.0 - WebSocket communication
+- `cors` ^2.8.5 - CORS support
+
+**Frontend:**
+- `xterm` ^5.3.0 - Terminal emulator (CDN)
+- `xterm-addon-fit` ^0.8.0 - Terminal resize addon (CDN)
 
 **Development:**
 - `typescript` ^5.3.0
 - `@types/node` ^20.0.0
 - `@types/blessed` ^0.1.25
+- `@types/express` ^4.17.0
 - `ts-node` ^10.9.0
-- `jest` ^29.0.0 (testing)
+- `jest` ^29.0.0
 
 ---
 
@@ -390,13 +710,16 @@ fdcsds -p /dev/ttyUSB0 -0 disk.dsk -v -d
 
 ## Future Enhancements
 
-- [ ] Unit tests with Jest
+- [x] Unit tests with Jest
+- [x] Web-based UI option
+- [x] REST API for remote management
+- [x] VT102 terminal emulator
 - [ ] Integration tests with mock serial port
-- [ ] Web-based UI option
-- [ ] REST API for remote management
 - [ ] Support for more drive types
 - [ ] Disk image conversion utilities
 - [ ] Performance benchmarking
+- [ ] Terminal recording/playback
+- [ ] Disk image upload via web interface
 
 ---
 

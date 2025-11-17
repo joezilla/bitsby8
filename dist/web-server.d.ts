@@ -4,10 +4,15 @@
  */
 import { DriveManager } from './drive';
 import { SerialPortManager } from './serial';
+import { TerminalSerialManager } from './terminal-serial';
 export interface WebServerConfig {
     port: number;
     host: string;
     disksDir: string;
+}
+export interface PreferredTerminalSettings {
+    port?: string;
+    baud?: number;
 }
 export declare class WebServer {
     private app;
@@ -16,8 +21,10 @@ export declare class WebServer {
     private config;
     private driveManager;
     private serialManager;
+    private terminalManager;
+    private preferredTerminalSettings;
     private statusInterval;
-    constructor(config: WebServerConfig, driveManager: DriveManager, serialManager: SerialPortManager);
+    constructor(config: WebServerConfig, driveManager: DriveManager, serialManager: SerialPortManager, terminalManager: TerminalSerialManager, preferredTerminalSettings?: PreferredTerminalSettings);
     /**
      * Setup Express middleware
      */
@@ -38,6 +45,10 @@ export declare class WebServer {
      * Get drives status
      */
     private getDrivesStatus;
+    /**
+     * Get terminal status
+     */
+    private getTerminalStatus;
     /**
      * List available disk images in disks directory
      */

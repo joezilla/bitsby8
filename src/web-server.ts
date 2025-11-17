@@ -11,12 +11,18 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { DriveManager } from './drive';
 import { SerialPortManager } from './serial';
+import { TerminalSerialManager } from './terminal-serial';
 import { MAX_DRIVES } from './protocol';
 
 export interface WebServerConfig {
   port: number;
   host: string;
   disksDir: string;
+}
+
+export interface PreferredTerminalSettings {
+  port?: string;
+  baud?: number;
 }
 
 export class WebServer {
@@ -26,16 +32,22 @@ export class WebServer {
   private config: WebServerConfig;
   private driveManager: DriveManager;
   private serialManager: SerialPortManager;
+  private terminalManager: TerminalSerialManager;
+  private preferredTerminalSettings: PreferredTerminalSettings;
   private statusInterval: NodeJS.Timeout | null = null;
 
   constructor(
     config: WebServerConfig,
     driveManager: DriveManager,
-    serialManager: SerialPortManager
+    serialManager: SerialPortManager,
+    terminalManager: TerminalSerialManager,
+    preferredTerminalSettings?: PreferredTerminalSettings
   ) {
     this.config = config;
     this.driveManager = driveManager;
     this.serialManager = serialManager;
+    this.terminalManager = terminalManager;
+    this.preferredTerminalSettings = preferredTerminalSettings || {};
 
     // Create Express app
     this.app = express();
@@ -166,6 +178,79 @@ export class WebServer {
       }
     });
 
+    // Terminal API endpoints
+
+    // Get terminal status
+    this.app.get('/api/terminal/status', (_req: Request, res: Response) => {
+      res.json(this.getTerminalStatus());
+    });
+
+    // List available serial ports
+    this.app.get('/api/terminal/ports', async (_req: Request, res: Response): Promise<void> => {
+      try {
+        const ports = await TerminalSerialManager.listPorts();
+        res.json({ ports });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Open terminal serial port
+    this.app.post('/api/terminal/open', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const { device, config } = req.body;
+
+        if (!device) {
+          res.status(400).json({ error: 'Device path is required' });
+          return;
+        }
+
+        await this.terminalManager.openPort(device, config);
+
+        // Broadcast terminal status update
+        this.io.emit('terminal:status', this.getTerminalStatus());
+
+        res.json({ success: true, device });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Close terminal serial port
+    this.app.post('/api/terminal/close', async (_req: Request, res: Response): Promise<void> => {
+      try {
+        await this.terminalManager.closePort();
+
+        // Broadcast terminal status update
+        this.io.emit('terminal:status', this.getTerminalStatus());
+
+        res.json({ success: true });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Update terminal configuration
+    this.app.put('/api/terminal/config', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const { config } = req.body;
+
+        if (!config) {
+          res.status(400).json({ error: 'Configuration is required' });
+          return;
+        }
+
+        await this.terminalManager.updateConfig(config);
+
+        // Broadcast terminal status update
+        this.io.emit('terminal:status', this.getTerminalStatus());
+
+        res.json({ success: true, config: this.terminalManager.getConfig() });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
     // Serve the web interface
     this.app.get('/', (_req: Request, res: Response) => {
       res.sendFile(path.join(__dirname, '../public/index.html'));
@@ -177,20 +262,64 @@ export class WebServer {
    */
   private setupWebSocket(): void {
     this.io.on('connection', (socket) => {
-      console.log('Web client connected:', socket.id);
+      // console.log('Web client connected:', socket.id);
 
       // Send initial status
       socket.emit('status', this.getStatus());
+      socket.emit('terminal:status', this.getTerminalStatus());
 
       // Handle disconnect
       socket.on('disconnect', () => {
-        console.log('Web client disconnected:', socket.id);
+        // console.log('Web client disconnected:', socket.id);
       });
 
       // Handle status request
       socket.on('request-status', () => {
         socket.emit('status', this.getStatus());
       });
+
+      // Terminal WebSocket handlers
+
+      // Handle terminal data from client (keyboard input)
+      socket.on('terminal:write', async (data: string) => {
+        try {
+          if (this.terminalManager.isOpen()) {
+            await this.terminalManager.write(Buffer.from(data));
+          }
+        } catch (error) {
+          socket.emit('terminal:error', { message: (error as Error).message });
+        }
+      });
+
+      // Handle terminal control signals
+      socket.on('terminal:control', async (signal: { type: 'dtr' | 'rts'; value: boolean }) => {
+        try {
+          if (this.terminalManager.isOpen()) {
+            if (signal.type === 'dtr') {
+              await this.terminalManager.setDTR(signal.value);
+            } else if (signal.type === 'rts') {
+              await this.terminalManager.setRTS(signal.value);
+            }
+          }
+        } catch (error) {
+          socket.emit('terminal:error', { message: (error as Error).message });
+        }
+      });
+    });
+
+    // Setup terminal data handler to broadcast incoming serial data to all clients
+    this.terminalManager.onData((data: Buffer) => {
+      this.io.emit('terminal:data', Array.from(data));
+    });
+
+    // Setup terminal error handler
+    this.terminalManager.onError((error: Error) => {
+      this.io.emit('terminal:error', { message: error.message });
+    });
+
+    // Setup terminal close handler
+    this.terminalManager.onClose(() => {
+      this.io.emit('terminal:status', this.getTerminalStatus());
     });
   }
 
@@ -232,6 +361,18 @@ export class WebServer {
     }
 
     return drives;
+  }
+
+  /**
+   * Get terminal status
+   */
+  private getTerminalStatus() {
+    return {
+      connected: this.terminalManager.isOpen(),
+      device: this.terminalManager.getDevice(),
+      config: this.terminalManager.getConfig(),
+      preferred: this.preferredTerminalSettings,
+    };
   }
 
   /**

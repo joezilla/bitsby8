@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FDC+ Serial Drive Server - Web Interface</title>
+    <!-- xterm.js Terminal Emulator -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
     <style>
         * {
             margin: 0;
@@ -249,6 +253,97 @@
             opacity: 0.6;
             pointer-events: none;
         }
+
+        /* Terminal Styles */
+        .terminal-section {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .terminal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e5e7eb;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .terminal-title {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .terminal-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+
+        .terminal-controls select {
+            flex: none;
+            min-width: 150px;
+        }
+
+        .terminal-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 5px;
+            background: #f3f4f6;
+            font-size: 0.9em;
+        }
+
+        .terminal-container {
+            background: #1e1e1e;
+            border-radius: 5px;
+            padding: 10px;
+            height: 500px;
+            overflow: hidden;
+        }
+
+        #terminal {
+            height: 100%;
+        }
+
+        .btn-success {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #059669;
+        }
+
+        .btn-warning {
+            background: #f59e0b;
+            color: white;
+        }
+
+        .btn-warning:hover {
+            background: #d97706;
+        }
+
+        .config-group {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+        }
+
+        .config-label {
+            font-size: 0.85em;
+            color: #6b7280;
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
@@ -268,6 +363,75 @@
                 </div>
             </div>
         </header>
+
+        <!-- Terminal Section -->
+        <div class="terminal-section">
+            <div class="terminal-header">
+                <div class="terminal-title">📟 Serial Terminal (VT102)</div>
+                <div class="terminal-status">
+                    <span class="status-dot" id="terminalStatus"></span>
+                    <span id="terminalDevice">Not Connected</span>
+                </div>
+            </div>
+            <div class="terminal-controls">
+                <div class="config-group">
+                    <span class="config-label">Port:</span>
+                    <select id="terminalPortSelect">
+                        <option value="">Select port...</option>
+                    </select>
+                </div>
+                <div class="config-group">
+                    <span class="config-label">Baud:</span>
+                    <select id="terminalBaudRate">
+                        <option value="9600">9600</option>
+                        <option value="19200">19200</option>
+                        <option value="38400">38400</option>
+                        <option value="57600">57600</option>
+                        <option value="115200" selected>115200</option>
+                    </select>
+                </div>
+                <div class="config-group">
+                    <span class="config-label">Data:</span>
+                    <select id="terminalDataBits">
+                        <option value="5">5</option>
+                        <option value="6">6</option>
+                        <option value="7">7</option>
+                        <option value="8" selected>8</option>
+                    </select>
+                </div>
+                <div class="config-group">
+                    <span class="config-label">Stop:</span>
+                    <select id="terminalStopBits">
+                        <option value="1" selected>1</option>
+                        <option value="2">2</option>
+                    </select>
+                </div>
+                <div class="config-group">
+                    <span class="config-label">Parity:</span>
+                    <select id="terminalParity">
+                        <option value="none" selected>None</option>
+                        <option value="even">Even</option>
+                        <option value="odd">Odd</option>
+                        <option value="mark">Mark</option>
+                        <option value="space">Space</option>
+                    </select>
+                </div>
+                <div class="config-group">
+                    <span class="config-label">Flow:</span>
+                    <select id="terminalFlowControl">
+                        <option value="none" selected>None</option>
+                        <option value="hardware">Hardware</option>
+                        <option value="software">Software</option>
+                    </select>
+                </div>
+                <button class="btn-success" id="terminalConnect" onclick="connectTerminal()">Connect</button>
+                <button class="btn-danger" id="terminalDisconnect" onclick="disconnectTerminal()" disabled>Disconnect</button>
+                <button class="btn-warning" onclick="clearTerminal()">Clear</button>
+            </div>
+            <div class="terminal-container">
+                <div id="terminal"></div>
+            </div>
+        </div>
 
         <div class="drives-grid" id="drivesGrid">
             <!-- Drive cards will be inserted here -->
@@ -289,12 +453,23 @@
         const socket = io();
 
         let availableImages = [];
+        let term = null;
+        let fitAddon = null;
+        let terminalConnected = false;
+        let preferredTerminalSettings = {};
+
+        // Initialize terminal on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            initializeTerminal();
+            loadAvailablePorts();
+        });
 
         // Socket event handlers
         socket.on('connect', () => {
             console.log('Connected to server');
             socket.emit('request-status');
             loadAvailableImages();
+            loadAvailablePorts();
         });
 
         socket.on('disconnect', () => {
@@ -304,6 +479,30 @@
 
         socket.on('status', (status) => {
             updateStatus(status);
+        });
+
+        // Terminal WebSocket event handlers
+        socket.on('terminal:status', (status) => {
+            updateTerminalStatus(status);
+            // Save preferred settings from config file
+            if (status.preferred) {
+                console.log('Received preferred settings:', status.preferred);
+                preferredTerminalSettings = status.preferred;
+                // Pre-select values if not connected
+                if (!status.connected) {
+                    preSelectTerminalSettings();
+                }
+            }
+        });
+
+        socket.on('terminal:data', (data) => {
+            if (term) {
+                term.write(new Uint8Array(data));
+            }
+        });
+
+        socket.on('terminal:error', (error) => {
+            showNotification(`Terminal error: ${error.message}`, 'error');
         });
 
         // Load available disk images
@@ -520,6 +719,234 @@
             setTimeout(() => {
                 notification.classList.remove('show');
             }, 3000);
+        }
+
+        // ===== Terminal Functions =====
+
+        // Initialize xterm.js terminal
+        function initializeTerminal() {
+            term = new Terminal({
+                cursorBlink: true,
+                fontSize: 14,
+                fontFamily: '"Courier New", Courier, monospace',
+                theme: {
+                    background: '#1e1e1e',
+                    foreground: '#f0f0f0',
+                    cursor: '#f0f0f0',
+                    black: '#000000',
+                    red: '#cd3131',
+                    green: '#0dbc79',
+                    yellow: '#e5e510',
+                    blue: '#2472c8',
+                    magenta: '#bc3fbc',
+                    cyan: '#11a8cd',
+                    white: '#e5e5e5',
+                    brightBlack: '#666666',
+                    brightRed: '#f14c4c',
+                    brightGreen: '#23d18b',
+                    brightYellow: '#f5f543',
+                    brightBlue: '#3b8eea',
+                    brightMagenta: '#d670d6',
+                    brightCyan: '#29b8db',
+                    brightWhite: '#e5e5e5'
+                },
+                cols: 80,
+                rows: 24
+            });
+
+            // Initialize fit addon for responsive sizing
+            fitAddon = new FitAddon.FitAddon();
+            term.loadAddon(fitAddon);
+
+            // Open terminal in the container
+            term.open(document.getElementById('terminal'));
+            fitAddon.fit();
+
+            // Handle terminal input (keyboard)
+            term.onData((data) => {
+                if (terminalConnected) {
+                    socket.emit('terminal:write', data);
+                }
+            });
+
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                if (fitAddon) {
+                    fitAddon.fit();
+                }
+            });
+
+            // Welcome message
+            term.writeln('\x1b[1;32m=== FDC+ Serial Terminal (VT102) ===\x1b[0m');
+            term.writeln('\x1b[36mSelect a serial port and click Connect to begin.\x1b[0m');
+            term.writeln('');
+        }
+
+        // Load available serial ports
+        async function loadAvailablePorts() {
+            try {
+                console.log('Loading available ports...');
+                const response = await fetch('/api/terminal/ports');
+                const data = await response.json();
+
+                console.log('Loaded ports:', data.ports.map(p => p.path));
+
+                const select = document.getElementById('terminalPortSelect');
+                select.innerHTML = '<option value="">Select port...</option>';
+
+                data.ports.forEach(port => {
+                    const option = document.createElement('option');
+                    option.value = port.path;
+                    option.textContent = `${port.path}${port.manufacturer ? ' - ' + port.manufacturer : ''}`;
+                    select.appendChild(option);
+                });
+
+                console.log('Ports populated in dropdown');
+
+                // Pre-select preferred settings if available
+                preSelectTerminalSettings();
+            } catch (error) {
+                console.error('Failed to load ports:', error);
+            }
+        }
+
+        // Connect to terminal serial port
+        async function connectTerminal() {
+            const device = document.getElementById('terminalPortSelect').value;
+
+            if (!device) {
+                showNotification('Please select a serial port', 'error');
+                return;
+            }
+
+            const config = {
+                baudRate: parseInt(document.getElementById('terminalBaudRate').value),
+                dataBits: parseInt(document.getElementById('terminalDataBits').value),
+                stopBits: parseInt(document.getElementById('terminalStopBits').value),
+                parity: document.getElementById('terminalParity').value,
+                flowControl: document.getElementById('terminalFlowControl').value
+            };
+
+            try {
+                const response = await fetch('/api/terminal/open', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ device, config })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    terminalConnected = true;
+                    document.getElementById('terminalConnect').disabled = true;
+                    document.getElementById('terminalDisconnect').disabled = false;
+                    showNotification('Terminal connected successfully', 'success');
+
+                    term.writeln('\x1b[1;32m✓ Connected to ' + device + '\x1b[0m');
+                    term.writeln('');
+                } else {
+                    showNotification(`Error: ${data.error}`, 'error');
+                    term.writeln('\x1b[1;31m✗ Connection failed: ' + data.error + '\x1b[0m');
+                }
+            } catch (error) {
+                showNotification(`Failed to connect: ${error.message}`, 'error');
+                term.writeln('\x1b[1;31m✗ Connection failed: ' + error.message + '\x1b[0m');
+            }
+        }
+
+        // Disconnect from terminal serial port
+        async function disconnectTerminal() {
+            try {
+                const response = await fetch('/api/terminal/close', {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    terminalConnected = false;
+                    document.getElementById('terminalConnect').disabled = false;
+                    document.getElementById('terminalDisconnect').disabled = true;
+                    showNotification('Terminal disconnected', 'success');
+
+                    term.writeln('');
+                    term.writeln('\x1b[1;33m✓ Disconnected\x1b[0m');
+                } else {
+                    showNotification(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Failed to disconnect: ${error.message}`, 'error');
+            }
+        }
+
+        // Clear terminal screen
+        function clearTerminal() {
+            if (term) {
+                term.clear();
+            }
+        }
+
+        // Update terminal status display
+        function updateTerminalStatus(status) {
+            const statusDot = document.getElementById('terminalStatus');
+            const deviceText = document.getElementById('terminalDevice');
+
+            if (status.connected) {
+                statusDot.className = 'status-dot connected';
+                deviceText.textContent = status.device || 'Connected';
+                terminalConnected = true;
+                document.getElementById('terminalConnect').disabled = true;
+                document.getElementById('terminalDisconnect').disabled = false;
+            } else {
+                statusDot.className = 'status-dot disconnected';
+                deviceText.textContent = 'Not Connected';
+                terminalConnected = false;
+                document.getElementById('terminalConnect').disabled = false;
+                document.getElementById('terminalDisconnect').disabled = true;
+            }
+        }
+
+        // Pre-select terminal settings from config file
+        function preSelectTerminalSettings() {
+            // Pre-select port if available
+            if (preferredTerminalSettings.port) {
+                const portSelect = document.getElementById('terminalPortSelect');
+                console.log('Attempting to pre-select port:', preferredTerminalSettings.port);
+                console.log('Available options:', Array.from(portSelect.options).map(o => o.value));
+
+                let found = false;
+                for (let option of portSelect.options) {
+                    // Exact match
+                    if (option.value === preferredTerminalSettings.port) {
+                        portSelect.value = preferredTerminalSettings.port;
+                        found = true;
+                        console.log('Port pre-selected successfully (exact match)');
+                        break;
+                    }
+                    // macOS cu/tty conversion - /dev/cu.* and /dev/tty.* are the same port
+                    const cuToTty = preferredTerminalSettings.port.replace('/dev/cu.', '/dev/tty.');
+                    const ttyToCu = preferredTerminalSettings.port.replace('/dev/tty.', '/dev/cu.');
+                    if (option.value === cuToTty || option.value === ttyToCu) {
+                        portSelect.value = option.value;
+                        found = true;
+                        console.log('Port pre-selected successfully (cu/tty conversion match)');
+                        break;
+                    }
+                }
+
+                if (!found) {
+                    console.log('Port not found in available options');
+                }
+            } else {
+                console.log('No preferred port to pre-select');
+            }
+
+            // Pre-select baud rate
+            if (preferredTerminalSettings.baud) {
+                const baudSelect = document.getElementById('terminalBaudRate');
+                baudSelect.value = preferredTerminalSettings.baud.toString();
+                console.log('Baud rate pre-selected:', preferredTerminalSettings.baud);
+            }
         }
     </script>
 </body>

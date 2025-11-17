@@ -4,6 +4,24 @@
 # FDC+ Serial Drive Server Launcher Script
 # Convenience wrapper for running the TypeScript implementation
 #
+# Usage:
+#   ./run-server.sh [options]
+#   ./run-server.sh --dev [options]        # Run in development mode
+#   ./run-server.sh --rebuild [options]    # Force rebuild
+#   ./run-server.sh -c <config> [options]  # Use config file
+#
+# Config file support:
+#   The server automatically searches for config files in:
+#     - .fdcsds.config
+#     - .config/fdcsds.json
+#     - fdcsds.config.json
+#   Or specify a custom config file with: -c <path> or --config <path>
+#
+# Examples:
+#   ./run-server.sh -p /dev/ttyUSB0 -0 disks/cpm22.dsk -w
+#   ./run-server.sh --config myserver.config
+#   ./run-server.sh --dev -c test.config -p /dev/ttyUSB0
+#
 
 # Get the directory where this script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
