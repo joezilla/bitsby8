@@ -98,6 +98,32 @@ npm run dev -- -p /dev/cu.usbserial-FTE90ZVP -b 460800 -w
 
 ---
 
+## 💡 GPIO LED Status Indicators (Raspberry Pi)
+
+The server supports optional GPIO LED status indicators for Raspberry Pi:
+
+```bash
+# Enable GPIO LEDs with default pin mapping
+npm run dev -- -p /dev/ttyUSB0 -b 460800 -0 disks/test.dsk --gpio-leds
+```
+
+**Features**:
+- 💾 12 Drive LEDs (Enable, Head Load, Read Only × 4 drives)
+- 📡 3 Terminal LEDs (RX, TX, Connected)
+- ⚙️ Configurable pin mapping
+- 🔌 Standard LED + 220Ω resistor wiring
+
+**Default pins** (BCM mode):
+- Drive 0: GPIO 17, 27, 22
+- Drive 1: GPIO 23, 24, 25
+- Terminal: GPIO 16, 20, 21
+
+**See [GPIO-LEDS.md](GPIO-LEDS.md) for complete wiring guide and configuration.**
+
+**Note**: GPIO LEDs are only available on Raspberry Pi and compatible Linux systems. On macOS/Windows, this feature is automatically disabled.
+
+---
+
 ## 🎯 What You Should See
 
 ### Successful Connection
@@ -155,7 +181,8 @@ Always use the `cu.*` version!
 
 ## 📚 Additional Documentation
 
-- **Full README**: `README-TS.md`
+- **Full README**: `README.md`
+- **GPIO LED Guide**: `GPIO-LEDS.md`
 - **Troubleshooting**: `TROUBLESHOOTING.md`
 - **Web Interface**: `WEB-INTERFACE.md`
 - **Launcher Script**: `LAUNCHER-USAGE.md`

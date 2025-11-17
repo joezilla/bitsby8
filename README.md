@@ -18,6 +18,7 @@ This is a complete TypeScript rewrite of the original C implementation. The Type
 - Cross-platform support (Linux, macOS)
 - **Web interface with real-time status updates**
 - **VT102 terminal emulator for second serial port**
+- **GPIO LED status indicators for Raspberry Pi**
 - Easier maintenance and extensibility
 
 ---
@@ -35,6 +36,9 @@ src/
 ├── terminal-serial.ts  # Terminal serial port manager
 ├── web-server.ts       # Web interface & REST API
 ├── protocol.ts         # FDC+ protocol definitions & types
+├── gpio/               # GPIO LED status indicators
+│   ├── gpio-manager.ts      # Low-level GPIO control
+│   └── gpio-controller.ts   # High-level LED state management
 └── ui/
     └── display.ts      # Terminal UI (blessed-based)
 ```
@@ -46,6 +50,8 @@ src/
 - **serial.ts**: FDC+ serial communication using the `serialport` package
 - **terminal-serial.ts**: Terminal serial port manager for VT102 emulation
 - **web-server.ts**: Express-based REST API and Socket.IO WebSocket server
+- **gpio-manager.ts**: Low-level GPIO pin control for LED indicators
+- **gpio-controller.ts**: High-level LED state management for drives and terminal
 - **display.ts**: Terminal UI using the `blessed` library
 - **server.ts**: Command processing (STAT, READ, WRIT)
 - **index.ts**: CLI argument parsing and initialization
@@ -97,6 +103,7 @@ This will install:
 - `express` - Web server framework
 - `socket.io` - WebSocket communication
 - `cors` - Cross-origin resource sharing
+- `onoff` - GPIO control for Raspberry Pi
 - `typescript` - TypeScript compiler
 
 ### Build
@@ -175,7 +182,10 @@ The configuration file uses JSON format:
   "webHost": "localhost",
   "terminalPort": "/dev/ttyUSB1",
   "terminalBaud": 9600,
-  "terminalAutoconnect": false
+  "terminalAutoconnect": false,
+  "gpioLeds": {
+    "enabled": false
+  }
 }
 ```
 
@@ -227,6 +237,9 @@ Options:
   --terminal-port <device>  Second serial port for terminal emulation
   --terminal-baud <rate>    Terminal port baud rate (default: 9600)
   --terminal-autoconnect    Auto-connect terminal port on startup
+  --gpio-leds               Enable GPIO LED status indicators (Raspberry Pi)
+  --no-gpio-leds            Disable GPIO LED status indicators
+  --gpio-active-low         Use active-low logic for LEDs
   -c, --config <file>       Configuration file path
   --example-config          Print example configuration file and exit
   -h, --help                Display help information
@@ -304,6 +317,15 @@ fdcsds
 
 # Or use custom config location
 fdcsds --config production.config
+```
+
+**With GPIO LED status indicators (Raspberry Pi):**
+```bash
+# Enable GPIO LEDs with default pin mapping
+fdcsds -p /dev/ttyUSB0 -0 disks/cpm22.dsk --gpio-leds -w
+
+# GPIO LEDs show real-time status for all drives and terminal
+# See GPIO-LEDS.md for wiring and configuration details
 ```
 
 ---
@@ -514,6 +536,84 @@ Then in the browser:
 
 ---
 
+## GPIO LED Status Indicators
+
+### Overview
+
+The server supports optional GPIO LED status indicators for Raspberry Pi and compatible Linux systems. This provides real-time visual feedback for drive and terminal activity without needing to access the web interface.
+
+### Features
+
+- **15 LEDs Total**:
+  - 12 Drive LEDs (3 per drive × 4 drives): Enable, Head Load, Read Only
+  - 3 Terminal LEDs: RX, TX, Connected
+- **Configurable pin mapping** via configuration file
+- **Graceful fallback** on non-Raspberry Pi platforms
+- **No special wiring required** - standard LED + resistor
+
+### Quick Start
+
+```bash
+# Enable GPIO LEDs with default pin mapping
+fdcsds -p /dev/ttyUSB0 -0 disks/cpm22.dsk --gpio-leds
+```
+
+Or add to your configuration file:
+
+```json
+{
+  "port": "/dev/ttyUSB0",
+  "gpioLeds": {
+    "enabled": true
+  }
+}
+```
+
+### Default Pin Mapping (BCM Mode)
+
+| LED Function | BCM Pin | Physical Pin |
+|--------------|---------|--------------|
+| Drive 0 Enable | GPIO17 | Pin 11 |
+| Drive 0 Head Load | GPIO27 | Pin 13 |
+| Drive 0 Read Only | GPIO22 | Pin 15 |
+| ... | ... | ... |
+| Terminal RX | GPIO16 | Pin 36 |
+| Terminal TX | GPIO20 | Pin 38 |
+| Terminal Connected | GPIO21 | Pin 40 |
+
+**See [GPIO-LEDS.md](GPIO-LEDS.md) for:**
+- Complete pin mapping table
+- Wiring diagrams and hardware requirements
+- Configuration examples
+- Troubleshooting guide
+- Platform support details
+
+### Hardware Requirements
+
+- Raspberry Pi (any model with GPIO)
+- 15 LEDs (suggested: green, yellow, red, blue)
+- 15 × 220Ω resistors
+- Breadboard and jumper wires
+
+### LED Behavior
+
+- **Enable LED**: ON when disk is mounted
+- **Head Load LED**: ON when drive is reading/writing
+- **Read Only LED**: ON when write-protected
+- **RX/TX LEDs**: Blink on data transfer (100ms)
+- **Connected LED**: ON when terminal port is open
+
+### Platform Support
+
+- ✅ Raspberry Pi (all models)
+- ✅ Linux with GPIO support
+- ❌ macOS (gracefully disabled)
+- ❌ Windows (gracefully disabled)
+
+**Note**: On unsupported platforms, GPIO features are automatically disabled without errors.
+
+---
+
 ## FDC+ Protocol
 
 The server implements the FDC+ Serial Disk protocol:
@@ -620,6 +720,7 @@ npx tsc --noEmit
 - `express` ^4.18.0 - Web server
 - `socket.io` ^4.6.0 - WebSocket communication
 - `cors` ^2.8.5 - CORS support
+- `onoff` ^6.0.0 - GPIO control for Raspberry Pi
 
 **Frontend:**
 - `xterm` ^5.3.0 - Terminal emulator (CDN)
@@ -738,12 +839,15 @@ fdcsds -p /dev/ttyUSB0 -0 disk.dsk -v -d
 - [x] Web-based UI option
 - [x] REST API for remote management
 - [x] VT102 terminal emulator
+- [x] GPIO LED status indicators
 - [ ] Integration tests with mock serial port
 - [ ] Support for more drive types
 - [ ] Disk image conversion utilities
 - [ ] Performance benchmarking
 - [ ] Terminal recording/playback
 - [ ] Disk image upload via web interface
+- [ ] PWM brightness control for LEDs
+- [ ] GPIO button inputs for physical control
 
 ---
 
