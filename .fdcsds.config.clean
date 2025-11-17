@@ -1,0 +1,14 @@
+{
+  "port": "/dev/cu.usbserial-FTE90ZVP",
+  "baud": 460800,
+  "drive0": "disks/LIFEBOAT-IMSAI-CPM22-62K.DSK",
+  "drive1": "disks/games.dsk",
+  "verbose": false,
+  "debug": false,
+  "web": true,
+  "webPort": 3000,
+  "webHost": "localhost",
+  "terminalPort": "/dev/cu.usbserial-114110",
+  "terminalBaud": 9600,
+  "terminalAutoconnect": false
+}

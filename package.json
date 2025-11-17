@@ -20,7 +20,7 @@
     "disk-server",
     "vintage-computing"
   ],
-  "author": "Patrick Linstruth (original C version)",
+  "author": "Joe Toppe (TypeScript version)",
   "license": "GPL-3.0",
   "dependencies": {
     "blessed": "^0.1.81",
