@@ -205,6 +205,15 @@ function validateConfig(config: any): ConfigFile {
     validated.terminalAutoconnect = config.terminalAutoconnect;
   }
 
+  // GPIO LED options
+  if (config.gpioLeds !== undefined) {
+    if (typeof config.gpioLeds !== 'object' || config.gpioLeds === null) {
+      throw new Error('Config error: "gpioLeds" must be an object');
+    }
+    // Pass through gpioLeds configuration (detailed validation will be done by GPIO controller)
+    validated.gpioLeds = config.gpioLeds;
+  }
+
   return validated;
 }
 
