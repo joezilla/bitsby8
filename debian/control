@@ -1,7 +1,7 @@
 Source: fdcsds
 Section: electronics
 Priority: optional
-Maintainer: Patrick Linstruth <plinstruth@example.com>
+Maintainer: Joe Toppe <mreppot@gmail.com>
 Build-Depends: debhelper (>= 10),
                nodejs (>= 18.0.0),
                npm

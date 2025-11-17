@@ -4,8 +4,6 @@
 # Uncomment this to turn on verbose mode.
 #export DH_VERBOSE=1
 
-export NODE_ENV=production
-
 %:
 	dh $@
 
@@ -15,7 +13,8 @@ override_dh_auto_build:
 	# Compile TypeScript
 	npm run build
 	# Remove devDependencies to reduce package size
-	npm prune --production
+	# Set NODE_ENV=production before pruning to ensure only production deps remain
+	NODE_ENV=production npm prune --production
 
 override_dh_auto_test:
 	# Skip tests during package build
