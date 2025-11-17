@@ -1,59 +1,217 @@
 /**
  * GPIO LED Manager - Low-level GPIO control
  *
- * Provides platform-aware GPIO pin management using the node-libgpiod library.
- * Uses the modern Linux GPIO character device interface (/dev/gpiochip*).
- * Gracefully handles non-Raspberry Pi platforms by providing a no-op implementation.
+ * Provides platform-aware GPIO pin management with multiple backend implementations:
+ * 1. lgpio (native bindings) - Best performance, works on Pi 4 & Pi 5
+ * 2. gpiod CLI (fallback) - Zero dependencies, always works
+ *
+ * Automatically selects the best available implementation at runtime.
  */
 
 import * as fs from 'fs';
 import * as os from 'os';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 
-// Conditional import of node-libgpiod - only available on Linux with gpiod
-let Chip: any = null;
-let Line: any = null;
+const execAsync = promisify(exec);
 
-try {
-  const gpiodModule = require('node-libgpiod');
-  Chip = gpiodModule.Chip;
-  Line = gpiodModule.Line;
-} catch (error) {
-  // node-libgpiod not available or GPIO not accessible
-  Chip = null;
-  Line = null;
+/**
+ * GPIO implementation interface
+ */
+interface IGpioImplementation {
+  name: string;
+  initialize(activeLow: boolean): Promise<void>;
+  setupPin(pin: number): Promise<void>;
+  setPin(pin: number, value: boolean): void;
+  cleanup(): Promise<void>;
+  isAvailable(): boolean;
 }
 
 /**
- * Check if GPIO is accessible
+ * lgpio native implementation (best performance)
  */
-function isGpioAccessible(): boolean {
-  if (Chip === null) {
-    return false;
+class LgpioImplementation implements IGpioImplementation {
+  name = 'lgpio';
+  private lgpio: any = null;
+  private handle: number = -1;
+  private pins: Set<number> = new Set();
+  private activeLow: boolean = false;
+
+  isAvailable(): boolean {
+    if (this.lgpio !== null) {
+      return true;
+    }
+
+    try {
+      this.lgpio = require('lgpio');
+      return true;
+    } catch (error) {
+      return false;
+    }
   }
 
-  // Check if /dev/gpiochip0 exists
-  try {
-    return fs.existsSync('/dev/gpiochip0');
-  } catch (error) {
-    return false;
+  async initialize(activeLow: boolean): Promise<void> {
+    if (!this.isAvailable()) {
+      throw new Error('lgpio not available');
+    }
+
+    this.activeLow = activeLow;
+
+    // Open GPIO chip (chip 0 on Pi 4, moves to chip 0 on newer Pi 5 kernels)
+    try {
+      this.handle = this.lgpio.gpiochip_open(0);
+    } catch (error) {
+      throw new Error(`Failed to open GPIO chip: ${error}`);
+    }
+  }
+
+  async setupPin(pin: number): Promise<void> {
+    if (this.handle < 0) {
+      throw new Error('GPIO chip not opened');
+    }
+
+    // Claim line as output
+    const flags = this.activeLow ? this.lgpio.SET_ACTIVE_LOW : 0;
+    this.lgpio.gpio_claim_output(this.handle, flags, pin, 0); // Start with 0 (off)
+    this.pins.add(pin);
+  }
+
+  setPin(pin: number, value: boolean): void {
+    if (this.handle < 0 || !this.pins.has(pin)) {
+      return;
+    }
+
+    try {
+      const gpioValue = value ? 1 : 0;
+      this.lgpio.gpio_write(this.handle, pin, gpioValue);
+    } catch (error) {
+      console.error(`lgpio: Failed to write pin ${pin}:`, error);
+    }
+  }
+
+  async cleanup(): Promise<void> {
+    if (this.handle >= 0) {
+      // Turn off all pins before releasing
+      for (const pin of this.pins) {
+        try {
+          this.lgpio.gpio_write(this.handle, pin, 0);
+          this.lgpio.gpio_free(this.handle, pin);
+        } catch (error) {
+          console.error(`lgpio: Failed to cleanup pin ${pin}:`, error);
+        }
+      }
+
+      try {
+        this.lgpio.gpiochip_close(this.handle);
+      } catch (error) {
+        console.error('lgpio: Failed to close chip:', error);
+      }
+
+      this.handle = -1;
+    }
+
+    this.pins.clear();
+  }
+}
+
+/**
+ * gpiod CLI implementation (fallback, zero dependencies)
+ */
+class GpiodCliImplementation implements IGpioImplementation {
+  name = 'gpiod-cli';
+  private pins: Set<number> = new Set();
+  private activeLow: boolean = false;
+  private chipName: string = 'gpiochip0';
+
+  isAvailable(): boolean {
+    // Check if gpioset command exists
+    try {
+      const { execSync } = require('child_process');
+      execSync('which gpioset', { stdio: 'ignore' });
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  async initialize(activeLow: boolean): Promise<void> {
+    if (!this.isAvailable()) {
+      throw new Error('gpiod CLI tools not available');
+    }
+
+    this.activeLow = activeLow;
+
+    // Determine which gpiochip to use (gpiochip0 or gpiochip4 on some Pi 5 versions)
+    // We'll default to gpiochip0 as it's standard on latest kernels
+    this.chipName = 'gpiochip0';
+  }
+
+  async setupPin(pin: number): Promise<void> {
+    // With CLI, we don't need to explicitly setup pins
+    // Just record that this pin is managed
+    this.pins.add(pin);
+
+    // Initialize pin to off state
+    await this.setPinAsync(pin, false);
+  }
+
+  setPin(pin: number, value: boolean): void {
+    if (!this.pins.has(pin)) {
+      return;
+    }
+
+    // Use fire-and-forget for synchronous interface
+    this.setPinAsync(pin, value).catch(error => {
+      console.error(`gpiod-cli: Failed to write pin ${pin}:`, error);
+    });
+  }
+
+  private async setPinAsync(pin: number, value: boolean): Promise<void> {
+    // Determine the value based on active-low setting
+    let gpioValue = value ? 1 : 0;
+    if (this.activeLow) {
+      gpioValue = value ? 0 : 1;
+    }
+
+    const cmd = `gpioset ${this.chipName} ${pin}=${gpioValue}`;
+
+    try {
+      // Note: gpioset exits immediately after setting, so we use --mode=time with 0 duration
+      // This sets the value and exits, making the pin hold its state
+      await execAsync(`${cmd} --mode=exit`);
+    } catch (error) {
+      throw new Error(`Failed to execute: ${cmd} - ${error}`);
+    }
+  }
+
+  async cleanup(): Promise<void> {
+    // Turn off all pins
+    for (const pin of this.pins) {
+      try {
+        await this.setPinAsync(pin, false);
+      } catch (error) {
+        console.error(`gpiod-cli: Failed to cleanup pin ${pin}:`, error);
+      }
+    }
+
+    this.pins.clear();
   }
 }
 
 export interface GpioPin {
   pin: number;
-  line: any | null; // Line instance from node-libgpiod
 }
 
 /**
  * GpioLedManager - Singleton for managing GPIO pins
+ * Automatically selects best available implementation
  */
 export class GpioLedManager {
   private static instance: GpioLedManager | null = null;
   private pins: Map<number, GpioPin> = new Map();
   private initialized: boolean = false;
   private platformSupported: boolean = false;
-  private activeLow: boolean = false;
-  private chip: any | null = null; // Chip instance from node-libgpiod
+  private implementation: IGpioImplementation | null = null;
 
   private constructor() {
     this.platformSupported = this.detectPlatform();
@@ -78,34 +236,64 @@ export class GpioLedManager {
       return false;
     }
 
-    // Check if GPIO is accessible
-    if (!isGpioAccessible()) {
-      return false;
-    }
-
-    // Try to detect Raspberry Pi from /proc/cpuinfo
+    // Try to detect Raspberry Pi from /proc/cpuinfo or check for GPIO devices
     try {
       const cpuInfo = fs.readFileSync('/proc/cpuinfo', 'utf8');
       const isRaspberryPi = cpuInfo.includes('Raspberry Pi') || cpuInfo.includes('BCM');
-      return isRaspberryPi;
+      if (isRaspberryPi) {
+        return true;
+      }
     } catch (error) {
-      // Can't read cpuinfo, but if GPIO is accessible, allow it
-      return isGpioAccessible();
+      // Ignore
     }
+
+    // Also check if GPIO devices exist
+    try {
+      return fs.existsSync('/dev/gpiochip0') || fs.existsSync('/dev/gpiochip4');
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Select and initialize the best available GPIO implementation
+   */
+  private async selectImplementation(activeLow: boolean): Promise<void> {
+    // Try implementations in order of preference
+    const implementations = [
+      new LgpioImplementation(),
+      new GpiodCliImplementation(),
+    ];
+
+    for (const impl of implementations) {
+      if (impl.isAvailable()) {
+        try {
+          await impl.initialize(activeLow);
+          this.implementation = impl;
+          console.log(`GPIO: Using ${impl.name} implementation`);
+          return;
+        } catch (error) {
+          console.warn(`GPIO: ${impl.name} initialization failed:`, error);
+        }
+      }
+    }
+
+    throw new Error('No GPIO implementation available. Install liblgpio-dev or gpiod.');
   }
 
   /**
    * Check if GPIO is available on this platform
    */
   public isAvailable(): boolean {
-    return this.platformSupported && isGpioAccessible();
+    return this.platformSupported && this.implementation !== null;
   }
 
   /**
    * Get platform information for logging
    */
   public getPlatformInfo(): string {
-    return `Platform: ${os.platform()}, GPIO Available: ${isGpioAccessible()}, Supported: ${this.platformSupported}`;
+    const implName = this.implementation ? this.implementation.name : 'none';
+    return `Platform: ${os.platform()}, Implementation: ${implName}, Supported: ${this.platformSupported}`;
   }
 
   /**
@@ -116,21 +304,14 @@ export class GpioLedManager {
       throw new Error('GPIO Manager already initialized');
     }
 
-    this.activeLow = activeLow;
-
-    if (!this.isAvailable()) {
+    if (!this.platformSupported) {
       // Silent no-op on unsupported platforms
       this.initialized = true;
       return;
     }
 
-    try {
-      // Open GPIO chip (gpiochip0 is the main chip on Raspberry Pi)
-      this.chip = new Chip(0);
-      this.initialized = true;
-    } catch (error) {
-      throw new Error(`Failed to open GPIO chip: ${error}`);
-    }
+    await this.selectImplementation(activeLow);
+    this.initialized = true;
   }
 
   /**
@@ -143,7 +324,7 @@ export class GpioLedManager {
       return;
     }
 
-    if (!this.initialized || !this.chip) {
+    if (!this.initialized || !this.implementation) {
       throw new Error('GPIO Manager not initialized');
     }
 
@@ -157,20 +338,8 @@ export class GpioLedManager {
       return; // Already configured
     }
 
-    try {
-      // Request the line as output
-      // node-libgpiod uses flags for configuration
-      const line = this.chip.getLine(pin);
-
-      // Request line for output
-      // ACTIVE_LOW flag if configured, otherwise normal output
-      const flags = this.activeLow ? Line.REQUEST_FLAG_ACTIVE_LOW : 0;
-      line.requestOutputMode('fdcsds-led', flags, 0); // Start with LED off (0)
-
-      this.pins.set(pin, { pin, line });
-    } catch (error) {
-      throw new Error(`Failed to setup GPIO pin ${pin}: ${error}`);
-    }
+    await this.implementation.setupPin(pin);
+    this.pins.set(pin, { pin });
   }
 
   /**
@@ -179,24 +348,17 @@ export class GpioLedManager {
    * @param state true = on, false = off
    */
   public setLed(pin: number, state: boolean): void {
-    if (!this.isAvailable()) {
+    if (!this.isAvailable() || !this.implementation) {
       return; // No-op
     }
 
     const pinInfo = this.pins.get(pin);
-    if (!pinInfo || !pinInfo.line) {
+    if (!pinInfo) {
       // Pin not setup, ignore
       return;
     }
 
-    try {
-      // With node-libgpiod, active-low is handled by the line configuration
-      // So we just set 1 for on, 0 for off
-      const value = state ? 1 : 0;
-      pinInfo.line.setValue(value);
-    } catch (error) {
-      console.error(`Failed to set GPIO pin ${pin}:`, error);
-    }
+    this.implementation.setPin(pin, state);
   }
 
   /**
@@ -222,29 +384,9 @@ export class GpioLedManager {
    * Cleanup all GPIO pins
    */
   public async cleanup(): Promise<void> {
-    if (this.isAvailable()) {
-      for (const [pin, pinInfo] of this.pins.entries()) {
-        try {
-          if (pinInfo.line) {
-            // Turn off LED before releasing
-            pinInfo.line.setValue(0);
-            // Release the line
-            pinInfo.line.release();
-          }
-        } catch (error) {
-          console.error(`Failed to cleanup GPIO pin ${pin}:`, error);
-        }
-      }
-
-      // Close the chip
-      if (this.chip) {
-        try {
-          this.chip.close();
-        } catch (error) {
-          console.error('Failed to close GPIO chip:', error);
-        }
-        this.chip = null;
-      }
+    if (this.implementation) {
+      await this.implementation.cleanup();
+      this.implementation = null;
     }
 
     this.pins.clear();
