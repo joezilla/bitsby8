@@ -40,11 +40,14 @@ export interface ConfigFile {
 
 /**
  * Default configuration file locations to search
+ * Ordered by priority (highest to lowest)
+ * Local configs take precedence over system-wide configs
  */
 export const DEFAULT_CONFIG_LOCATIONS = [
   '.fdcsds.config',
   '.config/fdcsds.json',
   'fdcsds.config.json',
+  '/etc/fdcplus/fdcsds.config', // System-wide default config (lowest priority)
 ];
 
 /**

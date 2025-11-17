@@ -1,14 +1,14 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: fdcsds
-Upstream-Contact: Patrick Linstruth <plinstruth@example.com>
+Upstream-Contact: 2025 Joe Toppe <mreppot@gmail.com>
 Source: https://github.com/yourusername/fdcplus-web
 
 Files: *
-Copyright: 2024 Patrick Linstruth
+Copyright: 2025 Joe Toppe
 License: GPL-3.0+
 
 Files: debian/*
-Copyright: 2024 Patrick Linstruth
+Copyright: 2025 Joe Toppe
 License: GPL-3.0+
 
 License: GPL-3.0+

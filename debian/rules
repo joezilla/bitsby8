@@ -44,6 +44,10 @@ override_dh_auto_install:
 	mkdir -p debian/fdcsds/etc/fdcsds
 	cp .fdcsds.config.example debian/fdcsds/etc/fdcsds/fdcsds.config.example
 
+	# Install default configuration to /etc/fdcplus (system-wide default)
+	mkdir -p debian/fdcsds/etc/fdcplus
+	cp fdcsds.config.example debian/fdcsds/etc/fdcplus/fdcsds.config
+
 	# Install sample disk images
 	mkdir -p debian/fdcsds/usr/share/fdcsds/disks
 	if [ -d disks ]; then \
