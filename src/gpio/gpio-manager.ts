@@ -136,15 +136,14 @@ export class GpioLedManager {
     }
 
     try {
-      // Create GPIO instance
+      // Create GPIO instance with 'out' direction
+      // Note: We don't set an initial value here, letting the pin start in its current state
+      // The first actual LED update will set it correctly
       const gpio = new Gpio(pin, 'out');
 
-      // Small delay to allow kernel to finish exporting the pin
-      await new Promise(resolve => setTimeout(resolve, 10));
-
-      // Initialize to off state using async write
-      const offValue = this.activeLow ? 1 : 0;
-      await gpio.write(offValue);
+      // Wait for kernel to finish exporting and setting direction
+      // This delay is crucial for the sysfs GPIO interface
+      await new Promise(resolve => setTimeout(resolve, 250));
 
       this.pins.set(pin, { pin, gpio });
     } catch (error) {
