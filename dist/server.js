@@ -108,7 +108,7 @@ class FdcServer {
                 driveState.hdld = headLoad !== 0;
                 driveState.track = track;
                 // Debug logging
-                console.error(`[DEBUG] STAT: drive=${drive}, hdld=${driveState.hdld}, track=${driveState.track}`);
+                // console.error(`[DEBUG] STAT: drive=${drive}, hdld=${driveState.hdld}, track=${driveState.track}`);
                 this.displayManager.displayHead(drive, driveState.hdld);
                 this.displayManager.displayTrack(drive, driveState.track);
                 this.displayManager.displayBlock(drive, driveState.track, -1);
@@ -165,7 +165,7 @@ class FdcServer {
             if (driveState) {
                 driveState.track = track;
                 // Debug logging
-                console.error(`[DEBUG] READ: drive=${drive}, track=${driveState.track}, length=${length}`);
+                // console.error(`[DEBUG] READ: drive=${drive}, track=${driveState.track}, length=${length}`);
             }
         }
         try {
