@@ -1,0 +1,22 @@
+# Default configuration for FDC+ Serial Drive Server
+# This file is sourced by the systemd service
+
+# Node.js environment
+NODE_ENV=production
+
+# Enable/disable the service
+# Set to "no" to prevent the service from starting
+ENABLED=yes
+
+# Additional command-line options
+# These will override settings in /etc/fdcsds/fdcsds.config.json
+# Examples:
+#   FDCSDS_OPTS="--verbose"
+#   FDCSDS_OPTS="--debug --verbose"
+#   FDCSDS_OPTS="--web-port 8080"
+FDCSDS_OPTS=""
+
+# Node.js options (e.g., memory limits)
+# Examples:
+#   NODE_OPTIONS="--max-old-space-size=512"
+NODE_OPTIONS=""

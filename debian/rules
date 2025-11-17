@@ -1,0 +1,83 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+export NODE_ENV=production
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	# Install all dependencies (including devDependencies for build)
+	npm ci
+	# Compile TypeScript
+	npm run build
+	# Remove devDependencies to reduce package size
+	npm prune --production
+
+override_dh_auto_test:
+	# Skip tests during package build
+	# Tests can be run separately if needed
+	@echo "Skipping tests during package build"
+
+override_dh_auto_clean:
+	# Clean build artifacts
+	rm -rf dist node_modules
+	dh_auto_clean
+
+override_dh_auto_install:
+	# Install application files to /usr/lib/fdcsds
+	mkdir -p debian/fdcsds/usr/lib/fdcsds
+	cp -r dist debian/fdcsds/usr/lib/fdcsds/
+	cp -r public debian/fdcsds/usr/lib/fdcsds/
+	cp -r node_modules debian/fdcsds/usr/lib/fdcsds/
+	cp package.json debian/fdcsds/usr/lib/fdcsds/
+	cp package-lock.json debian/fdcsds/usr/lib/fdcsds/
+
+	# Create symlink for binary
+	mkdir -p debian/fdcsds/usr/bin
+	ln -sf /usr/lib/fdcsds/dist/index.js debian/fdcsds/usr/bin/fdcsds
+
+	# Install configuration files
+	mkdir -p debian/fdcsds/etc/fdcsds
+	cp .fdcsds.config.example debian/fdcsds/etc/fdcsds/fdcsds.config.example
+
+	# Install sample disk images
+	mkdir -p debian/fdcsds/usr/share/fdcsds/disks
+	if [ -d disks ]; then \
+		cp -r disks/* debian/fdcsds/usr/share/fdcsds/disks/ || true; \
+	fi
+
+	# Install documentation
+	mkdir -p debian/fdcsds/usr/share/doc/fdcsds
+	cp README.md debian/fdcsds/usr/share/doc/fdcsds/
+	cp WEB-INTERFACE.md debian/fdcsds/usr/share/doc/fdcsds/ || true
+	cp QUICKSTART.md debian/fdcsds/usr/share/doc/fdcsds/ || true
+	cp LAUNCHER-USAGE.md debian/fdcsds/usr/share/doc/fdcsds/ || true
+	cp TROUBLESHOOTING.md debian/fdcsds/usr/share/doc/fdcsds/ || true
+	cp AUTHORS debian/fdcsds/usr/share/doc/fdcsds/ || true
+
+	# Create runtime directories
+	mkdir -p debian/fdcsds/var/lib/fdcsds
+	mkdir -p debian/fdcsds/var/log/fdcsds
+
+	# Install systemd service file
+	mkdir -p debian/fdcsds/lib/systemd/system
+	cp debian/fdcsds.service debian/fdcsds/lib/systemd/system/
+
+	# Install default environment file
+	mkdir -p debian/fdcsds/etc/default
+	cp debian/fdcsds.default debian/fdcsds/etc/default/fdcsds
+
+override_dh_fixperms:
+	dh_fixperms
+	# Make the main script executable
+	chmod +x debian/fdcsds/usr/lib/fdcsds/dist/index.js
+	# Set proper permissions for runtime directories
+	chmod 755 debian/fdcsds/var/lib/fdcsds
+	chmod 755 debian/fdcsds/var/log/fdcsds
+
+override_dh_installsystemd:
+	dh_installsystemd --name=fdcsds --no-enable --no-start

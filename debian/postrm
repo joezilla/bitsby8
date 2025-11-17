@@ -1,0 +1,48 @@
+#!/bin/bash
+set -e
+
+case "$1" in
+    purge)
+        # Remove runtime directories and their contents on purge
+        rm -rf /var/lib/fdcsds
+        rm -rf /var/log/fdcsds
+
+        # Remove configuration directory on purge
+        rm -rf /etc/fdcsds
+
+        # Remove user and group on purge
+        if getent passwd fdcsds >/dev/null; then
+            deluser --system fdcsds >/dev/null 2>&1 || true
+        fi
+
+        if getent group fdcsds >/dev/null; then
+            delgroup --system fdcsds >/dev/null 2>&1 || true
+        fi
+
+        echo ""
+        echo "FDC+ Serial Drive Server has been completely removed."
+        echo ""
+        ;;
+
+    remove)
+        # On remove (not purge), keep config files and user data
+        echo ""
+        echo "FDC+ Serial Drive Server has been removed."
+        echo "Configuration files and user data have been preserved."
+        echo "To completely remove all data, run: sudo apt-get purge fdcsds"
+        echo ""
+        ;;
+
+    upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        # Nothing to do
+        ;;
+
+    *)
+        echo "postrm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

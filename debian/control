@@ -1,0 +1,30 @@
+Source: fdcsds
+Section: electronics
+Priority: optional
+Maintainer: Patrick Linstruth <plinstruth@example.com>
+Build-Depends: debhelper (>= 10),
+               nodejs (>= 18.0.0),
+               npm
+Standards-Version: 4.1.2
+Homepage: https://github.com/yourusername/fdcplus-web
+Vcs-Git: https://github.com/yourusername/fdcplus-web.git
+
+Package: fdcsds
+Architecture: all
+Depends: ${misc:Depends},
+         nodejs (>= 18.0.0),
+         adduser
+Description: FDC+ Serial Drive Server for Altair 8800
+ A Serial Disk Server compatible with the FDC+ Enhanced Floppy Disk
+ Controller for the Altair 8800 vintage computer.
+ .
+ This TypeScript/Node.js implementation provides:
+  - Serial disk emulation for vintage Altair 8800 computers
+  - Multi-drive support (up to 4 drives)
+  - Web interface with real-time monitoring
+  - VT102 terminal emulator for serial console
+  - REST API for remote management
+  - Configuration file support for easy deployment
+ .
+ The package includes systemd integration for automatic startup
+ and sample disk images for testing.

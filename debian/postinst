@@ -1,0 +1,104 @@
+#!/bin/bash
+set -e
+
+# Source debconf library for maintainer scripts
+. /usr/share/debconf/confmodule
+
+case "$1" in
+    configure)
+        # Create fdcsds system user if it doesn't exist
+        if ! getent passwd fdcsds >/dev/null; then
+            adduser --system --group --home /var/lib/fdcsds \
+                    --no-create-home --disabled-password \
+                    --shell /usr/sbin/nologin \
+                    --gecos "FDC+ Serial Drive Server" fdcsds
+        fi
+
+        # Add fdcsds user to dialout group for serial port access
+        if getent group dialout >/dev/null; then
+            adduser fdcsds dialout >/dev/null || true
+        fi
+
+        # Set ownership and permissions on runtime directories
+        chown -R fdcsds:fdcsds /var/lib/fdcsds
+        chown -R fdcsds:fdcsds /var/log/fdcsds
+        chmod 755 /var/lib/fdcsds
+        chmod 755 /var/log/fdcsds
+
+        # Create default configuration file if it doesn't exist
+        if [ ! -f /etc/fdcsds/fdcsds.config.json ]; then
+            cat > /etc/fdcsds/fdcsds.config.json <<'EOF'
+{
+  "port": "/dev/ttyUSB0",
+  "baud": 230400,
+  "drive0": "/usr/share/fdcsds/disks/cpm22.dsk",
+  "drive1": null,
+  "drive2": null,
+  "drive3": null,
+  "readonly": [0],
+  "verbose": false,
+  "debug": false,
+  "web": true,
+  "webPort": 3000,
+  "webHost": "0.0.0.0",
+  "terminalPort": "/dev/ttyUSB1",
+  "terminalBaud": 9600,
+  "terminalAutoconnect": false
+}
+EOF
+            chown root:root /etc/fdcsds/fdcsds.config.json
+            chmod 644 /etc/fdcsds/fdcsds.config.json
+        fi
+
+        # Reload systemd daemon to recognize new service
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload >/dev/null || true
+        fi
+
+        # Display post-installation message
+        echo ""
+        echo "========================================================================"
+        echo "  FDC+ Serial Drive Server (fdcsds) has been installed successfully!"
+        echo "========================================================================"
+        echo ""
+        echo "Next steps:"
+        echo ""
+        echo "1. Edit the configuration file:"
+        echo "   sudo nano /etc/fdcsds/fdcsds.config.json"
+        echo ""
+        echo "2. Configure your serial ports and disk images"
+        echo ""
+        echo "3. Start the service:"
+        echo "   sudo systemctl start fdcsds"
+        echo ""
+        echo "4. Enable automatic startup on boot:"
+        echo "   sudo systemctl enable fdcsds"
+        echo ""
+        echo "5. Check service status:"
+        echo "   sudo systemctl status fdcsds"
+        echo ""
+        echo "6. View logs:"
+        echo "   sudo journalctl -u fdcsds -f"
+        echo ""
+        echo "7. Access the web interface (if enabled):"
+        echo "   http://$(hostname -I | awk '{print $1}'):3000"
+        echo ""
+        echo "Documentation: /usr/share/doc/fdcsds/"
+        echo "Sample disk images: /usr/share/fdcsds/disks/"
+        echo "========================================================================"
+        echo ""
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        # Nothing to do
+        ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

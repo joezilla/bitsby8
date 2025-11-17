@@ -1,0 +1,28 @@
+#!/bin/bash
+set -e
+
+case "$1" in
+    remove|upgrade|deconfigure)
+        # Stop the service if it's running
+        if [ -d /run/systemd/system ]; then
+            systemctl stop fdcsds >/dev/null 2>&1 || true
+            # Disable service on removal (not upgrade)
+            if [ "$1" = "remove" ]; then
+                systemctl disable fdcsds >/dev/null 2>&1 || true
+            fi
+        fi
+        ;;
+
+    failed-upgrade)
+        # Nothing to do
+        ;;
+
+    *)
+        echo "prerm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

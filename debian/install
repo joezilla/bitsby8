@@ -1,0 +1,5 @@
+# File installation is handled by debian/rules override_dh_auto_install
+# This file is kept for reference but is not actively used
+
+# If needed, additional files can be specified here in the format:
+# source/path destination/path

@@ -54,13 +54,37 @@ src/
 
 ## Installation
 
-### Prerequisites
+### Option 1: Debian Package (Recommended for Raspberry Pi/Raspbian)
+
+The easiest way to install on Raspberry Pi or Debian-based systems is using the Debian package:
+
+```bash
+# Build the package
+make deb
+
+# Install the package
+sudo dpkg -i ../fdcsds_2.0.0-1_all.deb
+sudo apt-get install -f
+
+# Configure
+sudo nano /etc/fdcsds/fdcsds.config.json
+
+# Start the service
+sudo systemctl start fdcsds
+sudo systemctl enable fdcsds
+```
+
+See [DEBIAN-PACKAGE.md](DEBIAN-PACKAGE.md) for complete Debian package documentation.
+
+### Option 2: From Source
+
+#### Prerequisites
 
 - **Node.js** 18+
 - **npm** or **yarn**
 - Serial port access permissions
 
-### Install Dependencies
+#### Install Dependencies
 
 ```bash
 npm install

@@ -1,0 +1,15 @@
+fdcsds (2.0.0-1) stable; urgency=medium
+
+  * Initial Debian package release
+  * Complete TypeScript rewrite of FDC+ Serial Drive Server
+  * Features:
+    - Serial disk emulation for Altair 8800
+    - Multi-drive support (up to 4 drives)
+    - Web interface with real-time monitoring
+    - VT102 terminal emulator for serial console
+    - REST API for remote management
+    - Configuration file support
+    - systemd integration
+  * Includes sample disk images and comprehensive documentation
+
+ -- Patrick Linstruth <plinstruth@example.com>  Mon, 17 Nov 2025 00:00:00 +0000
