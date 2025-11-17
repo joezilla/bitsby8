@@ -15,6 +15,7 @@ import {
 import { DriveManager } from './drive';
 import { SerialPortManager } from './serial';
 import { DisplayManager } from './ui/display';
+import { getGpioLedController } from './gpio';
 
 /**
  * FDC+ Server
@@ -149,6 +150,9 @@ export class FdcServer {
         this.displayManager.displayHead(drive, driveState.hdld);
         this.displayManager.displayTrack(drive, driveState.track);
         this.displayManager.displayBlock(drive, driveState.track, -1);
+
+        // Update GPIO LEDs
+        getGpioLedController().updateDriveStatus(drive, driveState);
       }
     } else {
       // Invalid drive - clear all head loads
@@ -156,6 +160,8 @@ export class FdcServer {
         const driveState = this.driveManager.getDriveState(i);
         if (driveState) {
           driveState.hdld = false;
+          // Update GPIO LEDs
+          getGpioLedController().updateDriveStatus(i, driveState);
         }
       }
       this.displayManager.displayHead(drive, false);

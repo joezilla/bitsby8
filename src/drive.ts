@@ -11,6 +11,7 @@ import {
   DriveState,
   FdcError,
 } from './protocol';
+import { getGpioLedController } from './gpio';
 
 /**
  * Drive Manager - Handles all disk image operations
@@ -86,6 +87,9 @@ export class DriveManager {
 
       this.fileHandles.set(drive, fileHandle);
 
+      // Update GPIO LEDs
+      getGpioLedController().updateDriveStatus(drive, driveState);
+
       return fileHandle.fd;
     } catch (error) {
       driveState.mounted = false;
@@ -116,6 +120,9 @@ export class DriveManager {
     driveState.mounted = false;
     driveState.track = 0;
     driveState.hdld = false;
+
+    // Update GPIO LEDs
+    getGpioLedController().updateDriveStatus(drive, driveState);
   }
 
   /**
@@ -143,6 +150,9 @@ export class DriveManager {
 
     const driveState = this.drives.get(drive)!;
     driveState.readonly = flag;
+
+    // Update GPIO LEDs
+    getGpioLedController().updateDriveStatus(drive, driveState);
   }
 
   /**

@@ -21,6 +21,7 @@ import { getDisplayManager } from './ui/display';
 import { FdcServer } from './server';
 import { WebServer } from './web-server';
 import { loadConfigFile, mergeConfig, getExampleConfig, DEFAULT_CONFIG_LOCATIONS } from './config';
+import { getGpioLedController, DEFAULT_GPIO_CONFIG } from './gpio';
 import * as path from 'path';
 
 /**
@@ -50,6 +51,9 @@ function printHelp(): void {
   console.log('  --terminal-port <device>  Second serial port for terminal emulation');
   console.log('  --terminal-baud <rate>    Terminal port baud rate (default: 9600)');
   console.log('  --terminal-autoconnect    Auto-connect terminal port on startup');
+  console.log('  --gpio-leds               Enable GPIO LED status indicators (Raspberry Pi)');
+  console.log('  --no-gpio-leds            Disable GPIO LED status indicators');
+  console.log('  --gpio-active-low         Use active-low logic for LEDs');
   console.log('  -c, --config <file>       Configuration file path (default: .fdcsds.config)');
   console.log('  --example-config          Print example configuration file and exit');
   console.log('  -h, --help             Display this help message\n');
@@ -86,6 +90,9 @@ async function main(): Promise<void> {
     .option('--terminal-port <device>', 'Second serial port for terminal emulation')
     .option('--terminal-baud <rate>', 'Terminal port baud rate')
     .option('--terminal-autoconnect', 'Auto-connect terminal port on startup')
+    .option('--gpio-leds', 'Enable GPIO LED status indicators (Raspberry Pi)')
+    .option('--no-gpio-leds', 'Disable GPIO LED status indicators')
+    .option('--gpio-active-low', 'Use active-low logic for LEDs')
     .option('-c, --config <file>', 'Configuration file path')
     .option('--example-config', 'Print example configuration file and exit')
     .helpOption('-h, --help', 'Display help information');
@@ -186,9 +193,32 @@ async function main(): Promise<void> {
   const serialManager = getSerialPortManager();
   const terminalManager = getTerminalSerialManager();
   const displayManager = getDisplayManager();
+  const gpioController = getGpioLedController();
 
   // Initialize display
   displayManager.init();
+
+  // Initialize GPIO LEDs if enabled
+  if (mergedOptions.gpioLeds?.enabled !== false && mergedOptions.gpioLeds !== undefined) {
+    try {
+      const gpioConfig = mergedOptions.gpioLeds || DEFAULT_GPIO_CONFIG;
+      // Ensure enabled flag is set
+      if (gpioConfig.enabled === undefined) {
+        gpioConfig.enabled = true;
+      }
+
+      await gpioController.initialize(gpioConfig);
+
+      if (gpioController.isAvailable()) {
+        console.log('GPIO LED status indicators enabled');
+      } else {
+        console.log('GPIO LED support not available on this platform (continuing without LEDs)');
+      }
+    } catch (error) {
+      console.error('Failed to initialize GPIO LEDs:', error);
+      console.log('Continuing without GPIO LED support');
+    }
+  }
 
   try {
     // Set write protection for read-only drives
@@ -266,6 +296,12 @@ async function main(): Promise<void> {
       await serialManager.closePort();
       await terminalManager.closePort();
       await driveManager.unmountAll();
+
+      // Cleanup GPIO LEDs
+      if (gpioController.isInitialized()) {
+        await gpioController.shutdown();
+      }
+
       displayManager.reset();
       process.exit(0);
     };

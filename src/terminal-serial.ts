@@ -4,6 +4,7 @@
  */
 
 import { SerialPort } from 'serialport';
+import { getGpioLedController } from './gpio';
 
 /**
  * Terminal configuration interface
@@ -83,6 +84,8 @@ export class TerminalSerialManager {
           if (error) {
             reject(error);
           } else {
+            // Update GPIO connected status
+            getGpioLedController().updateTerminalConnected(true);
             resolve();
           }
         }
@@ -90,6 +93,9 @@ export class TerminalSerialManager {
 
       // Setup data handler - forward all incoming data to callback
       this.port.on('data', (data: Buffer) => {
+        // Blink RX LED
+        getGpioLedController().updateTerminalRx();
+
         if (this.dataCallback) {
           this.dataCallback(data);
         }
@@ -126,6 +132,8 @@ export class TerminalSerialManager {
           reject(error);
         } else {
           this.port = null;
+          // Update GPIO connected status
+          getGpioLedController().updateTerminalConnected(false);
           resolve();
         }
       });
@@ -139,6 +147,9 @@ export class TerminalSerialManager {
     if (!this.port || !this.port.isOpen) {
       throw new Error('Serial port not open');
     }
+
+    // Blink TX LED
+    getGpioLedController().updateTerminalTx();
 
     return new Promise((resolve, reject) => {
       this.port!.write(data, (error) => {

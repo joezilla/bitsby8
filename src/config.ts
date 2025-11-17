@@ -5,6 +5,7 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { GpioLedConfig } from './gpio';
 
 /**
  * Configuration file structure
@@ -36,6 +37,9 @@ export interface ConfigFile {
   terminalPort?: string;
   terminalBaud?: number;
   terminalAutoconnect?: boolean;
+
+  // GPIO LED options
+  gpioLeds?: GpioLedConfig;
 }
 
 /**
@@ -235,6 +239,20 @@ export function mergeConfig(configFile: ConfigFile | null, cmdLineOptions: any):
   if (cmdLineOptions.terminalBaud !== undefined) merged.terminalBaud = parseInt(cmdLineOptions.terminalBaud);
   if (cmdLineOptions.terminalAutoconnect !== undefined) merged.terminalAutoconnect = cmdLineOptions.terminalAutoconnect;
 
+  // GPIO LED options
+  if (cmdLineOptions.gpioLeds !== undefined) {
+    if (!merged.gpioLeds) {
+      merged.gpioLeds = { enabled: false };
+    }
+    merged.gpioLeds.enabled = cmdLineOptions.gpioLeds;
+  }
+  if (cmdLineOptions.gpioActiveLow !== undefined) {
+    if (!merged.gpioLeds) {
+      merged.gpioLeds = { enabled: false };
+    }
+    merged.gpioLeds.activeLow = cmdLineOptions.gpioActiveLow;
+  }
+
   return merged;
 }
 
@@ -268,7 +286,39 @@ export function getExampleConfig(): string {
     // Terminal serial port (optional second serial port)
     terminalPort: "/dev/ttyUSB1",
     terminalBaud: 9600,
-    terminalAutoconnect: false
+    terminalAutoconnect: false,
+
+    // GPIO LED status indicators (Raspberry Pi only)
+    gpioLeds: {
+      enabled: true,
+      blinkDuration: 100,
+      activeLow: false,
+      drive0: {
+        enable: 17,
+        headLoad: 27,
+        readOnly: 22
+      },
+      drive1: {
+        enable: 23,
+        headLoad: 24,
+        readOnly: 25
+      },
+      drive2: {
+        enable: 5,
+        headLoad: 6,
+        readOnly: 13
+      },
+      drive3: {
+        enable: 19,
+        headLoad: 26,
+        readOnly: 12
+      },
+      terminal: {
+        rx: 16,
+        tx: 20,
+        connected: 21
+      }
+    }
   };
 
   return JSON.stringify(example, null, 2);

@@ -30,5 +30,49 @@
   "// For VT102 terminal emulation via web interface": "",
   "terminalPort": "/dev/ttyUSB1",
   "terminalBaud": 9600,
-  "terminalAutoconnect": false
+  "terminalAutoconnect": false,
+
+  "// GPIO LED status indicators (Raspberry Pi only)": "",
+  "// Enable hardware status LEDs on GPIO pins": "",
+  "// Set enabled to false to disable, or remove this section entirely": "",
+  "gpioLeds": {
+    "enabled": true,
+    "blinkDuration": 100,
+    "activeLow": false,
+
+    "// Drive 0 status LEDs (BCM pin numbers)": "",
+    "drive0": {
+      "enable": 17,
+      "headLoad": 27,
+      "readOnly": 22
+    },
+
+    "// Drive 1 status LEDs": "",
+    "drive1": {
+      "enable": 23,
+      "headLoad": 24,
+      "readOnly": 25
+    },
+
+    "// Drive 2 status LEDs": "",
+    "drive2": {
+      "enable": 5,
+      "headLoad": 6,
+      "readOnly": 13
+    },
+
+    "// Drive 3 status LEDs": "",
+    "drive3": {
+      "enable": 19,
+      "headLoad": 26,
+      "readOnly": 12
+    },
+
+    "// Terminal status LEDs": "",
+    "terminal": {
+      "rx": 16,
+      "tx": 20,
+      "connected": 21
+    }
+  }
 }
