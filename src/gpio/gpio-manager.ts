@@ -1,34 +1,47 @@
 /**
  * GPIO LED Manager - Low-level GPIO control
  *
- * Provides platform-aware GPIO pin management using the onoff library.
+ * Provides platform-aware GPIO pin management using the node-libgpiod library.
+ * Uses the modern Linux GPIO character device interface (/dev/gpiochip*).
  * Gracefully handles non-Raspberry Pi platforms by providing a no-op implementation.
  */
 
 import * as fs from 'fs';
 import * as os from 'os';
 
-// Conditional import of onoff - only available on Linux
-let Gpio: any = null;
+// Conditional import of node-libgpiod - only available on Linux with gpiod
+let Chip: any = null;
+let Line: any = null;
 
 try {
-  const onoffModule = require('onoff');
-  Gpio = onoffModule.Gpio;
+  const gpiodModule = require('node-libgpiod');
+  Chip = gpiodModule.Chip;
+  Line = gpiodModule.Line;
 } catch (error) {
-  // onoff not available or GPIO not accessible
-  Gpio = null;
+  // node-libgpiod not available or GPIO not accessible
+  Chip = null;
+  Line = null;
 }
 
 /**
  * Check if GPIO is accessible
  */
 function isGpioAccessible(): boolean {
-  return Gpio !== null && Gpio.accessible === true;
+  if (Chip === null) {
+    return false;
+  }
+
+  // Check if /dev/gpiochip0 exists
+  try {
+    return fs.existsSync('/dev/gpiochip0');
+  } catch (error) {
+    return false;
+  }
 }
 
 export interface GpioPin {
   pin: number;
-  gpio: any | null; // Gpio instance from onoff
+  line: any | null; // Line instance from node-libgpiod
 }
 
 /**
@@ -40,6 +53,7 @@ export class GpioLedManager {
   private initialized: boolean = false;
   private platformSupported: boolean = false;
   private activeLow: boolean = false;
+  private chip: any | null = null; // Chip instance from node-libgpiod
 
   private constructor() {
     this.platformSupported = this.detectPlatform();
@@ -103,11 +117,19 @@ export class GpioLedManager {
     }
 
     this.activeLow = activeLow;
-    this.initialized = true;
 
     if (!this.isAvailable()) {
       // Silent no-op on unsupported platforms
+      this.initialized = true;
       return;
+    }
+
+    try {
+      // Open GPIO chip (gpiochip0 is the main chip on Raspberry Pi)
+      this.chip = new Chip(0);
+      this.initialized = true;
+    } catch (error) {
+      throw new Error(`Failed to open GPIO chip: ${error}`);
     }
   }
 
@@ -121,7 +143,7 @@ export class GpioLedManager {
       return;
     }
 
-    if (!this.initialized) {
+    if (!this.initialized || !this.chip) {
       throw new Error('GPIO Manager not initialized');
     }
 
@@ -136,16 +158,16 @@ export class GpioLedManager {
     }
 
     try {
-      // Create GPIO instance with 'out' direction
-      // Note: We don't set an initial value here, letting the pin start in its current state
-      // The first actual LED update will set it correctly
-      const gpio = new Gpio(pin, 'out');
+      // Request the line as output
+      // node-libgpiod uses flags for configuration
+      const line = this.chip.getLine(pin);
 
-      // Wait for kernel to finish exporting and setting direction
-      // This delay is crucial for the sysfs GPIO interface
-      await new Promise(resolve => setTimeout(resolve, 250));
+      // Request line for output
+      // ACTIVE_LOW flag if configured, otherwise normal output
+      const flags = this.activeLow ? Line.REQUEST_FLAG_ACTIVE_LOW : 0;
+      line.requestOutputMode('fdcsds-led', flags, 0); // Start with LED off (0)
 
-      this.pins.set(pin, { pin, gpio });
+      this.pins.set(pin, { pin, line });
     } catch (error) {
       throw new Error(`Failed to setup GPIO pin ${pin}: ${error}`);
     }
@@ -162,15 +184,16 @@ export class GpioLedManager {
     }
 
     const pinInfo = this.pins.get(pin);
-    if (!pinInfo || !pinInfo.gpio) {
+    if (!pinInfo || !pinInfo.line) {
       // Pin not setup, ignore
       return;
     }
 
     try {
-      // Handle active-low logic
-      const value = this.activeLow ? (state ? 0 : 1) : (state ? 1 : 0);
-      pinInfo.gpio.writeSync(value);
+      // With node-libgpiod, active-low is handled by the line configuration
+      // So we just set 1 for on, 0 for off
+      const value = state ? 1 : 0;
+      pinInfo.line.setValue(value);
     } catch (error) {
       console.error(`Failed to set GPIO pin ${pin}:`, error);
     }
@@ -202,15 +225,25 @@ export class GpioLedManager {
     if (this.isAvailable()) {
       for (const [pin, pinInfo] of this.pins.entries()) {
         try {
-          if (pinInfo.gpio) {
-            // Turn off LED before unexport
-            const offValue = this.activeLow ? 1 : 0;
-            pinInfo.gpio.writeSync(offValue);
-            pinInfo.gpio.unexport();
+          if (pinInfo.line) {
+            // Turn off LED before releasing
+            pinInfo.line.setValue(0);
+            // Release the line
+            pinInfo.line.release();
           }
         } catch (error) {
           console.error(`Failed to cleanup GPIO pin ${pin}:`, error);
         }
+      }
+
+      // Close the chip
+      if (this.chip) {
+        try {
+          this.chip.close();
+        } catch (error) {
+          console.error('Failed to close GPIO chip:', error);
+        }
+        this.chip = null;
       }
     }
 
