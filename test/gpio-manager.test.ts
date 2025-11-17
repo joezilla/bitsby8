@@ -10,25 +10,34 @@ jest.mock('os', () => ({
   platform: jest.fn(() => 'linux'),
 }));
 
-// Mock onoff module - must be done before importing GpioLedManager
-jest.mock('onoff', () => {
-  const mockGpioConstructor: any = function(pin: number, direction: string) {
-    return {
-      pin,
-      direction,
-      writeSync: jest.fn(),
-      write: jest.fn((_value: number, callback: (err: Error | null) => void) => {
-        callback(null);
-      }),
-      unexport: jest.fn(),
-    };
-  };
+// Mock child_process for CLI fallback detection
+jest.mock('child_process', () => ({
+  execSync: jest.fn(() => '/usr/bin/gpioset'),
+  exec: jest.fn(),
+}));
 
-  // Set accessible as a static property - this is what onoff.Gpio.accessible should be
-  mockGpioConstructor.accessible = true;
+// Mock lgpio module - must be done before importing GpioLedManager
+jest.mock('lgpio', () => {
+  let handleCounter = 0;
+  const pins = new Map();
 
   return {
-    Gpio: mockGpioConstructor,
+    gpiochip_open: jest.fn((_chipnum: number) => {
+      return ++handleCounter;
+    }),
+    gpio_claim_output: jest.fn((_handle: number, _flags: number, pin: number, value: number) => {
+      pins.set(pin, value);
+    }),
+    gpio_write: jest.fn((_handle: number, pin: number, value: number) => {
+      pins.set(pin, value);
+    }),
+    gpio_free: jest.fn((_handle: number, pin: number) => {
+      pins.delete(pin);
+    }),
+    gpiochip_close: jest.fn((_handle: number) => {
+      // Close the chip
+    }),
+    SET_ACTIVE_LOW: 1,
   };
 }, { virtual: true });
 
@@ -45,6 +54,7 @@ describe('GpioLedManager', () => {
 
     // Mock cpuinfo to simulate Raspberry Pi - must be done before getInstance()
     (fs.readFileSync as jest.Mock).mockReturnValue('Raspberry Pi 4 Model B');
+    (fs.existsSync as jest.Mock).mockReturnValue(true);
 
     // Ensure os.platform returns 'linux' - some tests change this
     const os = require('os');
@@ -67,16 +77,19 @@ describe('GpioLedManager', () => {
   });
 
   describe('Platform Detection', () => {
-    test('should detect Raspberry Pi from cpuinfo', () => {
+    test('should detect Raspberry Pi from cpuinfo', async () => {
       (fs.readFileSync as jest.Mock).mockReturnValue('Model: Raspberry Pi 4');
+      GpioLedManager.resetInstance();
       const newManager = GpioLedManager.getInstance();
+      await newManager.initialize();
       expect(newManager.isAvailable()).toBe(true);
     });
 
-    test('should detect BCM chip from cpuinfo', () => {
+    test('should detect BCM chip from cpuinfo', async () => {
       (fs.readFileSync as jest.Mock).mockReturnValue('Hardware: BCM2835');
       GpioLedManager.resetInstance();
       const newManager = GpioLedManager.getInstance();
+      await newManager.initialize();
       expect(newManager.isAvailable()).toBe(true);
     });
 
@@ -117,44 +130,44 @@ describe('GpioLedManager', () => {
       await manager.initialize();
     });
 
-    test('should setup valid GPIO pin', () => {
-      expect(() => manager.setupPin(17)).not.toThrow();
+    test('should setup valid GPIO pin', async () => {
+      await expect(manager.setupPin(17)).resolves.not.toThrow();
       expect(manager.getConfiguredPins()).toContain(17);
     });
 
-    test('should setup multiple pins', () => {
-      manager.setupPin(17);
-      manager.setupPin(27);
-      manager.setupPin(22);
+    test('should setup multiple pins', async () => {
+      await manager.setupPin(17);
+      await manager.setupPin(27);
+      await manager.setupPin(22);
       expect(manager.getConfiguredPins()).toEqual(expect.arrayContaining([17, 27, 22]));
     });
 
-    test('should not setup duplicate pins', () => {
-      manager.setupPin(17);
-      manager.setupPin(17);
+    test('should not setup duplicate pins', async () => {
+      await manager.setupPin(17);
+      await manager.setupPin(17);
       expect(manager.getConfiguredPins().filter(p => p === 17)).toHaveLength(1);
     });
 
-    test('should throw error for invalid pin number (negative)', () => {
-      expect(() => manager.setupPin(-1)).toThrow('Invalid GPIO pin number');
+    test('should throw error for invalid pin number (negative)', async () => {
+      await expect(manager.setupPin(-1)).rejects.toThrow('Invalid GPIO pin number');
     });
 
-    test('should throw error for invalid pin number (too high)', () => {
-      expect(() => manager.setupPin(28)).toThrow('Invalid GPIO pin number');
+    test('should throw error for invalid pin number (too high)', async () => {
+      await expect(manager.setupPin(28)).rejects.toThrow('Invalid GPIO pin number');
     });
 
-    test('should throw error if not initialized', () => {
+    test('should throw error if not initialized', async () => {
       GpioLedManager.resetInstance();
       const uninitManager = GpioLedManager.getInstance();
-      expect(() => uninitManager.setupPin(17)).toThrow('not initialized');
+      await expect(uninitManager.setupPin(17)).rejects.toThrow('not initialized');
     });
 
-    test('should be no-op on unsupported platform', () => {
+    test('should be no-op on unsupported platform', async () => {
       const os = require('os');
       (os.platform as jest.Mock).mockReturnValue('darwin');
       GpioLedManager.resetInstance();
       const unsupportedManager = GpioLedManager.getInstance();
-      expect(() => unsupportedManager.setupPin(17)).not.toThrow();
+      await expect(unsupportedManager.setupPin(17)).resolves.not.toThrow();
       expect(unsupportedManager.getConfiguredPins()).toEqual([]);
     });
   });
@@ -162,7 +175,7 @@ describe('GpioLedManager', () => {
   describe('LED Control', () => {
     beforeEach(async () => {
       await manager.initialize();
-      manager.setupPin(17);
+      await manager.setupPin(17);
     });
 
     test('should set LED on', () => {
@@ -200,8 +213,8 @@ describe('GpioLedManager', () => {
     });
 
     test('should cleanup all pins', async () => {
-      manager.setupPin(17);
-      manager.setupPin(27);
+      await manager.setupPin(17);
+      await manager.setupPin(27);
       await expect(manager.cleanup()).resolves.not.toThrow();
       expect(manager.getConfiguredPins()).toEqual([]);
     });
@@ -221,10 +234,11 @@ describe('GpioLedManager', () => {
   });
 
   describe('Platform Info', () => {
-    test('should return platform information', () => {
+    test('should return platform information', async () => {
+      await manager.initialize();
       const info = manager.getPlatformInfo();
       expect(info).toContain('Platform:');
-      expect(info).toContain('GPIO Available:');
+      expect(info).toContain('Implementation:');
       expect(info).toContain('Supported:');
     });
   });

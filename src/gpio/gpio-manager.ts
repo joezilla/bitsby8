@@ -319,13 +319,18 @@ export class GpioLedManager {
    * @param pin GPIO pin number (BCM numbering)
    */
   public async setupPin(pin: number): Promise<void> {
-    if (!this.isAvailable()) {
-      // No-op on unsupported platforms
-      return;
+    // Check initialization first
+    if (!this.initialized) {
+      if (!this.platformSupported) {
+        // No-op on unsupported platforms
+        return;
+      }
+      throw new Error('GPIO Manager not initialized');
     }
 
-    if (!this.initialized || !this.implementation) {
-      throw new Error('GPIO Manager not initialized');
+    if (!this.isAvailable() || !this.implementation) {
+      // No-op if no implementation available
+      return;
     }
 
     // Validate pin number (BCM 0-27)
