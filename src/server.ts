@@ -70,6 +70,9 @@ export class FdcServer {
           // Clear command display
           this.displayManager.displayCommand('----');
           this.displayManager.displayBlock(-1, -1, -1);
+
+          // Add small delay to prevent busy-wait CPU spinning
+          await new Promise(resolve => setTimeout(resolve, 10));
         } else {
           // Log other errors
           this.displayManager.displayError(
