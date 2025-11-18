@@ -10,36 +10,14 @@ jest.mock('os', () => ({
   platform: jest.fn(() => 'linux'),
 }));
 
-// Mock child_process for CLI fallback detection
+// Mock child_process for CLI implementation
 jest.mock('child_process', () => ({
   execSync: jest.fn(() => '/usr/bin/gpioset'),
-  exec: jest.fn(),
+  exec: jest.fn((_cmd: string, callback: (error: Error | null, stdout: string, stderr: string) => void) => {
+    // Simulate successful gpioset command
+    callback(null, '', '');
+  }),
 }));
-
-// Mock lgpio module - must be done before importing GpioLedManager
-jest.mock('lgpio', () => {
-  let handleCounter = 0;
-  const pins = new Map();
-
-  return {
-    gpiochip_open: jest.fn((_chipnum: number) => {
-      return ++handleCounter;
-    }),
-    gpio_claim_output: jest.fn((_handle: number, _flags: number, pin: number, value: number) => {
-      pins.set(pin, value);
-    }),
-    gpio_write: jest.fn((_handle: number, pin: number, value: number) => {
-      pins.set(pin, value);
-    }),
-    gpio_free: jest.fn((_handle: number, pin: number) => {
-      pins.delete(pin);
-    }),
-    gpiochip_close: jest.fn((_handle: number) => {
-      // Close the chip
-    }),
-    SET_ACTIVE_LOW: 1,
-  };
-}, { virtual: true });
 
 import { GpioLedManager } from '../src/gpio/gpio-manager';
 import * as fs from 'fs';

@@ -1,11 +1,12 @@
 /**
  * GPIO LED Manager - Low-level GPIO control
  *
- * Provides platform-aware GPIO pin management with multiple backend implementations:
- * 1. lgpio (native bindings) - Best performance, works on Pi 4 & Pi 5
- * 2. gpiod CLI (fallback) - Zero dependencies, always works
+ * Provides platform-aware GPIO pin management using gpiod CLI tools.
+ * Uses the official Linux kernel GPIO interface via gpioset/gpioget commands.
  *
- * Automatically selects the best available implementation at runtime.
+ * - Zero npm dependencies
+ * - Works on Pi 4, Pi 5, and all modern Raspberry Pi models
+ * - Simple and reliable
  */
 
 import * as fs from 'fs';
@@ -27,92 +28,8 @@ interface IGpioImplementation {
   isAvailable(): boolean;
 }
 
-/**
- * lgpio native implementation (best performance)
- */
-class LgpioImplementation implements IGpioImplementation {
-  name = 'lgpio';
-  private lgpio: any = null;
-  private handle: number = -1;
-  private pins: Set<number> = new Set();
-  private activeLow: boolean = false;
-
-  isAvailable(): boolean {
-    if (this.lgpio !== null) {
-      return true;
-    }
-
-    try {
-      this.lgpio = require('lgpio');
-      return true;
-    } catch (error) {
-      return false;
-    }
-  }
-
-  async initialize(activeLow: boolean): Promise<void> {
-    if (!this.isAvailable()) {
-      throw new Error('lgpio not available');
-    }
-
-    this.activeLow = activeLow;
-
-    // Open GPIO chip (chip 0 on Pi 4, moves to chip 0 on newer Pi 5 kernels)
-    try {
-      this.handle = this.lgpio.gpiochip_open(0);
-    } catch (error) {
-      throw new Error(`Failed to open GPIO chip: ${error}`);
-    }
-  }
-
-  async setupPin(pin: number): Promise<void> {
-    if (this.handle < 0) {
-      throw new Error('GPIO chip not opened');
-    }
-
-    // Claim line as output
-    const flags = this.activeLow ? this.lgpio.SET_ACTIVE_LOW : 0;
-    this.lgpio.gpio_claim_output(this.handle, flags, pin, 0); // Start with 0 (off)
-    this.pins.add(pin);
-  }
-
-  setPin(pin: number, value: boolean): void {
-    if (this.handle < 0 || !this.pins.has(pin)) {
-      return;
-    }
-
-    try {
-      const gpioValue = value ? 1 : 0;
-      this.lgpio.gpio_write(this.handle, pin, gpioValue);
-    } catch (error) {
-      console.error(`lgpio: Failed to write pin ${pin}:`, error);
-    }
-  }
-
-  async cleanup(): Promise<void> {
-    if (this.handle >= 0) {
-      // Turn off all pins before releasing
-      for (const pin of this.pins) {
-        try {
-          this.lgpio.gpio_write(this.handle, pin, 0);
-          this.lgpio.gpio_free(this.handle, pin);
-        } catch (error) {
-          console.error(`lgpio: Failed to cleanup pin ${pin}:`, error);
-        }
-      }
-
-      try {
-        this.lgpio.gpiochip_close(this.handle);
-      } catch (error) {
-        console.error('lgpio: Failed to close chip:', error);
-      }
-
-      this.handle = -1;
-    }
-
-    this.pins.clear();
-  }
-}
+// lgpio native implementation removed due to API incompatibility issues
+// Using CLI-only approach which is reliable and has zero npm dependencies
 
 /**
  * gpiod CLI implementation (fallback, zero dependencies)
@@ -259,26 +176,21 @@ export class GpioLedManager {
    * Select and initialize the best available GPIO implementation
    */
   private async selectImplementation(activeLow: boolean): Promise<void> {
-    // Try implementations in order of preference
-    const implementations = [
-      new LgpioImplementation(),
-      new GpiodCliImplementation(),
-    ];
+    // Use CLI implementation (zero npm dependencies, always works)
+    const impl = new GpiodCliImplementation();
 
-    for (const impl of implementations) {
-      if (impl.isAvailable()) {
-        try {
-          await impl.initialize(activeLow);
-          this.implementation = impl;
-          console.log(`GPIO: Using ${impl.name} implementation`);
-          return;
-        } catch (error) {
-          console.warn(`GPIO: ${impl.name} initialization failed:`, error);
-        }
+    if (impl.isAvailable()) {
+      try {
+        await impl.initialize(activeLow);
+        this.implementation = impl;
+        console.log(`GPIO: Using ${impl.name} implementation`);
+        return;
+      } catch (error) {
+        console.warn(`GPIO: ${impl.name} initialization failed:`, error);
       }
     }
 
-    throw new Error('No GPIO implementation available. Install liblgpio-dev or gpiod.');
+    throw new Error('No GPIO implementation available. Install gpiod tools: sudo apt install gpiod');
   }
 
   /**
