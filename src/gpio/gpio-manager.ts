@@ -1,134 +1,71 @@
 /**
  * GPIO LED Manager - Low-level GPIO control
  *
- * Provides platform-aware GPIO pin management using gpiod CLI tools.
- * Uses the official Linux kernel GPIO interface via gpioset/gpioget commands.
- *
- * - Zero npm dependencies
- * - Works on Pi 4, Pi 5, and all modern Raspberry Pi models
- * - Simple and reliable
+ * Provides platform-aware GPIO pin management using the onoff library.
+ * Automatically detects and applies GPIO chip base offset for proper kernel mapping.
+ * Gracefully handles non-Raspberry Pi platforms by providing a no-op implementation.
  */
 
 import * as fs from 'fs';
 import * as os from 'os';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 
-const execAsync = promisify(exec);
+// Conditional import of onoff - only available on Linux
+let Gpio: any = null;
 
-/**
- * GPIO implementation interface
- */
-interface IGpioImplementation {
-  name: string;
-  initialize(activeLow: boolean): Promise<void>;
-  setupPin(pin: number): Promise<void>;
-  setPin(pin: number, value: boolean): void;
-  cleanup(): Promise<void>;
-  isAvailable(): boolean;
+try {
+  const onoffModule = require('onoff');
+  Gpio = onoffModule.Gpio;
+} catch (error) {
+  // onoff not available or GPIO not accessible
+  Gpio = null;
 }
 
-// lgpio native implementation removed due to API incompatibility issues
-// Using CLI-only approach which is reliable and has zero npm dependencies
+/**
+ * Check if GPIO is accessible
+ */
+function isGpioAccessible(): boolean {
+  return Gpio !== null && Gpio.accessible === true;
+}
 
 /**
- * gpiod CLI implementation (fallback, zero dependencies)
+ * Detect GPIO chip base offset from /sys/kernel/debug/gpio
+ * Returns the base offset (e.g., 512 for gpiochip0 on some Pi models)
  */
-class GpiodCliImplementation implements IGpioImplementation {
-  name = 'gpiod-cli';
-  private pins: Set<number> = new Set();
-  private activeLow: boolean = false;
-  private chipName: string = 'gpiochip0';
+function detectGpioChipBase(): number {
+  try {
+    const gpioDebug = fs.readFileSync('/sys/kernel/debug/gpio', 'utf8');
 
-  isAvailable(): boolean {
-    // Check if gpioset command exists
-    try {
-      const { execSync } = require('child_process');
-      execSync('which gpioset', { stdio: 'ignore' });
-      return true;
-    } catch (error) {
-      return false;
+    // Look for gpiochip0 line like: "gpiochip0: GPIOs 512-565"
+    const match = gpioDebug.match(/gpiochip0:\s+GPIOs\s+(\d+)-(\d+)/);
+
+    if (match) {
+      const baseOffset = parseInt(match[1], 10);
+      console.log(`GPIO: Detected chip base offset: ${baseOffset}`);
+      return baseOffset;
     }
+  } catch (error) {
+    console.warn('GPIO: Could not read /sys/kernel/debug/gpio, assuming base 0');
   }
 
-  async initialize(activeLow: boolean): Promise<void> {
-    if (!this.isAvailable()) {
-      throw new Error('gpiod CLI tools not available');
-    }
-
-    this.activeLow = activeLow;
-
-    // Determine which gpiochip to use (gpiochip0 or gpiochip4 on some Pi 5 versions)
-    // We'll default to gpiochip0 as it's standard on latest kernels
-    this.chipName = 'gpiochip0';
-  }
-
-  async setupPin(pin: number): Promise<void> {
-    // With CLI, we don't need to explicitly setup pins
-    // Just record that this pin is managed
-    this.pins.add(pin);
-
-    // Initialize pin to off state
-    await this.setPinAsync(pin, false);
-  }
-
-  setPin(pin: number, value: boolean): void {
-    if (!this.pins.has(pin)) {
-      return;
-    }
-
-    // Use fire-and-forget for synchronous interface
-    this.setPinAsync(pin, value).catch(error => {
-      console.error(`gpiod-cli: Failed to write pin ${pin}:`, error);
-    });
-  }
-
-  private async setPinAsync(pin: number, value: boolean): Promise<void> {
-    // Determine the value based on active-low setting
-    let gpioValue = value ? 1 : 0;
-    if (this.activeLow) {
-      gpioValue = value ? 0 : 1;
-    }
-
-    const cmd = `gpioset ${this.chipName} ${pin}=${gpioValue}`;
-
-    try {
-      // Note: gpioset exits immediately after setting, so we use --mode=time with 0 duration
-      // This sets the value and exits, making the pin hold its state
-      await execAsync(`${cmd} --mode=exit`);
-    } catch (error) {
-      throw new Error(`Failed to execute: ${cmd} - ${error}`);
-    }
-  }
-
-  async cleanup(): Promise<void> {
-    // Turn off all pins
-    for (const pin of this.pins) {
-      try {
-        await this.setPinAsync(pin, false);
-      } catch (error) {
-        console.error(`gpiod-cli: Failed to cleanup pin ${pin}:`, error);
-      }
-    }
-
-    this.pins.clear();
-  }
+  return 0; // Default to no offset
 }
 
 export interface GpioPin {
   pin: number;
+  kernelPin: number;
+  gpio: any | null; // Gpio instance from onoff
 }
 
 /**
  * GpioLedManager - Singleton for managing GPIO pins
- * Automatically selects best available implementation
  */
 export class GpioLedManager {
   private static instance: GpioLedManager | null = null;
   private pins: Map<number, GpioPin> = new Map();
   private initialized: boolean = false;
   private platformSupported: boolean = false;
-  private implementation: IGpioImplementation | null = null;
+  private activeLow: boolean = false;
+  private chipBaseOffset: number = 0;
 
   private constructor() {
     this.platformSupported = this.detectPlatform();
@@ -153,59 +90,34 @@ export class GpioLedManager {
       return false;
     }
 
-    // Try to detect Raspberry Pi from /proc/cpuinfo or check for GPIO devices
+    // Check if GPIO is accessible
+    if (!isGpioAccessible()) {
+      return false;
+    }
+
+    // Try to detect Raspberry Pi from /proc/cpuinfo
     try {
       const cpuInfo = fs.readFileSync('/proc/cpuinfo', 'utf8');
       const isRaspberryPi = cpuInfo.includes('Raspberry Pi') || cpuInfo.includes('BCM');
-      if (isRaspberryPi) {
-        return true;
-      }
+      return isRaspberryPi;
     } catch (error) {
-      // Ignore
+      // Can't read cpuinfo, but if GPIO is accessible, allow it
+      return isGpioAccessible();
     }
-
-    // Also check if GPIO devices exist
-    try {
-      return fs.existsSync('/dev/gpiochip0') || fs.existsSync('/dev/gpiochip4');
-    } catch (error) {
-      return false;
-    }
-  }
-
-  /**
-   * Select and initialize the best available GPIO implementation
-   */
-  private async selectImplementation(activeLow: boolean): Promise<void> {
-    // Use CLI implementation (zero npm dependencies, always works)
-    const impl = new GpiodCliImplementation();
-
-    if (impl.isAvailable()) {
-      try {
-        await impl.initialize(activeLow);
-        this.implementation = impl;
-        console.log(`GPIO: Using ${impl.name} implementation`);
-        return;
-      } catch (error) {
-        console.warn(`GPIO: ${impl.name} initialization failed:`, error);
-      }
-    }
-
-    throw new Error('No GPIO implementation available. Install gpiod tools: sudo apt install gpiod');
   }
 
   /**
    * Check if GPIO is available on this platform
    */
   public isAvailable(): boolean {
-    return this.platformSupported && this.implementation !== null;
+    return this.platformSupported && isGpioAccessible();
   }
 
   /**
    * Get platform information for logging
    */
   public getPlatformInfo(): string {
-    const implName = this.implementation ? this.implementation.name : 'none';
-    return `Platform: ${os.platform()}, Implementation: ${implName}, Supported: ${this.platformSupported}`;
+    return `Platform: ${os.platform()}, GPIO Available: ${isGpioAccessible()}, Supported: ${this.platformSupported}, Chip Base: ${this.chipBaseOffset}`;
   }
 
   /**
@@ -216,13 +128,17 @@ export class GpioLedManager {
       throw new Error('GPIO Manager already initialized');
     }
 
-    if (!this.platformSupported) {
+    this.activeLow = activeLow;
+
+    if (!this.isAvailable()) {
       // Silent no-op on unsupported platforms
       this.initialized = true;
       return;
     }
 
-    await this.selectImplementation(activeLow);
+    // Detect GPIO chip base offset
+    this.chipBaseOffset = detectGpioChipBase();
+
     this.initialized = true;
   }
 
@@ -240,8 +156,8 @@ export class GpioLedManager {
       throw new Error('GPIO Manager not initialized');
     }
 
-    if (!this.isAvailable() || !this.implementation) {
-      // No-op if no implementation available
+    if (!this.isAvailable()) {
+      // No-op if GPIO not available
       return;
     }
 
@@ -255,32 +171,56 @@ export class GpioLedManager {
       return; // Already configured
     }
 
-    await this.implementation.setupPin(pin);
-    this.pins.set(pin, { pin });
+    try {
+      // Apply chip base offset to get kernel GPIO number
+      const kernelPin = pin + this.chipBaseOffset;
+
+      console.log(`GPIO: Setting up BCM pin ${pin} as kernel GPIO ${kernelPin}`);
+
+      // Create GPIO instance using kernel pin number
+      const gpio = new Gpio(kernelPin, 'out');
+
+      // Initialize to off state using async write
+      const offValue = this.activeLow ? 1 : 0;
+
+      // Use a small delay and write to avoid timing issues
+      await new Promise(resolve => setTimeout(resolve, 50));
+      await gpio.write(offValue);
+
+      this.pins.set(pin, { pin, kernelPin, gpio });
+    } catch (error) {
+      throw new Error(`Failed to setup GPIO pin ${pin}: ${error}`);
+    }
   }
 
   /**
    * Set LED state
-   * @param pin GPIO pin number
+   * @param pin GPIO pin number (BCM numbering)
    * @param state true = on, false = off
    */
   public setLed(pin: number, state: boolean): void {
-    if (!this.isAvailable() || !this.implementation) {
+    if (!this.isAvailable()) {
       return; // No-op
     }
 
     const pinInfo = this.pins.get(pin);
-    if (!pinInfo) {
+    if (!pinInfo || !pinInfo.gpio) {
       // Pin not setup, ignore
       return;
     }
 
-    this.implementation.setPin(pin, state);
+    try {
+      // Handle active-low logic
+      const value = this.activeLow ? (state ? 0 : 1) : (state ? 1 : 0);
+      pinInfo.gpio.writeSync(value);
+    } catch (error) {
+      console.error(`Failed to set GPIO pin ${pin}:`, error);
+    }
   }
 
   /**
    * Blink LED for specified duration
-   * @param pin GPIO pin number
+   * @param pin GPIO pin number (BCM numbering)
    * @param durationMs Blink duration in milliseconds
    */
   public blinkLed(pin: number, durationMs: number): void {
@@ -301,9 +241,19 @@ export class GpioLedManager {
    * Cleanup all GPIO pins
    */
   public async cleanup(): Promise<void> {
-    if (this.implementation) {
-      await this.implementation.cleanup();
-      this.implementation = null;
+    if (this.isAvailable()) {
+      for (const [pin, pinInfo] of this.pins.entries()) {
+        try {
+          if (pinInfo.gpio) {
+            // Turn off LED before unexport
+            const offValue = this.activeLow ? 1 : 0;
+            pinInfo.gpio.writeSync(offValue);
+            pinInfo.gpio.unexport();
+          }
+        } catch (error) {
+          console.error(`Failed to cleanup GPIO pin ${pin}:`, error);
+        }
+      }
     }
 
     this.pins.clear();

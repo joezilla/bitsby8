@@ -10,14 +10,27 @@ jest.mock('os', () => ({
   platform: jest.fn(() => 'linux'),
 }));
 
-// Mock child_process for CLI implementation
-jest.mock('child_process', () => ({
-  execSync: jest.fn(() => '/usr/bin/gpioset'),
-  exec: jest.fn((_cmd: string, callback: (error: Error | null, stdout: string, stderr: string) => void) => {
-    // Simulate successful gpioset command
-    callback(null, '', '');
-  }),
-}));
+// Mock onoff module - must be done before importing GpioLedManager
+jest.mock('onoff', () => {
+  const mockGpioConstructor: any = function(pin: number, direction: string) {
+    return {
+      pin,
+      direction,
+      writeSync: jest.fn(),
+      write: jest.fn(async (_value: number) => {
+        return Promise.resolve();
+      }),
+      unexport: jest.fn(),
+    };
+  };
+
+  // Set accessible as a static property - this is what onoff.Gpio.accessible should be
+  mockGpioConstructor.accessible = true;
+
+  return {
+    Gpio: mockGpioConstructor,
+  };
+}, { virtual: true });
 
 import { GpioLedManager } from '../src/gpio/gpio-manager';
 import * as fs from 'fs';
@@ -216,8 +229,9 @@ describe('GpioLedManager', () => {
       await manager.initialize();
       const info = manager.getPlatformInfo();
       expect(info).toContain('Platform:');
-      expect(info).toContain('Implementation:');
+      expect(info).toContain('GPIO Available:');
       expect(info).toContain('Supported:');
+      expect(info).toContain('Chip Base:');
     });
   });
 });
