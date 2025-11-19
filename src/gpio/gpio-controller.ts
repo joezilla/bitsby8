@@ -299,6 +299,32 @@ export class GpioLedController {
   }
 
   /**
+   * Get performance statistics from GPIO manager
+   */
+  public getStats() {
+    return this.manager.getStats();
+  }
+
+  /**
+   * Log performance statistics (for debugging)
+   */
+  public logStats(): void {
+    if (!this.initialized) {
+      return;
+    }
+
+    const stats = this.manager.getStats();
+    console.log('GPIO Performance Stats:');
+    console.log(`  Total Writes: ${stats.totalWrites}`);
+    console.log(`  Queued Writes: ${stats.queuedWrites}`);
+    console.log(`  Coalesced Writes: ${stats.coalescedWrites} (${Math.round((stats.coalescedWrites / Math.max(stats.queuedWrites, 1)) * 100)}% reduction)`);
+    console.log(`  Current Queue Length: ${stats.queueLength}`);
+    console.log(`  Errors: ${stats.errors}`);
+    console.log(`  Is Processing: ${stats.isProcessing}`);
+    console.log(`  Last Flush: ${stats.lastFlush ? new Date(stats.lastFlush).toISOString() : 'Never'}`);
+  }
+
+  /**
    * Shutdown and cleanup
    */
   public async shutdown(): Promise<void> {
