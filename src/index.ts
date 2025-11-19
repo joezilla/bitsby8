@@ -22,6 +22,7 @@ import { FdcServer } from './server';
 import { WebServer } from './web-server';
 import { loadConfigFile, mergeConfig, getExampleConfig, DEFAULT_CONFIG_LOCATIONS } from './config';
 import { getGpioLedController, DEFAULT_GPIO_CONFIG } from './gpio';
+import { getLogger } from './logger';
 import * as path from 'path';
 
 /**
@@ -46,6 +47,7 @@ function printHelp(): void {
   console.log('  -v, --verbose          Verbose display');
   console.log('  -d, --debug            Debug mode');
   console.log('  --headless             Disable text-based status display (for systemd/background)');
+  console.log('  --log-file <path>      Log file path (enables file-based logging)');
   console.log('  -w, --web              Enable web interface (default: disabled)');
   console.log('  --web-port <port>      Web interface port (default: 3000)');
   console.log('  --web-host <host>      Web interface host (default: localhost)');
@@ -86,6 +88,7 @@ async function main(): Promise<void> {
     .option('-v, --verbose', 'Verbose display')
     .option('-d, --debug', 'Debug mode')
     .option('--headless', 'Disable text-based status display (for systemd/background)')
+    .option('--log-file <path>', 'Log file path (enables file-based logging)')
     .option('-w, --web', 'Enable web interface')
     .option('--web-port <port>', 'Web interface port')
     .option('--web-host <host>', 'Web interface host')
@@ -197,6 +200,20 @@ async function main(): Promise<void> {
   const terminalManager = getTerminalSerialManager();
   const displayManager = getDisplayManager();
   const gpioController = getGpioLedController();
+  const logger = getLogger();
+
+  // Initialize file-based logging if requested
+  if (mergedOptions.logFile) {
+    try {
+      // In headless mode, disable console output (logs go to file only)
+      // In normal mode, enable console output (logs go to both file and console)
+      await logger.initialize(mergedOptions.logFile, !headless);
+      console.log(`File-based logging enabled: ${mergedOptions.logFile}`);
+    } catch (error) {
+      console.error('Failed to initialize logging:', error);
+      console.log('Continuing without file-based logging');
+    }
+  }
 
   // Initialize display (unless running in headless mode)
   if (!headless) {
@@ -314,6 +331,11 @@ async function main(): Promise<void> {
         await gpioController.shutdown();
       }
 
+      // Close logger
+      if (logger.isInitialized()) {
+        await logger.close();
+      }
+
       displayManager.reset();
       process.exit(0);
     };
@@ -326,6 +348,12 @@ async function main(): Promise<void> {
 
   } catch (error) {
     displayManager.reset();
+
+    // Close logger if initialized
+    if (logger.isInitialized()) {
+      await logger.close().catch(() => {});
+    }
+
     console.error('Error:', error);
     process.exit(1);
   }

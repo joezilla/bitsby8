@@ -178,6 +178,7 @@ The configuration file uses JSON format:
   "verbose": false,
   "debug": false,
   "headless": false,
+  "logFile": null,
   "web": true,
   "webPort": 3000,
   "webHost": "localhost",
@@ -233,6 +234,7 @@ Options:
   -v, --verbose             Verbose display
   -d, --debug               Debug mode
   --headless                Disable text-based status display (for systemd/background)
+  --log-file <path>         Log file path (enables file-based logging)
   -w, --web                 Enable web interface (default: disabled)
   --web-port <port>         Web interface port (default: 3000)
   --web-host <host>         Web interface host (default: localhost)
@@ -287,6 +289,13 @@ fdcsds -p /dev/ttyUSB0 -v -0 disks/cpm22.dsk
 ```bash
 fdcsds --headless -p /dev/ttyUSB0 -0 disks/cpm22.dsk -w
 # Runs without text-based UI, suitable for systemd or screen/tmux
+```
+
+**Headless mode with file-based logging:**
+```bash
+fdcsds --headless --log-file /var/log/fdcsds.log -p /dev/ttyUSB0 -0 disks/cpm22.dsk -w
+# Runs without text-based UI and logs all output to file
+# Perfect for systemd services or production deployments
 ```
 
 **Enable web interface:**

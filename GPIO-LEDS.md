@@ -118,7 +118,9 @@ Add to your `.fdcsds.config` or `fdcsds.config.json`:
   "gpioLeds": {
     "enabled": true,
     "blinkDuration": 100,
+    "activityBlinkDuration": 50,
     "activeLow": false,
+    "activityLed": 4,
 
     "drive0": {
       "enable": 17,
@@ -167,7 +169,9 @@ fdcsds -p /dev/ttyUSB0 -0 disks/cpm.dsk --gpio-leds --gpio-active-low
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `enabled` | boolean | `false` | Enable/disable GPIO LED support |
+| `activityLed` | number/null | `4` | GPIO pin for general drive activity indicator (any drive) |
 | `blinkDuration` | number | `100` | Duration in ms for RX/TX LED blinks |
+| `activityBlinkDuration` | number | `50` | Duration in ms for activity LED blinks (shorter/flashier) |
 | `activeLow` | boolean | `false` | Use active-low logic (LED on when GPIO low) |
 | `drive[0-3].enable` | number/null | See table | GPIO pin for drive enable LED |
 | `drive[0-3].headLoad` | number/null | See table | GPIO pin for head load LED |
@@ -179,6 +183,11 @@ fdcsds -p /dev/ttyUSB0 -0 disks/cpm.dsk --gpio-leds --gpio-active-low
 **Note**: Set any pin to `null` to disable that specific LED.
 
 ## LED Behavior
+
+### Drive Activity LED
+- **Blink**: Flashes for 50ms when any drive command is executed (READ, WRITE, or STATUS)
+- Provides visual feedback for any disk activity across all four drives
+- Short flash duration makes it flashy and responsive
 
 ### Drive Enable LED
 - **ON**: Disk image is mounted
