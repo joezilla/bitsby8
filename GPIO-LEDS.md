@@ -28,40 +28,45 @@ The GPIO LED feature displays the status of:
 
 The default configuration uses the following BCM pin assignments:
 
+### Disk Activity LED (any disk)
+| Function | BCM Pin | Physical Pin | Color Suggestion |
+|----------|---------|--------------|------------------|
+| Activity | GPIO4   | Pin 7        | Red              |
+
 ### Drive 0 LEDs
 | Function | BCM Pin | Physical Pin | Color Suggestion |
 |----------|---------|--------------|------------------|
-| Enable   | GPIO17  | Pin 11       | Green            |
-| Head Load| GPIO27  | Pin 13       | Yellow           |
+| Enable   | GPIO17  | Pin 11       | Red              |
+| Head Load| GPIO27  | Pin 13       | Red              |
 | Read Only| GPIO22  | Pin 15       | Red              |
 
 ### Drive 1 LEDs
 | Function | BCM Pin | Physical Pin | Color Suggestion |
 |----------|---------|--------------|------------------|
-| Enable   | GPIO23  | Pin 16       | Green            |
-| Head Load| GPIO24  | Pin 18       | Yellow           |
+| Enable   | GPIO23  | Pin 16       | Red              |
+| Head Load| GPIO24  | Pin 18       | Red              |
 | Read Only| GPIO25  | Pin 22       | Red              |
 
 ### Drive 2 LEDs
 | Function | BCM Pin | Physical Pin | Color Suggestion |
 |----------|---------|--------------|------------------|
-| Enable   | GPIO5   | Pin 29       | Green            |
-| Head Load| GPIO6   | Pin 31       | Yellow           |
+| Enable   | GPIO5   | Pin 29       | Red              |
+| Head Load| GPIO6   | Pin 31       | Red              |
 | Read Only| GPIO13  | Pin 33       | Red              |
 
 ### Drive 3 LEDs
 | Function | BCM Pin | Physical Pin | Color Suggestion |
 |----------|---------|--------------|------------------|
-| Enable   | GPIO19  | Pin 35       | Green            |
-| Head Load| GPIO26  | Pin 37       | Yellow           |
+| Enable   | GPIO19  | Pin 35       | Red              |
+| Head Load| GPIO26  | Pin 37       | Red              |
 | Read Only| GPIO12  | Pin 32       | Red              |
 
 ### Terminal LEDs
 | Function  | BCM Pin | Physical Pin | Color Suggestion |
 |-----------|---------|--------------|------------------|
-| RX        | GPIO16  | Pin 36       | Blue             |
-| TX        | GPIO20  | Pin 38       | Blue             |
-| Connected | GPIO21  | Pin 40       | Green            |
+| RX        | GPIO16  | Pin 36       | Red              |
+| TX        | GPIO20  | Pin 38       | Red              |
+| Connected | GPIO21  | Pin 40       | Red              |
 
 ### Reserved Pins (Avoided)
 
@@ -113,7 +118,9 @@ Add to your `.fdcsds.config` or `fdcsds.config.json`:
   "gpioLeds": {
     "enabled": true,
     "blinkDuration": 100,
+    "activityBlinkDuration": 50,
     "activeLow": false,
+    "activityLed": 4,
 
     "drive0": {
       "enable": 17,
@@ -162,7 +169,9 @@ fdcsds -p /dev/ttyUSB0 -0 disks/cpm.dsk --gpio-leds --gpio-active-low
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `enabled` | boolean | `false` | Enable/disable GPIO LED support |
+| `activityLed` | number/null | `4` | GPIO pin for general drive activity indicator (any drive) |
 | `blinkDuration` | number | `100` | Duration in ms for RX/TX LED blinks |
+| `activityBlinkDuration` | number | `50` | Duration in ms for activity LED blinks (shorter/flashier) |
 | `activeLow` | boolean | `false` | Use active-low logic (LED on when GPIO low) |
 | `drive[0-3].enable` | number/null | See table | GPIO pin for drive enable LED |
 | `drive[0-3].headLoad` | number/null | See table | GPIO pin for head load LED |
@@ -174,6 +183,11 @@ fdcsds -p /dev/ttyUSB0 -0 disks/cpm.dsk --gpio-leds --gpio-active-low
 **Note**: Set any pin to `null` to disable that specific LED.
 
 ## LED Behavior
+
+### Drive Activity LED
+- **Blink**: Flashes for 50ms when any drive command is executed (READ, WRITE, or STATUS)
+- Provides visual feedback for any disk activity across all four drives
+- Short flash duration makes it flashy and responsive
 
 ### Drive Enable LED
 - **ON**: Disk image is mounted

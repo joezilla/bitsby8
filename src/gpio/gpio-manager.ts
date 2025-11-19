@@ -40,7 +40,7 @@ function detectGpioChipBase(): number {
 
     if (match) {
       const baseOffset = parseInt(match[1], 10);
-      console.log(`GPIO: Detected chip base offset: ${baseOffset}`);
+      // console.log(`GPIO: Detected chip base offset: ${baseOffset}`);
       return baseOffset;
     }
   } catch (error) {
@@ -56,8 +56,28 @@ export interface GpioPin {
   gpio: any | null; // Gpio instance from onoff
 }
 
+interface QueuedWrite {
+  pin: number;
+  value: number;
+  timestamp: number;
+}
+
+export interface GpioStats {
+  totalWrites: number;
+  queuedWrites: number;
+  coalescedWrites: number;
+  errors: number;
+  lastFlush: number;
+}
+
 /**
  * GpioLedManager - Singleton for managing GPIO pins
+ *
+ * Performance optimizations:
+ * - Async write queue prevents blocking the event loop
+ * - Write batching reduces GPIO syscalls
+ * - Write coalescing eliminates redundant updates
+ * - Blink debouncing prevents GPIO spam during high-frequency updates
  */
 export class GpioLedManager {
   private static instance: GpioLedManager | null = null;
@@ -66,6 +86,24 @@ export class GpioLedManager {
   private platformSupported: boolean = false;
   private activeLow: boolean = false;
   private chipBaseOffset: number = 0;
+
+  // Async write queue for non-blocking GPIO operations
+  private writeQueue: QueuedWrite[] = [];
+  private flushTimeout: NodeJS.Timeout | null = null;
+  private processing: boolean = false;
+  private readonly DEBOUNCE_MS = 10; // Batch writes within 10ms window
+
+  // Debouncing for blink operations (RX/TX LEDs)
+  private blinkDebounce: Map<number, NodeJS.Timeout> = new Map();
+
+  // Performance monitoring
+  private stats: GpioStats = {
+    totalWrites: 0,
+    queuedWrites: 0,
+    coalescedWrites: 0,
+    errors: 0,
+    lastFlush: 0,
+  };
 
   private constructor() {
     this.platformSupported = this.detectPlatform();
@@ -175,7 +213,7 @@ export class GpioLedManager {
       // Apply chip base offset to get kernel GPIO number
       const kernelPin = pin + this.chipBaseOffset;
 
-      console.log(`GPIO: Setting up BCM pin ${pin} as kernel GPIO ${kernelPin}`);
+     // console.log(`GPIO: Setting up BCM pin ${pin} as kernel GPIO ${kernelPin}`);
 
       // Create GPIO instance using kernel pin number
       const gpio = new Gpio(kernelPin, 'out');
@@ -194,7 +232,7 @@ export class GpioLedManager {
   }
 
   /**
-   * Set LED state
+   * Set LED state (non-blocking, queued)
    * @param pin GPIO pin number (BCM numbering)
    * @param state true = on, false = off
    */
@@ -209,17 +247,97 @@ export class GpioLedManager {
       return;
     }
 
+    // Handle active-low logic
+    const value = this.activeLow ? (state ? 0 : 1) : (state ? 1 : 0);
+
+    // Add to queue instead of writing synchronously
+    this.queueWrite(pin, value);
+  }
+
+  /**
+   * Queue a GPIO write for batched async processing
+   * @param pin GPIO pin number (BCM numbering)
+   * @param value 0 or 1
+   */
+  private queueWrite(pin: number, value: number): void {
+    // Add to queue
+    this.writeQueue.push({
+      pin,
+      value,
+      timestamp: Date.now(),
+    });
+
+    this.stats.queuedWrites++;
+
+    // Debounce - schedule flush after DEBOUNCE_MS of no new writes
+    if (this.flushTimeout) {
+      clearTimeout(this.flushTimeout);
+    }
+
+    this.flushTimeout = setTimeout(() => {
+      this.flushQueue();
+    }, this.DEBOUNCE_MS);
+  }
+
+  /**
+   * Flush queued writes to GPIO hardware (async, non-blocking)
+   */
+  private async flushQueue(): Promise<void> {
+    if (this.processing || this.writeQueue.length === 0) {
+      return;
+    }
+
+    this.processing = true;
+    const batch = [...this.writeQueue];
+    this.writeQueue = [];
+
     try {
-      // Handle active-low logic
-      const value = this.activeLow ? (state ? 0 : 1) : (state ? 1 : 0);
-      pinInfo.gpio.writeSync(value);
+      // Coalesce: only keep last state for each pin
+      const pinStates = new Map<number, number>();
+      for (const { pin, value } of batch) {
+        pinStates.set(pin, value);
+      }
+
+      // Track coalesced writes
+      const coalesced = batch.length - pinStates.size;
+      this.stats.coalescedWrites += coalesced;
+
+      // Write all pins asynchronously (non-blocking)
+      const writePromises = Array.from(pinStates.entries()).map(
+        async ([pin, value]) => {
+          const pinInfo = this.pins.get(pin);
+          if (pinInfo && pinInfo.gpio) {
+            try {
+              await pinInfo.gpio.write(value);
+              this.stats.totalWrites++;
+            } catch (error) {
+              this.stats.errors++;
+              console.error(`Failed to write GPIO pin ${pin}:`, error);
+            }
+          }
+        }
+      );
+
+      await Promise.all(writePromises);
+      this.stats.lastFlush = Date.now();
     } catch (error) {
-      console.error(`Failed to set GPIO pin ${pin}:`, error);
+      this.stats.errors++;
+      console.error('GPIO queue flush error:', error);
+    } finally {
+      this.processing = false;
+
+      // If more writes were queued during processing, flush again
+      if (this.writeQueue.length > 0 && !this.flushTimeout) {
+        this.flushTimeout = setTimeout(() => {
+          this.flushQueue();
+        }, this.DEBOUNCE_MS);
+      }
     }
   }
 
   /**
-   * Blink LED for specified duration
+   * Blink LED for specified duration (with debouncing)
+   * Prevents GPIO spam during high-frequency RX/TX activity
    * @param pin GPIO pin number (BCM numbering)
    * @param durationMs Blink duration in milliseconds
    */
@@ -228,32 +346,63 @@ export class GpioLedManager {
       return; // No-op
     }
 
-    // Turn on
-    this.setLed(pin, true);
+    // Check if this pin is already blinking (debounce)
+    const existingTimeout = this.blinkDebounce.get(pin);
+    if (existingTimeout) {
+      // LED is already on, just extend the off timer
+      clearTimeout(existingTimeout);
+    } else {
+      // Turn on LED (only if not already blinking)
+      this.setLed(pin, true);
+    }
 
     // Schedule turn off
-    setTimeout(() => {
+    const timeout = setTimeout(() => {
       this.setLed(pin, false);
+      this.blinkDebounce.delete(pin);
     }, durationMs);
+
+    this.blinkDebounce.set(pin, timeout);
   }
 
   /**
    * Cleanup all GPIO pins
    */
   public async cleanup(): Promise<void> {
+    // Clear all pending timeouts
+    if (this.flushTimeout) {
+      clearTimeout(this.flushTimeout);
+      this.flushTimeout = null;
+    }
+
+    for (const timeout of this.blinkDebounce.values()) {
+      clearTimeout(timeout);
+    }
+    this.blinkDebounce.clear();
+
+    // Flush any pending writes before cleanup
+    if (this.writeQueue.length > 0) {
+      await this.flushQueue();
+    }
+
     if (this.isAvailable()) {
-      for (const [pin, pinInfo] of this.pins.entries()) {
-        try {
-          if (pinInfo.gpio) {
-            // Turn off LED before unexport
-            const offValue = this.activeLow ? 1 : 0;
-            pinInfo.gpio.writeSync(offValue);
-            pinInfo.gpio.unexport();
+      // Turn off all LEDs using async writes
+      const cleanupPromises = Array.from(this.pins.entries()).map(
+        async ([pin, pinInfo]) => {
+          try {
+            if (pinInfo.gpio) {
+              // Turn off LED before unexport (async)
+              const offValue = this.activeLow ? 1 : 0;
+              await pinInfo.gpio.write(offValue);
+              pinInfo.gpio.unexport();
+            }
+          } catch (error) {
+            console.error(`Failed to cleanup GPIO pin ${pin}:`, error);
           }
-        } catch (error) {
-          console.error(`Failed to cleanup GPIO pin ${pin}:`, error);
         }
-      }
+      );
+
+      await Promise.all(cleanupPromises);
     }
 
     this.pins.clear();
@@ -265,6 +414,30 @@ export class GpioLedManager {
    */
   public getConfiguredPins(): number[] {
     return Array.from(this.pins.keys());
+  }
+
+  /**
+   * Get performance statistics
+   */
+  public getStats(): GpioStats & { queueLength: number; isProcessing: boolean } {
+    return {
+      ...this.stats,
+      queueLength: this.writeQueue.length,
+      isProcessing: this.processing,
+    };
+  }
+
+  /**
+   * Reset statistics (for monitoring)
+   */
+  public resetStats(): void {
+    this.stats = {
+      totalWrites: 0,
+      queuedWrites: 0,
+      coalescedWrites: 0,
+      errors: 0,
+      lastFlush: 0,
+    };
   }
 
   /**

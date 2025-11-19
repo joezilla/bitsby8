@@ -198,6 +198,9 @@ export class FdcServer {
   private async handleReadCommand(cmd: CommandResponseBlock): Promise<void> {
     this.displayManager.displayCommand('READ');
 
+    // Flash activity LED
+    getGpioLedController().updateDriveActivity();
+
     // Extract parameters
     // param1: bits 0-11 = track, bits 12-15 = drive (high nibble of MSB)
     // param2: length
@@ -251,6 +254,9 @@ export class FdcServer {
    */
   private async handleWriteCommand(cmd: CommandResponseBlock): Promise<void> {
     this.displayManager.displayCommand('WRIT');
+
+    // Flash activity LED
+    getGpioLedController().updateDriveActivity();
 
     // Extract parameters (same as READ)
     const drive = ByteUtils.MSB(cmd.param1) >> 4;

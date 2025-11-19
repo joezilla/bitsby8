@@ -27,6 +27,8 @@ export interface ConfigFile {
   // Display options
   verbose?: boolean;
   debug?: boolean;
+  headless?: boolean; // Disable text-based status display
+  logFile?: string;   // Log file path (for file-based logging)
 
   // Web interface options
   web?: boolean;
@@ -161,6 +163,20 @@ function validateConfig(config: any): ConfigFile {
     validated.debug = config.debug;
   }
 
+  if (config.headless !== undefined) {
+    if (typeof config.headless !== 'boolean') {
+      throw new Error('Config error: "headless" must be a boolean');
+    }
+    validated.headless = config.headless;
+  }
+
+  if (config.logFile !== undefined) {
+    if (typeof config.logFile !== 'string') {
+      throw new Error('Config error: "logFile" must be a string');
+    }
+    validated.logFile = config.logFile;
+  }
+
   // Web interface options
   if (config.web !== undefined) {
     if (typeof config.web !== 'boolean') {
@@ -239,6 +255,8 @@ export function mergeConfig(configFile: ConfigFile | null, cmdLineOptions: any):
 
   if (cmdLineOptions.verbose !== undefined) merged.verbose = cmdLineOptions.verbose;
   if (cmdLineOptions.debug !== undefined) merged.debug = cmdLineOptions.debug;
+  if (cmdLineOptions.headless !== undefined) merged.headless = cmdLineOptions.headless;
+  if (cmdLineOptions.logFile !== undefined) merged.logFile = cmdLineOptions.logFile;
 
   if (cmdLineOptions.web !== undefined) merged.web = cmdLineOptions.web;
   if (cmdLineOptions.webPort !== undefined) merged.webPort = parseInt(cmdLineOptions.webPort);
@@ -286,6 +304,8 @@ export function getExampleConfig(): string {
     // Display options
     verbose: false,
     debug: false,
+    headless: false, // Disable text-based status display (useful when running as systemd service)
+    logFile: null,   // Optional: log file path (e.g., "/var/log/fdcsds.log" or "fdcsds.log")
 
     // Web interface
     web: true,
@@ -301,7 +321,9 @@ export function getExampleConfig(): string {
     gpioLeds: {
       enabled: true,
       blinkDuration: 100,
+      activityBlinkDuration: 50,  // Shorter blink for activity LED
       activeLow: false,
+      activityLed: 4,  // GPIO4 (Pin 7) - General drive activity indicator
       drive0: {
         enable: 17,
         headLoad: 27,

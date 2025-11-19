@@ -27,7 +27,9 @@ export interface GpioLedConfig {
   drive2?: GpioDrivePinConfig;
   drive3?: GpioDrivePinConfig;
   terminal?: GpioTerminalPinConfig;
+  activityLed?: number | null; // General drive activity indicator
   blinkDuration?: number;
+  activityBlinkDuration?: number; // Shorter duration for activity LED
   activeLow?: boolean;
 }
 
@@ -52,7 +54,9 @@ export class GpioLedController {
   private config: GpioLedConfig | null = null;
   private driveConfigs: Map<number, DriveConfig> = new Map();
   private terminalConfig: TerminalConfig | null = null;
+  private activityLedPin: number | null = null;
   private blinkDuration: number = 100; // Default 100ms blink
+  private activityBlinkDuration: number = 50; // Shorter, flashier for activity
   private initialized: boolean = false;
 
   private constructor() {
@@ -84,6 +88,7 @@ export class GpioLedController {
 
     this.config = config;
     this.blinkDuration = config.blinkDuration || 100;
+    this.activityBlinkDuration = config.activityBlinkDuration || 50;
 
     // Initialize GPIO manager
     await this.manager.initialize(config.activeLow || false);
@@ -101,6 +106,12 @@ export class GpioLedController {
 
     // Setup terminal pins
     await this.setupTerminalPins(config.terminal);
+
+    // Setup activity LED pin
+    if (config.activityLed !== undefined && config.activityLed !== null) {
+      this.activityLedPin = config.activityLed;
+      await this.manager.setupPin(config.activityLed);
+    }
 
     this.initialized = true;
   }
@@ -238,6 +249,20 @@ export class GpioLedController {
   }
 
   /**
+   * Flash activity LED on any drive activity
+   * Short, flashy blink to indicate drive operations (READ, WRITE, STAT)
+   */
+  public updateDriveActivity(): void {
+    if (!this.initialized || !this.manager.isAvailable()) {
+      return; // No-op
+    }
+
+    if (this.activityLedPin !== null) {
+      this.manager.blinkLed(this.activityLedPin, this.activityBlinkDuration);
+    }
+  }
+
+  /**
    * Check if GPIO is available
    */
   public isAvailable(): boolean {
@@ -277,6 +302,11 @@ export class GpioLedController {
       if (this.terminalConfig.connectedPin !== null) allPins.push(this.terminalConfig.connectedPin);
     }
 
+    // Add activity LED
+    if (this.activityLedPin !== null) {
+      allPins.push(this.activityLedPin);
+    }
+
     // Turn all LEDs on
     for (const pin of allPins) {
       this.manager.setLed(pin, true);
@@ -296,6 +326,32 @@ export class GpioLedController {
    */
   public getConfig(): GpioLedConfig | null {
     return this.config;
+  }
+
+  /**
+   * Get performance statistics from GPIO manager
+   */
+  public getStats() {
+    return this.manager.getStats();
+  }
+
+  /**
+   * Log performance statistics (for debugging)
+   */
+  public logStats(): void {
+    if (!this.initialized) {
+      return;
+    }
+
+    const stats = this.manager.getStats();
+    console.log('GPIO Performance Stats:');
+    console.log(`  Total Writes: ${stats.totalWrites}`);
+    console.log(`  Queued Writes: ${stats.queuedWrites}`);
+    console.log(`  Coalesced Writes: ${stats.coalescedWrites} (${Math.round((stats.coalescedWrites / Math.max(stats.queuedWrites, 1)) * 100)}% reduction)`);
+    console.log(`  Current Queue Length: ${stats.queueLength}`);
+    console.log(`  Errors: ${stats.errors}`);
+    console.log(`  Is Processing: ${stats.isProcessing}`);
+    console.log(`  Last Flush: ${stats.lastFlush ? new Date(stats.lastFlush).toISOString() : 'Never'}`);
   }
 
   /**
@@ -361,6 +417,8 @@ export const DEFAULT_GPIO_CONFIG: GpioLedConfig = {
     tx: 20,
     connected: 21,
   },
+  activityLed: 4, // GPIO4 (Pin 7) - General drive activity indicator
   blinkDuration: 100,
+  activityBlinkDuration: 50, // Shorter, flashier for activity LED
   activeLow: false,
 };

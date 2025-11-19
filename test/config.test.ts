@@ -107,6 +107,16 @@ describe('Configuration Module', () => {
       await expect(loadConfigFile('test.config')).rejects.toThrow('"verbose" must be a boolean');
     });
 
+    test('should validate headless as boolean', async () => {
+      mockReadFile.mockResolvedValue(JSON.stringify({ headless: 'yes' }));
+      await expect(loadConfigFile('test.config')).rejects.toThrow('"headless" must be a boolean');
+    });
+
+    test('should validate logFile as string', async () => {
+      mockReadFile.mockResolvedValue(JSON.stringify({ logFile: 123 }));
+      await expect(loadConfigFile('test.config')).rejects.toThrow('"logFile" must be a string');
+    });
+
     test('should validate webPort as number', async () => {
       mockReadFile.mockResolvedValue(JSON.stringify({ webPort: '3000' }));
       await expect(loadConfigFile('test.config')).rejects.toThrow('"webPort" must be a number');
@@ -123,6 +133,8 @@ describe('Configuration Module', () => {
         readonly: [0, 1],
         verbose: true,
         debug: false,
+        headless: true,
+        logFile: '/var/log/fdcsds.log',
         web: true,
         webPort: 3000,
         webHost: 'localhost',
@@ -290,12 +302,15 @@ describe('Configuration Module', () => {
       expect(example).toHaveProperty('readonly');
       expect(example).toHaveProperty('verbose');
       expect(example).toHaveProperty('debug');
+      expect(example).toHaveProperty('headless');
+      expect(example).toHaveProperty('logFile');
       expect(example).toHaveProperty('web');
       expect(example).toHaveProperty('webPort');
       expect(example).toHaveProperty('webHost');
       expect(example).toHaveProperty('terminalPort');
       expect(example).toHaveProperty('terminalBaud');
       expect(example).toHaveProperty('terminalAutoconnect');
+      expect(example).toHaveProperty('gpioLeds');
     });
 
     test('should have sensible default values', () => {
@@ -307,6 +322,7 @@ describe('Configuration Module', () => {
       expect(example.terminalBaud).toBe(9600);
       expect(example.verbose).toBe(false);
       expect(example.debug).toBe(false);
+      expect(example.headless).toBe(false);
       expect(Array.isArray(example.readonly)).toBe(true);
     });
   });

@@ -21,6 +21,7 @@
 #   ./run-server.sh -p /dev/ttyUSB0 -0 disks/cpm22.dsk -w
 #   ./run-server.sh --config myserver.config
 #   ./run-server.sh --dev -c test.config -p /dev/ttyUSB0
+#   ./run-server.sh --headless -p /dev/ttyUSB0  # Run without text UI (for systemd)
 #
 
 # Get the directory where this script is located
