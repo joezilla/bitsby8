@@ -225,7 +225,17 @@ async function main(): Promise<void> {
   // Initialize GPIO LEDs if enabled
   if (mergedOptions.gpioLeds?.enabled !== false && mergedOptions.gpioLeds !== undefined) {
     try {
-      const gpioConfig = mergedOptions.gpioLeds || DEFAULT_GPIO_CONFIG;
+      // Merge user config with defaults to preserve all pin configurations
+      const gpioConfig = {
+        ...DEFAULT_GPIO_CONFIG,
+        ...mergedOptions.gpioLeds,
+        // Merge nested drive configs
+        drive0: { ...DEFAULT_GPIO_CONFIG.drive0, ...mergedOptions.gpioLeds.drive0 },
+        drive1: { ...DEFAULT_GPIO_CONFIG.drive1, ...mergedOptions.gpioLeds.drive1 },
+        drive2: { ...DEFAULT_GPIO_CONFIG.drive2, ...mergedOptions.gpioLeds.drive2 },
+        drive3: { ...DEFAULT_GPIO_CONFIG.drive3, ...mergedOptions.gpioLeds.drive3 },
+        terminal: { ...DEFAULT_GPIO_CONFIG.terminal, ...mergedOptions.gpioLeds.terminal },
+      };
       // Ensure enabled flag is set
       if (gpioConfig.enabled === undefined) {
         gpioConfig.enabled = true;
