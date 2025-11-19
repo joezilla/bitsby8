@@ -45,6 +45,7 @@ function printHelp(): void {
   console.log('  -r, --readonly <n>     Make drive 0-3 read only (can be used multiple times)');
   console.log('  -v, --verbose          Verbose display');
   console.log('  -d, --debug            Debug mode');
+  console.log('  --headless             Disable text-based status display (for systemd/background)');
   console.log('  -w, --web              Enable web interface (default: disabled)');
   console.log('  --web-port <port>      Web interface port (default: 3000)');
   console.log('  --web-host <host>      Web interface host (default: localhost)');
@@ -84,6 +85,7 @@ async function main(): Promise<void> {
     }, [] as number[])
     .option('-v, --verbose', 'Verbose display')
     .option('-d, --debug', 'Debug mode')
+    .option('--headless', 'Disable text-based status display (for systemd/background)')
     .option('-w, --web', 'Enable web interface')
     .option('--web-port <port>', 'Web interface port')
     .option('--web-host <host>', 'Web interface host')
@@ -172,6 +174,7 @@ async function main(): Promise<void> {
   config.baudRate = baudRate as BaudRate;
   config.verbose = mergedOptions.verbose || false;
   config.debug = mergedOptions.debug || false;
+  const headless = mergedOptions.headless || false;
 
   // Parse drive mounts (skip empty strings)
   if (mergedOptions.drive0 && mergedOptions.drive0.trim()) config.drives.set(0, mergedOptions.drive0);
@@ -195,8 +198,12 @@ async function main(): Promise<void> {
   const displayManager = getDisplayManager();
   const gpioController = getGpioLedController();
 
-  // Initialize display
-  displayManager.init();
+  // Initialize display (unless running in headless mode)
+  if (!headless) {
+    displayManager.init();
+  } else {
+    console.log('Running in headless mode (text-based display disabled)');
+  }
 
   // Initialize GPIO LEDs if enabled
   if (mergedOptions.gpioLeds?.enabled !== false && mergedOptions.gpioLeds !== undefined) {

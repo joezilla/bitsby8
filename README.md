@@ -177,6 +177,7 @@ The configuration file uses JSON format:
   "readonly": [0],
   "verbose": false,
   "debug": false,
+  "headless": false,
   "web": true,
   "webPort": 3000,
   "webHost": "localhost",
@@ -231,6 +232,7 @@ Options:
   -r, --readonly <n>        Make drive 0-3 read only
   -v, --verbose             Verbose display
   -d, --debug               Debug mode
+  --headless                Disable text-based status display (for systemd/background)
   -w, --web                 Enable web interface (default: disabled)
   --web-port <port>         Web interface port (default: 3000)
   --web-host <host>         Web interface host (default: localhost)
@@ -279,6 +281,12 @@ fdcsds -p /dev/ttyUSB0 -b 460800 -0 disks/cpm22.dsk
 **Verbose mode:**
 ```bash
 fdcsds -p /dev/ttyUSB0 -v -0 disks/cpm22.dsk
+```
+
+**Headless mode (for systemd services or background operation):**
+```bash
+fdcsds --headless -p /dev/ttyUSB0 -0 disks/cpm22.dsk -w
+# Runs without text-based UI, suitable for systemd or screen/tmux
 ```
 
 **Enable web interface:**

@@ -27,6 +27,7 @@ export interface ConfigFile {
   // Display options
   verbose?: boolean;
   debug?: boolean;
+  headless?: boolean; // Disable text-based status display
 
   // Web interface options
   web?: boolean;
@@ -161,6 +162,13 @@ function validateConfig(config: any): ConfigFile {
     validated.debug = config.debug;
   }
 
+  if (config.headless !== undefined) {
+    if (typeof config.headless !== 'boolean') {
+      throw new Error('Config error: "headless" must be a boolean');
+    }
+    validated.headless = config.headless;
+  }
+
   // Web interface options
   if (config.web !== undefined) {
     if (typeof config.web !== 'boolean') {
@@ -239,6 +247,7 @@ export function mergeConfig(configFile: ConfigFile | null, cmdLineOptions: any):
 
   if (cmdLineOptions.verbose !== undefined) merged.verbose = cmdLineOptions.verbose;
   if (cmdLineOptions.debug !== undefined) merged.debug = cmdLineOptions.debug;
+  if (cmdLineOptions.headless !== undefined) merged.headless = cmdLineOptions.headless;
 
   if (cmdLineOptions.web !== undefined) merged.web = cmdLineOptions.web;
   if (cmdLineOptions.webPort !== undefined) merged.webPort = parseInt(cmdLineOptions.webPort);
@@ -286,6 +295,7 @@ export function getExampleConfig(): string {
     // Display options
     verbose: false,
     debug: false,
+    headless: false, // Disable text-based status display (useful when running as systemd service)
 
     // Web interface
     web: true,
