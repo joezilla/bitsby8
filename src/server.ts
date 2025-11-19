@@ -133,9 +133,6 @@ export class FdcServer {
   private async handleStatCommand(cmd: CommandResponseBlock): Promise<void> {
     this.displayManager.displayCommand('STAT');
 
-    // Flash activity LED
-    getGpioLedController().updateDriveActivity();
-
     // Extract parameters
     // param1: LSB = drive, MSB = head load
     // param2: track number
