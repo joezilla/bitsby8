@@ -7,12 +7,14 @@ import express, { Request, Response } from 'express';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
+import multer from 'multer';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { DriveManager } from './drive';
 import { SerialPortManager } from './serial';
 import { TerminalSerialManager } from './terminal-serial';
 import { MAX_DRIVES } from './protocol';
+import { getDatabase, DatabaseService } from './database';
 
 export interface WebServerConfig {
   port: number;
@@ -35,6 +37,8 @@ export class WebServer {
   private terminalManager: TerminalSerialManager;
   private preferredTerminalSettings: PreferredTerminalSettings;
   private statusInterval: NodeJS.Timeout | null = null;
+  private db: DatabaseService;
+  private upload: multer.Multer;
 
   constructor(
     config: WebServerConfig,
@@ -48,6 +52,38 @@ export class WebServer {
     this.serialManager = serialManager;
     this.terminalManager = terminalManager;
     this.preferredTerminalSettings = preferredTerminalSettings || {};
+
+    // Initialize database
+    this.db = getDatabase();
+
+    // Configure multer for file uploads
+    const storage = multer.diskStorage({
+      destination: async (_req, _file, cb) => {
+        try {
+          await fs.mkdir(this.config.disksDir, { recursive: true });
+          cb(null, this.config.disksDir);
+        } catch (error) {
+          cb(error as Error, this.config.disksDir);
+        }
+      },
+      filename: (_req, file, cb) => {
+        cb(null, file.originalname);
+      }
+    });
+
+    this.upload = multer({
+      storage,
+      limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+      fileFilter: (_req, file, cb) => {
+        const allowed = ['.dsk', '.img', '.ima'];
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (allowed.includes(ext)) {
+          cb(null, true);
+        } else {
+          cb(new Error('Invalid file type. Only .dsk, .img, and .ima files are allowed.'));
+        }
+      }
+    });
 
     // Create Express app
     this.app = express();
@@ -173,6 +209,236 @@ export class WebServer {
       try {
         const images = await this.listDiskImages();
         res.json({ images });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Upload disk image
+    this.app.post('/api/images/upload', this.upload.single('disk'), async (req: Request, res: Response): Promise<void> => {
+      try {
+        if (!req.file) {
+          res.status(400).json({ error: 'No file uploaded' });
+          return;
+        }
+
+        const filename = req.file.filename;
+        const stats = await fs.stat(req.file.path);
+
+        // Save metadata to database
+        this.db.upsertDiskMetadata({
+          filename,
+          description: '',
+          size: stats.size,
+          uploadDate: new Date().toISOString()
+        });
+
+        res.json({ success: true, filename });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Delete disk image
+    this.app.delete('/api/images/:filename', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const filename = decodeURIComponent(req.params.filename);
+
+        // Check if disk is in use (in startup mounts)
+        if (this.db.isDiskInUse(filename)) {
+          res.status(400).json({
+            error: 'Disk is configured as a startup mount. Remove it from startup mounts first.'
+          });
+          return;
+        }
+
+        // Check if currently mounted
+        for (let i = 0; i < MAX_DRIVES; i++) {
+          const state = this.driveManager.getDriveState(i);
+          if (state && state.filename && path.basename(state.filename) === filename) {
+            res.status(400).json({
+              error: 'Disk is currently mounted. Unmount it first.'
+            });
+            return;
+          }
+        }
+
+        // Delete file
+        const filePath = path.join(this.config.disksDir, filename);
+        await fs.unlink(filePath);
+
+        // Delete metadata
+        this.db.deleteDiskMetadata(filename);
+
+        res.json({ success: true });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Get all disk metadata
+    this.app.get('/api/disks/metadata', (_req: Request, res: Response): void => {
+      try {
+        const allMetadata = this.db.getAllDiskMetadata();
+
+        // Convert array to object keyed by filename
+        const metadataObj: Record<string, any> = {};
+        allMetadata.forEach(meta => {
+          metadataObj[meta.filename] = meta;
+        });
+
+        res.json(metadataObj);
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Update disk metadata
+    this.app.put('/api/images/:filename/metadata', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const filename = decodeURIComponent(req.params.filename);
+        const { description } = req.body;
+
+        const success = this.db.updateDiskDescription(filename, description || '');
+
+        if (success) {
+          res.json({ success: true });
+        } else {
+          res.status(404).json({ error: 'Disk not found' });
+        }
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Get startup mounts
+    this.app.get('/api/startup-mounts', (_req: Request, res: Response): void => {
+      try {
+        const mounts = this.db.getAllStartupMounts();
+        res.json(mounts);
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Save startup mounts
+    this.app.put('/api/startup-mounts', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const { mounts } = req.body;
+
+        if (!Array.isArray(mounts)) {
+          res.status(400).json({ error: 'Invalid mounts data' });
+          return;
+        }
+
+        // Update each drive's startup mount
+        for (const mount of mounts) {
+          this.db.setStartupMount(
+            mount.driveId,
+            mount.diskFilename || null,
+            mount.readonly || false
+          );
+        }
+
+        res.json({ success: true });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Get configuration
+    this.app.get('/api/config', async (_req: Request, res: Response): Promise<void> => {
+      try {
+        // For now, return empty config object
+        // In a full implementation, this would load from config file and merge with DB overrides
+        const config = this.db.getAllConfigOverrides();
+        res.json(config);
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Save configuration
+    this.app.put('/api/config', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const config = req.body;
+
+        // Save each config item as override
+        for (const [key, value] of Object.entries(config)) {
+          const type = typeof value === 'number' ? 'number' :
+                       typeof value === 'boolean' ? 'boolean' :
+                       typeof value === 'object' ? 'json' : 'string';
+          this.db.setConfigOverride(key, value, type as any);
+        }
+
+        res.json({ success: true, message: 'Configuration saved. Some settings may require restart.' });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Serial port API endpoints
+
+    // Get serial port status
+    this.app.get('/api/serial/status', (_req: Request, res: Response) => {
+      res.json({
+        connected: this.serialManager.isOpen(),
+        device: this.serialManager.getDevice(),
+      });
+    });
+
+    // Connect to serial port
+    this.app.post('/api/serial/connect', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const { device, baudRate } = req.body;
+
+        if (!device) {
+          res.status(400).json({ error: 'Device path is required' });
+          return;
+        }
+
+        if (!baudRate) {
+          res.status(400).json({ error: 'Baud rate is required' });
+          return;
+        }
+
+        // Check if already connected
+        if (this.serialManager.isOpen()) {
+          res.status(400).json({ error: 'Serial port is already connected. Disconnect first.' });
+          return;
+        }
+
+        await this.serialManager.openPort(device, baudRate);
+
+        // Broadcast status update
+        this.io.emit('serial:status', {
+          connected: true,
+          device: this.serialManager.getDevice(),
+        });
+
+        res.json({ success: true, device, baudRate });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Disconnect from serial port
+    this.app.post('/api/serial/disconnect', async (_req: Request, res: Response): Promise<void> => {
+      try {
+        if (!this.serialManager.isOpen()) {
+          res.status(400).json({ error: 'Serial port is not connected' });
+          return;
+        }
+
+        await this.serialManager.closePort();
+
+        // Broadcast status update
+        this.io.emit('serial:status', {
+          connected: false,
+          device: null,
+        });
+
+        res.json({ success: true });
       } catch (error) {
         res.status(500).json({ error: (error as Error).message });
       }

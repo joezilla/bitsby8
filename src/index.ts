@@ -149,10 +149,10 @@ async function main(): Promise<void> {
   console.log(`  TerminalBaud: ${mergedOptions.terminalBaud || '(not set)'}`);
   console.log(`  TerminalAutoconnect: ${mergedOptions.terminalAutoconnect}`);
 
-  // Validate port is specified
-  if (!mergedOptions.port) {
+  // Port is optional if web interface is enabled (can connect later via UI)
+  if (!mergedOptions.port && !mergedOptions.web) {
     printHelp();
-    console.error('Error: You must specify a serial port with \'-p\' option or in config file.\n');
+    console.error('Error: You must specify a serial port with \'-p\' option, in config file, or enable web interface.\n');
     process.exit(1);
   }
 
@@ -202,64 +202,65 @@ async function main(): Promise<void> {
   const gpioController = getGpioLedController();
   const logger = getLogger();
 
-  // Initialize file-based logging if requested
-  if (mergedOptions.logFile) {
-    try {
-      // In headless mode, disable console output (logs go to file only)
-      // In normal mode, enable console output (logs go to both file and console)
-      await logger.initialize(mergedOptions.logFile, !headless);
-      console.log(`File-based logging enabled: ${mergedOptions.logFile}`);
-    } catch (error) {
-      console.error('Failed to initialize logging:', error);
-      console.log('Continuing without file-based logging');
-    }
-  }
-
-  // Initialize display (unless running in headless mode)
-  if (!headless) {
-    displayManager.init();
-  } else {
-    console.log('Running in headless mode (text-based display disabled)');
-  }
-
-  // Initialize GPIO LEDs if enabled
-  if (mergedOptions.gpioLeds?.enabled !== false && mergedOptions.gpioLeds !== undefined) {
-    try {
-      // Merge user config with defaults to preserve all pin configurations
-      const gpioConfig = {
-        ...DEFAULT_GPIO_CONFIG,
-        ...mergedOptions.gpioLeds,
-        // Merge nested drive configs
-        drive0: { ...DEFAULT_GPIO_CONFIG.drive0, ...mergedOptions.gpioLeds.drive0 },
-        drive1: { ...DEFAULT_GPIO_CONFIG.drive1, ...mergedOptions.gpioLeds.drive1 },
-        drive2: { ...DEFAULT_GPIO_CONFIG.drive2, ...mergedOptions.gpioLeds.drive2 },
-        drive3: { ...DEFAULT_GPIO_CONFIG.drive3, ...mergedOptions.gpioLeds.drive3 },
-        terminal: { ...DEFAULT_GPIO_CONFIG.terminal, ...mergedOptions.gpioLeds.terminal },
-      };
-      // Ensure enabled flag is set
-      if (gpioConfig.enabled === undefined) {
-        gpioConfig.enabled = true;
-      }
-
-      await gpioController.initialize(gpioConfig);
-
-      if (gpioController.isAvailable()) {
-        console.log('GPIO LED status indicators enabled');
-
-        // Blink all LEDs once as a startup test
-        console.log('Testing GPIO LEDs...');
-        await gpioController.blinkAllLeds(500);
-        console.log('GPIO LED test complete');
-      } else {
-        console.log('GPIO LED support not available on this platform (continuing without LEDs)');
-      }
-    } catch (error) {
-      console.error('Failed to initialize GPIO LEDs:', error);
-      console.log('Continuing without GPIO LED support');
-    }
-  }
-
   try {
+
+    // Initialize file-based logging if requested
+    if (mergedOptions.logFile) {
+      try {
+        // In headless mode, disable console output (logs go to file only)
+        // In normal mode, enable console output (logs go to both file and console)
+        await logger.initialize(mergedOptions.logFile, !headless);
+        console.log(`File-based logging enabled: ${mergedOptions.logFile}`);
+      } catch (error) {
+        console.error('Failed to initialize logging:', error);
+        console.log('Continuing without file-based logging');
+      }
+    }
+
+    // Initialize display (unless running in headless mode)
+    if (!headless) {
+      displayManager.init();
+    } else {
+      console.log('Running in headless mode (text-based display disabled)');
+    }
+
+    // Initialize GPIO LEDs if enabled
+    if (mergedOptions.gpioLeds?.enabled !== false && mergedOptions.gpioLeds !== undefined) {
+      try {
+        // Merge user config with defaults to preserve all pin configurations
+        const gpioConfig = {
+          ...DEFAULT_GPIO_CONFIG,
+          ...mergedOptions.gpioLeds,
+          // Merge nested drive configs
+          drive0: { ...DEFAULT_GPIO_CONFIG.drive0, ...mergedOptions.gpioLeds.drive0 },
+          drive1: { ...DEFAULT_GPIO_CONFIG.drive1, ...mergedOptions.gpioLeds.drive1 },
+          drive2: { ...DEFAULT_GPIO_CONFIG.drive2, ...mergedOptions.gpioLeds.drive2 },
+          drive3: { ...DEFAULT_GPIO_CONFIG.drive3, ...mergedOptions.gpioLeds.drive3 },
+          terminal: { ...DEFAULT_GPIO_CONFIG.terminal, ...mergedOptions.gpioLeds.terminal },
+        };
+        // Ensure enabled flag is set
+        if (gpioConfig.enabled === undefined) {
+          gpioConfig.enabled = true;
+        }
+
+        await gpioController.initialize(gpioConfig);
+
+        if (gpioController.isAvailable()) {
+          console.log('GPIO LED status indicators enabled');
+
+          // Blink all LEDs once as a startup test
+          console.log('Testing GPIO LEDs...');
+          await gpioController.blinkAllLeds(500);
+          console.log('GPIO LED test complete');
+        } else {
+          console.log('GPIO LED support not available on this platform (continuing without LEDs)');
+        }
+      } catch (error) {
+        console.error('Failed to initialize GPIO LEDs:', error);
+        console.log('Continuing without GPIO LED support');
+      }
+    }
+
     // Set write protection for read-only drives
     for (const drive of config.readonlyDrives) {
       driveManager.writeProtect(drive, true);
@@ -280,10 +281,26 @@ async function main(): Promise<void> {
       }
     }
 
-    // Open serial port
-    await serialManager.openPort(config.port!, config.baudRate);
-    displayManager.displayPort(config.port!);
-    displayManager.displayBaud(config.baudRate);
+    // Open serial port (allow failure if web interface is enabled)
+    if (config.port) {
+      try {
+        await serialManager.openPort(config.port, config.baudRate);
+        displayManager.displayPort(config.port);
+        displayManager.displayBaud(config.baudRate);
+        console.log(`Serial port connected: ${config.port} @ ${config.baudRate} baud`);
+      } catch (error) {
+        console.error(`Failed to open serial port ${config.port}:`, error);
+        if (!mergedOptions.web) {
+          // Only throw error if web interface is disabled
+          console.error('Error: Serial port required when web interface is disabled.');
+          throw error;
+        }
+        // If web interface is enabled, continue without serial port
+        console.log('Continuing without serial port connection. Use web interface to reconnect.');
+      }
+    } else {
+      console.log('No serial port specified. Use web interface to connect.');
+    }
 
     // Auto-connect terminal if requested
     if (mergedOptions.terminalPort && mergedOptions.terminalAutoconnect) {
