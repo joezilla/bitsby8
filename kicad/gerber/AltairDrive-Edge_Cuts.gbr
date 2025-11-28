@@ -1,0 +1,23 @@
+%TF.GenerationSoftware,KiCad,Pcbnew,9.0.6*%
+%TF.CreationDate,2025-11-28T12:10:43-05:00*%
+%TF.ProjectId,AltairDrive,416c7461-6972-4447-9269-76652e6b6963,rev?*%
+%TF.SameCoordinates,Original*%
+%TF.FileFunction,Profile,NP*%
+%FSLAX46Y46*%
+G04 Gerber Fmt 4.6, Leading zero omitted, Abs format (unit mm)*
+G04 Created by KiCad (PCBNEW 9.0.6) date 2025-11-28 12:10:43*
+%MOMM*%
+%LPD*%
+G01*
+G04 APERTURE LIST*
+%TA.AperFunction,Profile*%
+%ADD10C,0.038100*%
+%TD*%
+G04 APERTURE END LIST*
+D10*
+X53000000Y-59180000D02*
+X260000000Y-59180000D01*
+X260000000Y-135180000D01*
+X53000000Y-135180000D01*
+X53000000Y-59180000D01*
+M02*
