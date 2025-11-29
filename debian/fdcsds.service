@@ -7,7 +7,7 @@ After=network.target
 Type=simple
 User=fdcsds
 Group=fdcsds
-SupplementaryGroups=dialout
+SupplementaryGroups=dialout gpio
 
 # Environment
 EnvironmentFile=-/etc/default/fdcsds

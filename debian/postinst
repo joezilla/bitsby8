@@ -14,6 +14,16 @@ case "$1" in
                     --gecos "FDC+ Serial Drive Server" fdcsds
         fi
 
+        # Create gpio group if it doesn't exist
+        if ! getent group gpio >/dev/null; then
+            addgroup --system gpio
+        fi
+
+        # Add fdcsds user to gpio group for GPIO access
+        if getent group gpio >/dev/null; then
+            adduser fdcsds gpio >/dev/null || true
+        fi
+
         # Add fdcsds user to dialout group for serial port access
         if getent group dialout >/dev/null; then
             adduser fdcsds dialout >/dev/null || true
