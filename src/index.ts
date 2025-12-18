@@ -177,7 +177,7 @@ async function main(): Promise<void> {
   config.baudRate = baudRate as BaudRate;
   config.verbose = mergedOptions.verbose || false;
   config.debug = mergedOptions.debug || false;
-  const headless = mergedOptions.headless || false;
+  const headless = mergedOptions.headless || true;
 
   // Parse drive mounts (skip empty strings)
   if (mergedOptions.drive0 && mergedOptions.drive0.trim()) config.drives.set(0, mergedOptions.drive0);
