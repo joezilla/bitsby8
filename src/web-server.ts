@@ -60,6 +60,7 @@ export class WebServer {
       server?: FdcServer;
       displayManager?: DisplayManager;
       runtimeConfig?: Config;
+      database?: Database;
     }
   ) {
     this.config = config;
@@ -71,9 +72,13 @@ export class WebServer {
     this.displayManager = options?.displayManager || null;
     this.runtimeConfig = options?.runtimeConfig || null;
 
-    // Initialize database
-    const dbPath = path.join(process.cwd(), 'fdcplus.db');
-    this.database = new Database(dbPath);
+    // Use provided database or create new one
+    if (options?.database) {
+      this.database = options.database;
+    } else {
+      const dbPath = path.join(process.cwd(), 'fdcplus.db');
+      this.database = new Database(dbPath);
+    }
 
     // Initialize audio player
     this.audioPlayer = playSound({});
@@ -227,6 +232,15 @@ export class WebServer {
         // Mount the drive
         await this.driveManager.mountDrive(driveId, fullPath);
 
+        // Save to database
+        try {
+          const readonly = this.driveManager.isReadOnly(driveId);
+          await this.database.saveDriveAssignment(driveId, filename, readonly);
+        } catch (dbError) {
+          console.error('Failed to save drive assignment to database:', dbError);
+          // Continue anyway - mount succeeded even if DB save failed
+        }
+
         // Broadcast status update
         this.broadcastStatus();
 
@@ -248,6 +262,14 @@ export class WebServer {
 
         await this.driveManager.unmountDrive(driveId);
 
+        // Clear from database
+        try {
+          await this.database.clearDriveAssignment(driveId);
+        } catch (dbError) {
+          console.error('Failed to clear drive assignment from database:', dbError);
+          // Continue anyway - unmount succeeded even if DB clear failed
+        }
+
         // Broadcast status update
         this.broadcastStatus();
 
@@ -258,7 +280,7 @@ export class WebServer {
     });
 
     // Set drive read-only status
-    this.app.put('/api/drives/:id/readonly', (req: Request, res: Response): void => {
+    this.app.put('/api/drives/:id/readonly', async (req: Request, res: Response): Promise<void> => {
       try {
         const driveId = parseInt(req.params.id);
         const { readonly } = req.body;
@@ -269,6 +291,18 @@ export class WebServer {
         }
 
         this.driveManager.writeProtect(driveId, readonly);
+
+        // Update database if drive is mounted
+        try {
+          const driveState = this.driveManager.getDriveState(driveId);
+          if (driveState && driveState.mounted && driveState.filename) {
+            const filename = path.basename(driveState.filename);
+            await this.database.saveDriveAssignment(driveId, filename, readonly);
+          }
+        } catch (dbError) {
+          console.error('Failed to update drive assignment in database:', dbError);
+          // Continue anyway - readonly change succeeded even if DB update failed
+        }
 
         // Broadcast status update
         this.broadcastStatus();
@@ -1189,12 +1223,14 @@ export class WebServer {
    * Start the web server
    */
   async start(): Promise<void> {
-    // Initialize database first
-    try {
-      await this.database.initialize();
-    } catch (error) {
-      console.error('Failed to initialize database:', error);
-      throw error;
+    // Initialize database if not already initialized
+    if (!this.database.isInitialized()) {
+      try {
+        await this.database.initialize();
+      } catch (error) {
+        console.error('Failed to initialize database:', error);
+        throw error;
+      }
     }
 
     return new Promise((resolve, reject) => {

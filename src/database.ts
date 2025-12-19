@@ -19,6 +19,13 @@ export interface CassetteNote {
   updated_at: string;
 }
 
+export interface DriveAssignment {
+  drive_id: number;
+  filename: string;
+  readonly: number; // SQLite uses 0/1 for boolean
+  updated_at: string;
+}
+
 export class Database {
   private db: sqlite3.Database | null = null;
   private dbPath: string;
@@ -77,6 +84,15 @@ export class Database {
       )
     `;
 
+    const createDriveAssignmentsTable = `
+      CREATE TABLE IF NOT EXISTS drive_assignments (
+        drive_id INTEGER PRIMARY KEY,
+        filename TEXT NOT NULL,
+        readonly INTEGER DEFAULT 0,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
     return new Promise((resolve, reject) => {
       this.db!.serialize(() => {
         this.db!.run(createDiskNotesTable, (err) => {
@@ -90,7 +106,14 @@ export class Database {
               reject(err);
               return;
             }
-            resolve();
+
+            this.db!.run(createDriveAssignmentsTable, (err) => {
+              if (err) {
+                reject(err);
+                return;
+              }
+              resolve();
+            });
           });
         });
       });
@@ -286,6 +309,101 @@ export class Database {
       this.db!.run(
         'DELETE FROM cassette_notes WHERE filename = ?',
         [filename],
+        (err) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve();
+        }
+      );
+    });
+  }
+
+  /**
+   * Get all drive assignments
+   */
+  async getAllDriveAssignments(): Promise<DriveAssignment[]> {
+    if (!this.db || !this.initialized) {
+      throw new Error('Database not initialized');
+    }
+
+    return new Promise((resolve, reject) => {
+      this.db!.all(
+        'SELECT * FROM drive_assignments ORDER BY drive_id',
+        (err, rows: DriveAssignment[]) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve(rows || []);
+        }
+      );
+    });
+  }
+
+  /**
+   * Save drive assignment (mount)
+   */
+  async saveDriveAssignment(driveId: number, filename: string, readonly: boolean): Promise<void> {
+    if (!this.db || !this.initialized) {
+      throw new Error('Database not initialized');
+    }
+
+    return new Promise((resolve, reject) => {
+      this.db!.run(
+        `INSERT INTO drive_assignments (drive_id, filename, readonly, updated_at)
+         VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(drive_id) DO UPDATE SET
+           filename = excluded.filename,
+           readonly = excluded.readonly,
+           updated_at = CURRENT_TIMESTAMP`,
+        [driveId, filename, readonly ? 1 : 0],
+        (err) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve();
+        }
+      );
+    });
+  }
+
+  /**
+   * Clear drive assignment (unmount)
+   */
+  async clearDriveAssignment(driveId: number): Promise<void> {
+    if (!this.db || !this.initialized) {
+      throw new Error('Database not initialized');
+    }
+
+    return new Promise((resolve, reject) => {
+      this.db!.run(
+        'DELETE FROM drive_assignments WHERE drive_id = ?',
+        [driveId],
+        (err) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve();
+        }
+      );
+    });
+  }
+
+  /**
+   * Clear all drive assignments
+   */
+  async clearAllDriveAssignments(): Promise<void> {
+    if (!this.db || !this.initialized) {
+      throw new Error('Database not initialized');
+    }
+
+    return new Promise((resolve, reject) => {
+      this.db!.run(
+        'DELETE FROM drive_assignments',
         (err) => {
           if (err) {
             reject(err);

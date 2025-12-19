@@ -307,6 +307,61 @@ async function main(): Promise<void> {
     }
   }
 
+  // Initialize database and load saved drive assignments
+  const { Database } = await import('./database');
+  const dbPath = path.join(process.cwd(), 'fdcplus.db');
+  const database = new Database(dbPath);
+
+  try {
+    await database.initialize();
+    console.log('Database initialized successfully');
+
+    // Load saved drive assignments (only if web server will be enabled)
+    if (mergedOptions.web) {
+      try {
+        const savedAssignments = await database.getAllDriveAssignments();
+        console.log(`Found ${savedAssignments.length} saved drive assignment(s)`);
+
+        for (const assignment of savedAssignments) {
+          try {
+            const fullPath = path.join(process.cwd(), 'disks', assignment.filename);
+
+            // Check if file exists before mounting
+            const fs = await import('fs');
+            if (!fs.existsSync(fullPath)) {
+              console.warn(`Skipping drive ${assignment.drive_id}: file not found: ${assignment.filename}`);
+              await database.clearDriveAssignment(assignment.drive_id);
+              continue;
+            }
+
+            // Mount the drive
+            await driveManager.mountDrive(assignment.drive_id, fullPath);
+
+            // Set readonly status
+            if (assignment.readonly) {
+              driveManager.writeProtect(assignment.drive_id, true);
+            }
+
+            console.log(`Restored drive ${assignment.drive_id}: ${assignment.filename} (${assignment.readonly ? 'RO' : 'RW'})`);
+            displayManager.displayMount(assignment.drive_id, assignment.filename);
+            if (assignment.readonly) {
+              displayManager.displayRO(assignment.drive_id, true);
+            }
+          } catch (error) {
+            console.error(`Failed to restore drive ${assignment.drive_id}:`, error);
+            // Clear the invalid assignment from database
+            await database.clearDriveAssignment(assignment.drive_id);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load saved drive assignments:', error);
+      }
+    }
+  } catch (error) {
+    console.error('Failed to initialize database:', error);
+    console.log('Continuing without database support');
+  }
+
   // Create server
   const server = new FdcServer(
     driveManager,
@@ -338,7 +393,7 @@ async function main(): Promise<void> {
       serialManager,
       terminalManager,
       preferredTerminalSettings,
-      { server, displayManager, runtimeConfig: config }
+      { server, displayManager, runtimeConfig: config, database }
     );
     await webServer.start();
   }
@@ -356,6 +411,11 @@ async function main(): Promise<void> {
     // Cleanup GPIO LEDs
     if (gpioController.isInitialized()) {
       await gpioController.shutdown();
+    }
+
+    // Close database
+    if (database && database.isInitialized()) {
+      await database.close();
     }
 
     // Close logger
