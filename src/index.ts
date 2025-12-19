@@ -393,38 +393,57 @@ async function main(): Promise<void> {
       serialManager,
       terminalManager,
       preferredTerminalSettings,
-      { server, displayManager, runtimeConfig: config, database }
+      { server, displayManager, runtimeConfig: mergedOptions, database }
     );
     await webServer.start();
   }
 
   // Setup signal handlers
   const cleanup = async () => {
-    server.stop();
-    if (webServer) {
-      await webServer.stop();
-    }
-    await serialManager.closePort();
-    await terminalManager.closePort();
-    await driveManager.unmountAll();
+    console.log('\nShutting down gracefully...');
 
-    // Cleanup GPIO LEDs
-    if (gpioController.isInitialized()) {
-      await gpioController.shutdown();
-    }
+    // Create a timeout promise to prevent hanging
+    const timeoutPromise = new Promise<void>((_, reject) => {
+      setTimeout(() => reject(new Error('Cleanup timeout after 5 seconds')), 5000);
+    });
 
-    // Close database
-    if (database && database.isInitialized()) {
-      await database.close();
-    }
+    // Perform cleanup operations
+    const cleanupPromise = async () => {
+      server.stop();
+      if (webServer) {
+        await webServer.stop();
+      }
+      await serialManager.closePort();
+      await terminalManager.closePort();
+      await driveManager.unmountAll();
 
-    // Close logger
-    if (logger.isInitialized()) {
-      await logger.close();
-    }
+      // Cleanup GPIO LEDs
+      if (gpioController.isInitialized()) {
+        await gpioController.shutdown();
+      }
 
-    displayManager.reset();
-    process.exit(0);
+      // Close database
+      if (database && database.isInitialized()) {
+        await database.close();
+      }
+
+      // Close logger
+      if (logger.isInitialized()) {
+        await logger.close();
+      }
+
+      displayManager.reset();
+    };
+
+    try {
+      // Race cleanup against timeout
+      await Promise.race([cleanupPromise(), timeoutPromise]);
+      console.log('Cleanup complete');
+    } catch (error) {
+      console.error('Cleanup error or timeout:', error);
+    } finally {
+      process.exit(0);
+    }
   };
 
   process.on('SIGINT', cleanup);

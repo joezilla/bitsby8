@@ -1508,6 +1508,142 @@
                 </div>
                 <div class="config-help" id="primaryConfigMessage">Select the serial port and baud rate for your FDC+ controller connection.</div>
             </div>
+
+            <div class="config-card">
+                <div class="config-header">
+                    <div>
+                        <div class="config-title">🌐 Web Interface Configuration</div>
+                        <div class="config-subtitle">Configure web server settings. Changes require restart.</div>
+                    </div>
+                </div>
+                <div class="config-grid">
+                    <div class="config-field">
+                        <label for="configWebEnabled">Enable Web Interface</label>
+                        <input type="checkbox" id="configWebEnabled" style="width: auto;">
+                    </div>
+                    <div class="config-field">
+                        <label for="configWebPort">Web Port</label>
+                        <input type="number" id="configWebPort" placeholder="3000" min="1" max="65535">
+                    </div>
+                    <div class="config-field">
+                        <label for="configWebHost">Web Host</label>
+                        <input type="text" id="configWebHost" placeholder="localhost">
+                    </div>
+                </div>
+            </div>
+
+            <div class="config-card">
+                <div class="config-header">
+                    <div>
+                        <div class="config-title">📟 Terminal Serial Configuration</div>
+                        <div class="config-subtitle">Optional second serial port for VT102 terminal connection. Changes require restart.</div>
+                    </div>
+                    <div class="config-status">
+                        <span class="status-dot disconnected" id="terminalStatusDot"></span>
+                        <span id="terminalStatusLabel">Not Connected</span>
+                    </div>
+                </div>
+                <div class="config-grid">
+                    <div class="config-field">
+                        <label for="configTerminalPort">Terminal Port</label>
+                        <select id="configTerminalPort">
+                            <option value="">Select port...</option>
+                        </select>
+                    </div>
+                    <div class="config-field">
+                        <label for="configTerminalBaud">Terminal Baud</label>
+                        <select id="configTerminalBaud">
+                            <option value="">Not set</option>
+                            <option value="300">300</option>
+                            <option value="1200">1200</option>
+                            <option value="2400">2400</option>
+                            <option value="4800">4800</option>
+                            <option value="9600">9600</option>
+                            <option value="19200">19200</option>
+                            <option value="38400">38400</option>
+                            <option value="57600">57600</option>
+                            <option value="115200">115200</option>
+                        </select>
+                    </div>
+                    <div class="config-field">
+                        <label for="configTerminalAutoconnect">Auto-connect Terminal</label>
+                        <input type="checkbox" id="configTerminalAutoconnect" style="width: auto;">
+                    </div>
+                    <div class="config-actions">
+                        <button class="btn-secondary" onclick="refreshTerminalPorts()">Refresh Ports</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="config-card">
+                <div class="config-header">
+                    <div>
+                        <div class="config-title">🖥️ Display Options</div>
+                        <div class="config-subtitle">Configure logging and display behavior.</div>
+                    </div>
+                </div>
+                <div class="config-grid">
+                    <div class="config-field">
+                        <label for="configVerbose">Verbose Mode</label>
+                        <input type="checkbox" id="configVerbose" style="width: auto;">
+                    </div>
+                    <div class="config-field">
+                        <label for="configDebug">Debug Mode</label>
+                        <input type="checkbox" id="configDebug" style="width: auto;">
+                    </div>
+                    <div class="config-field">
+                        <label for="configHeadless">Headless Mode</label>
+                        <input type="checkbox" id="configHeadless" style="width: auto;">
+                    </div>
+                    <div class="config-field">
+                        <label for="configLogFile">Log File Path</label>
+                        <input type="text" id="configLogFile" placeholder="/var/log/fdcsds.log">
+                    </div>
+                </div>
+            </div>
+
+            <div class="config-card">
+                <div class="config-header">
+                    <div>
+                        <div class="config-title">💡 GPIO LED Configuration</div>
+                        <div class="config-subtitle">Raspberry Pi GPIO LED status indicators. Changes require restart.</div>
+                    </div>
+                </div>
+                <div class="config-grid">
+                    <div class="config-field">
+                        <label for="configGpioEnabled">Enable GPIO LEDs</label>
+                        <input type="checkbox" id="configGpioEnabled" style="width: auto;">
+                    </div>
+                    <div class="config-field">
+                        <label for="configGpioActiveLow">Active Low</label>
+                        <input type="checkbox" id="configGpioActiveLow" style="width: auto;">
+                    </div>
+                    <div class="config-field">
+                        <label for="configGpioBlinkDuration">Blink Duration (ms)</label>
+                        <input type="number" id="configGpioBlinkDuration" placeholder="100" min="10" max="1000">
+                    </div>
+                    <div class="config-field">
+                        <label for="configGpioActivityBlinkDuration">Activity Blink (ms)</label>
+                        <input type="number" id="configGpioActivityBlinkDuration" placeholder="50" min="10" max="1000">
+                    </div>
+                    <div class="config-field">
+                        <label for="configGpioActivityLed">Activity LED Pin</label>
+                        <input type="number" id="configGpioActivityLed" placeholder="4" min="0" max="27">
+                    </div>
+                </div>
+                <div class="config-help" style="margin-top: 1rem; font-size: 0.85em; opacity: 0.8;">
+                    Note: Individual drive GPIO pin assignments can be configured in the config file.
+                </div>
+            </div>
+
+            <div style="margin-top: 1.5rem; text-align: center;">
+                <button class="btn-primary" onclick="loadConfiguration()" style="margin-right: 10px;">Reload Config</button>
+                <button class="btn-secondary" onclick="saveConfiguration()">Save Changes</button>
+            </div>
+
+            <div class="config-help" style="margin-top: 1rem; text-align: center;">
+                Most configuration changes require an application restart to take effect.
+            </div>
         </div>
 
         <footer>
@@ -1654,6 +1790,8 @@
             // Load page-specific data
             if (page === 'scripts') {
                 loadScripts();
+            } else if (page === 'configuration') {
+                loadConfiguration();
             }
 
             // Update URL hash without scrolling
@@ -2001,6 +2139,188 @@
 
         function refreshPrimaryPorts() {
             return loadPrimaryPorts();
+        }
+
+        // ===== Terminal Serial Port Management =====
+        let terminalPorts = [];
+
+        async function loadTerminalPorts() {
+            try {
+                const response = await fetch('/api/terminal/ports');
+                const data = await response.json();
+                terminalPorts = data.ports || [];
+
+                const select = document.getElementById('configTerminalPort');
+                if (select) {
+                    const currentValue = select.value;
+                    select.innerHTML = '<option value="">Select port...</option>';
+                    terminalPorts.forEach(port => {
+                        const option = document.createElement('option');
+                        option.value = port.path;
+                        option.textContent = `${port.path}${port.manufacturer ? ' - ' + port.manufacturer : ''}`;
+                        select.appendChild(option);
+                    });
+                    // Restore previous selection if it still exists
+                    if (currentValue && terminalPorts.some(p => p.path === currentValue)) {
+                        select.value = currentValue;
+                    }
+                }
+
+                // Update terminal status indicator
+                updateTerminalStatusUI();
+            } catch (error) {
+                console.error('Failed to load terminal ports:', error);
+                showNotification(`Could not load terminal ports: ${error.message}`, 'error');
+            }
+        }
+
+        function refreshTerminalPorts() {
+            return loadTerminalPorts();
+        }
+
+        function updateTerminalStatusUI() {
+            if (!latestStatus || !latestStatus.terminal) return;
+
+            const statusDot = document.getElementById('terminalStatusDot');
+            const statusLabel = document.getElementById('terminalStatusLabel');
+
+            if (statusDot && statusLabel) {
+                statusDot.className = `status-dot ${latestStatus.terminal.connected ? 'connected' : 'disconnected'}`;
+                statusLabel.textContent = latestStatus.terminal.connected
+                    ? (latestStatus.terminal.device || 'Connected')
+                    : 'Not Connected';
+            }
+        }
+
+        // ===== Full Configuration Management =====
+        async function loadConfiguration() {
+            try {
+                const response = await fetch('/api/config');
+                const config = await response.json();
+
+                // Web Interface
+                if (document.getElementById('configWebEnabled')) {
+                    document.getElementById('configWebEnabled').checked = config.web !== false;
+                }
+                if (document.getElementById('configWebPort')) {
+                    document.getElementById('configWebPort').value = config.webPort || 3000;
+                }
+                if (document.getElementById('configWebHost')) {
+                    document.getElementById('configWebHost').value = config.webHost || 'localhost';
+                }
+
+                // Terminal Options
+                if (document.getElementById('configTerminalPort')) {
+                    document.getElementById('configTerminalPort').value = config.terminalPort || '';
+                }
+                if (document.getElementById('configTerminalBaud')) {
+                    document.getElementById('configTerminalBaud').value = config.terminalBaud || '';
+                }
+                if (document.getElementById('configTerminalAutoconnect')) {
+                    document.getElementById('configTerminalAutoconnect').checked = config.terminalAutoconnect === true;
+                }
+
+                // Display Options
+                if (document.getElementById('configVerbose')) {
+                    document.getElementById('configVerbose').checked = config.verbose === true;
+                }
+                if (document.getElementById('configDebug')) {
+                    document.getElementById('configDebug').checked = config.debug === true;
+                }
+                if (document.getElementById('configHeadless')) {
+                    document.getElementById('configHeadless').checked = config.headless === true;
+                }
+                if (document.getElementById('configLogFile')) {
+                    document.getElementById('configLogFile').value = config.logFile || '';
+                }
+
+                // GPIO LED Options
+                if (config.gpioLeds) {
+                    if (document.getElementById('configGpioEnabled')) {
+                        document.getElementById('configGpioEnabled').checked = config.gpioLeds.enabled === true;
+                    }
+                    if (document.getElementById('configGpioActiveLow')) {
+                        document.getElementById('configGpioActiveLow').checked = config.gpioLeds.activeLow === true;
+                    }
+                    if (document.getElementById('configGpioBlinkDuration')) {
+                        document.getElementById('configGpioBlinkDuration').value = config.gpioLeds.blinkDuration || 100;
+                    }
+                    if (document.getElementById('configGpioActivityBlinkDuration')) {
+                        document.getElementById('configGpioActivityBlinkDuration').value = config.gpioLeds.activityBlinkDuration || 50;
+                    }
+                    if (document.getElementById('configGpioActivityLed')) {
+                        document.getElementById('configGpioActivityLed').value = config.gpioLeds.activityLed || 4;
+                    }
+                } else {
+                    // Set defaults if no GPIO config exists
+                    if (document.getElementById('configGpioEnabled')) {
+                        document.getElementById('configGpioEnabled').checked = false;
+                    }
+                    if (document.getElementById('configGpioActiveLow')) {
+                        document.getElementById('configGpioActiveLow').checked = false;
+                    }
+                    if (document.getElementById('configGpioBlinkDuration')) {
+                        document.getElementById('configGpioBlinkDuration').value = 100;
+                    }
+                    if (document.getElementById('configGpioActivityBlinkDuration')) {
+                        document.getElementById('configGpioActivityBlinkDuration').value = 50;
+                    }
+                    if (document.getElementById('configGpioActivityLed')) {
+                        document.getElementById('configGpioActivityLed').value = 4;
+                    }
+                }
+
+                showNotification('Configuration loaded', 'success');
+            } catch (error) {
+                showNotification(`Failed to load configuration: ${error.message}`, 'error');
+            }
+        }
+
+        async function saveConfiguration() {
+            try {
+                const config = {
+                    // Web Interface
+                    web: document.getElementById('configWebEnabled')?.checked,
+                    webPort: parseInt(document.getElementById('configWebPort')?.value) || 3000,
+                    webHost: document.getElementById('configWebHost')?.value || 'localhost',
+
+                    // Terminal Options
+                    terminalPort: document.getElementById('configTerminalPort')?.value || undefined,
+                    terminalBaud: parseInt(document.getElementById('configTerminalBaud')?.value) || undefined,
+                    terminalAutoconnect: document.getElementById('configTerminalAutoconnect')?.checked,
+
+                    // Display Options
+                    verbose: document.getElementById('configVerbose')?.checked,
+                    debug: document.getElementById('configDebug')?.checked,
+                    headless: document.getElementById('configHeadless')?.checked,
+                    logFile: document.getElementById('configLogFile')?.value || undefined,
+
+                    // GPIO LED Options
+                    gpioLeds: {
+                        enabled: document.getElementById('configGpioEnabled')?.checked,
+                        activeLow: document.getElementById('configGpioActiveLow')?.checked,
+                        blinkDuration: parseInt(document.getElementById('configGpioBlinkDuration')?.value) || 100,
+                        activityBlinkDuration: parseInt(document.getElementById('configGpioActivityBlinkDuration')?.value) || 50,
+                        activityLed: parseInt(document.getElementById('configGpioActivityLed')?.value) || 4,
+                    }
+                };
+
+                const response = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showNotification(data.message || 'Configuration saved', 'success');
+                } else {
+                    showNotification(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Failed to save configuration: ${error.message}`, 'error');
+            }
         }
 
         async function applyPrimaryConfig() {
