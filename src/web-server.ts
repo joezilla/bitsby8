@@ -7,17 +7,25 @@ import express, { Request, Response } from 'express';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
+import multer from 'multer';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import { existsSync, createReadStream } from 'fs';
 import { DriveManager } from './drive';
 import { SerialPortManager } from './serial';
 import { TerminalSerialManager } from './terminal-serial';
-import { MAX_DRIVES } from './protocol';
+import { BaudRate, Config, MAX_DRIVES } from './protocol';
+import { FdcServer } from './server';
+import { DisplayManager } from './ui/display';
+import { Database } from './database';
+import playSound from 'play-sound';
 
 export interface WebServerConfig {
   port: number;
   host: string;
   disksDir: string;
+  cassettesDir: string;
+  scriptsDir: string;
 }
 
 export interface PreferredTerminalSettings {
@@ -34,20 +42,41 @@ export class WebServer {
   private serialManager: SerialPortManager;
   private terminalManager: TerminalSerialManager;
   private preferredTerminalSettings: PreferredTerminalSettings;
+  private server: FdcServer | null;
+  private displayManager: DisplayManager | null;
+  private runtimeConfig: Config | null;
   private statusInterval: NodeJS.Timeout | null = null;
+  private database: Database;
+  private audioPlayer: any;
+  private currentAudioProcess: any = null;
 
   constructor(
     config: WebServerConfig,
     driveManager: DriveManager,
     serialManager: SerialPortManager,
     terminalManager: TerminalSerialManager,
-    preferredTerminalSettings?: PreferredTerminalSettings
+    preferredTerminalSettings?: PreferredTerminalSettings,
+    options?: {
+      server?: FdcServer;
+      displayManager?: DisplayManager;
+      runtimeConfig?: Config;
+    }
   ) {
     this.config = config;
     this.driveManager = driveManager;
     this.serialManager = serialManager;
     this.terminalManager = terminalManager;
     this.preferredTerminalSettings = preferredTerminalSettings || {};
+    this.server = options?.server || null;
+    this.displayManager = options?.displayManager || null;
+    this.runtimeConfig = options?.runtimeConfig || null;
+
+    // Initialize database
+    const dbPath = path.join(process.cwd(), 'fdcplus.db');
+    this.database = new Database(dbPath);
+
+    // Initialize audio player
+    this.audioPlayer = playSound({});
 
     // Create Express app
     this.app = express();
@@ -72,7 +101,18 @@ export class WebServer {
   private setupMiddleware(): void {
     this.app.use(cors());
     this.app.use(express.json());
-    this.app.use(express.static(path.join(__dirname, '../public')));
+
+    // Resolve public directory regardless of build location
+    const repoPublic = path.resolve(process.cwd(), 'public');
+    const distPublic = path.resolve(__dirname, '../public');
+
+    const publicDir = existsSync(repoPublic) ? repoPublic : distPublic;
+    if (existsSync(publicDir)) {
+      this.app.use(express.static(publicDir));
+    } else {
+      // If both paths fail, still continue to allow APIs/websocket use
+      console.warn('Warning: public assets directory not found');
+    }
   }
 
   /**
@@ -87,6 +127,77 @@ export class WebServer {
     // Get server status
     this.app.get('/api/status', (_req: Request, res: Response) => {
       res.json(this.getStatus());
+    });
+
+    // List available serial ports for the primary connection
+    this.app.get('/api/serial/ports', async (_req: Request, res: Response): Promise<void> => {
+      try {
+        const ports = await TerminalSerialManager.listPorts();
+        res.json({ ports });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Update primary serial configuration (device + baud)
+    this.app.put('/api/serial/config', async (req: Request, res: Response): Promise<void> => {
+      const { device, baudRate } = req.body || {};
+
+      if (!device) {
+        res.status(400).json({ error: 'Device path is required' });
+        return;
+      }
+
+      const parsedBaud = typeof baudRate === 'string' ? parseInt(baudRate, 10) : baudRate;
+      if (!parsedBaud || !Object.values(BaudRate).includes(parsedBaud as BaudRate)) {
+        res.status(400).json({ error: 'Valid baudRate is required' });
+        return;
+      }
+
+      const needsChange =
+        !this.serialManager.isOpen() ||
+        this.serialManager.getDevice() !== device ||
+        this.serialManager.getBaudRate() !== (parsedBaud as BaudRate);
+
+      try {
+        if (this.server) {
+          this.server.pause();
+          await new Promise(resolve => setTimeout(resolve, 25));
+        }
+
+        if (needsChange) {
+          await this.serialManager.closePort().catch(() => {});
+          await this.serialManager.openPort(device, parsedBaud as BaudRate);
+        }
+
+        if (this.displayManager) {
+          this.displayManager.displayPort(device);
+          this.displayManager.displayBaud(parsedBaud);
+          this.displayManager.clearError();
+        }
+
+        if (this.runtimeConfig) {
+          this.runtimeConfig.port = device;
+          this.runtimeConfig.baudRate = parsedBaud as BaudRate;
+        }
+
+        this.broadcastStatus();
+
+        res.json({
+          success: true,
+          serial: {
+            device,
+            baudRate: parsedBaud,
+            connected: this.serialManager.isOpen(),
+          },
+        });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      } finally {
+        if (this.server) {
+          this.server.resume();
+        }
+      }
     });
 
     // Get drive status
@@ -178,6 +289,434 @@ export class WebServer {
       }
     });
 
+    // Get detailed disk image information (with file sizes)
+    this.app.get('/api/images/details', async (_req: Request, res: Response): Promise<void> => {
+      try {
+        const images = await this.listDiskImagesWithDetails();
+        res.json({ images });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Configure multer for disk image uploads
+    const storage = multer.diskStorage({
+      destination: (_req, _file, cb) => {
+        cb(null, this.config.disksDir);
+      },
+      filename: (_req, file, cb) => {
+        // Use original filename
+        cb(null, file.originalname);
+      },
+    });
+
+    const upload = multer({
+      storage: storage,
+      fileFilter: (_req, file, cb) => {
+        // Only accept .dsk, .img, .ima files
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (ext === '.dsk' || ext === '.img' || ext === '.ima') {
+          cb(null, true);
+        } else {
+          cb(new Error('Only .dsk, .img, and .ima files are allowed'));
+        }
+      },
+      limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB max file size
+      },
+    });
+
+    // Upload disk image
+    this.app.post(
+      '/api/images/upload',
+      upload.single('diskImage'),
+      async (req: Request, res: Response): Promise<void> => {
+        try {
+          if (!req.file) {
+            res.status(400).json({ error: 'No file uploaded' });
+            return;
+          }
+
+          res.json({
+            success: true,
+            filename: req.file.filename,
+            size: req.file.size,
+          });
+        } catch (error) {
+          res.status(500).json({ error: (error as Error).message });
+        }
+      }
+    );
+
+    // Clone disk image
+    this.app.post('/api/images/:filename/clone', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const filename = req.params.filename;
+
+        if (!filename) {
+          res.status(400).json({ error: 'Filename is required' });
+          return;
+        }
+
+        // Validate filename (prevent path traversal)
+        if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+          res.status(400).json({ error: 'Invalid filename' });
+          return;
+        }
+
+        const sourcePath = path.join(this.config.disksDir, filename);
+
+        // Check if source file exists
+        if (!existsSync(sourcePath)) {
+          res.status(404).json({ error: 'File not found' });
+          return;
+        }
+
+        // Generate new filename
+        const ext = path.extname(filename);
+        const baseName = path.basename(filename, ext);
+        let copyNumber = 1;
+        let newFilename = `${baseName}-copy${ext}`;
+        let newPath = path.join(this.config.disksDir, newFilename);
+
+        // Find available filename
+        while (existsSync(newPath)) {
+          copyNumber++;
+          newFilename = `${baseName}-copy${copyNumber}${ext}`;
+          newPath = path.join(this.config.disksDir, newFilename);
+        }
+
+        // Copy the file
+        await fs.copyFile(sourcePath, newPath);
+
+        res.json({ success: true, filename: newFilename });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Delete disk image
+    this.app.delete('/api/images/:filename', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const filename = req.params.filename;
+
+        if (!filename) {
+          res.status(400).json({ error: 'Filename is required' });
+          return;
+        }
+
+        // Validate filename (prevent path traversal)
+        if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+          res.status(400).json({ error: 'Invalid filename' });
+          return;
+        }
+
+        const filePath = path.join(this.config.disksDir, filename);
+
+        // Check if file exists
+        if (!existsSync(filePath)) {
+          res.status(404).json({ error: 'File not found' });
+          return;
+        }
+
+        // Check if the file is currently mounted on any drive
+        for (let i = 0; i < MAX_DRIVES; i++) {
+          const driveState = this.driveManager.getDriveState(i);
+          if (driveState && driveState.mounted && driveState.filename) {
+            const mountedFilename = path.basename(driveState.filename);
+            if (mountedFilename === filename) {
+              res.status(409).json({
+                error: `Cannot delete: File is currently mounted on drive ${i}`,
+              });
+              return;
+            }
+          }
+        }
+
+        // Delete the file
+        await fs.unlink(filePath);
+
+        // Also delete notes from database
+        await this.database.deleteDiskNote(filename);
+
+        res.json({ success: true, filename });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Update disk image notes/description
+    this.app.put('/api/images/:filename/notes', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const filename = req.params.filename;
+        const { description, notes } = req.body;
+
+        if (!filename) {
+          res.status(400).json({ error: 'Filename is required' });
+          return;
+        }
+
+        // Validate filename (prevent path traversal)
+        if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+          res.status(400).json({ error: 'Invalid filename' });
+          return;
+        }
+
+        // Check if file exists
+        const filePath = path.join(this.config.disksDir, filename);
+        if (!existsSync(filePath)) {
+          res.status(404).json({ error: 'File not found' });
+          return;
+        }
+
+        // Update notes in database
+        await this.database.upsertDiskNote(
+          filename,
+          description || '',
+          notes || ''
+        );
+
+        res.json({ success: true, filename });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Cassette API endpoints
+
+    // Get detailed cassette information (with file sizes)
+    this.app.get('/api/cassettes/details', async (_req: Request, res: Response): Promise<void> => {
+      try {
+        const cassettes = await this.listCassettesWithDetails();
+        res.json({ cassettes });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Configure multer for cassette uploads
+    const cassetteStorage = multer.diskStorage({
+      destination: (_req, _file, cb) => {
+        cb(null, this.config.cassettesDir);
+      },
+      filename: (_req, file, cb) => {
+        // Use original filename
+        cb(null, file.originalname);
+      },
+    });
+
+    const cassetteUpload = multer({
+      storage: cassetteStorage,
+      fileFilter: (_req, file, cb) => {
+        // Only accept .wav files
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (ext === '.wav') {
+          cb(null, true);
+        } else {
+          cb(new Error('Only .wav files are allowed'));
+        }
+      },
+      limits: {
+        fileSize: 100 * 1024 * 1024, // 100MB max file size for audio
+      },
+    });
+
+    // Upload cassette
+    this.app.post(
+      '/api/cassettes/upload',
+      cassetteUpload.single('cassette'),
+      async (req: Request, res: Response): Promise<void> => {
+        try {
+          if (!req.file) {
+            res.status(400).json({ error: 'No file uploaded' });
+            return;
+          }
+
+          res.json({
+            success: true,
+            filename: req.file.filename,
+            size: req.file.size,
+          });
+        } catch (error) {
+          res.status(500).json({ error: (error as Error).message });
+        }
+      }
+    );
+
+    // Delete cassette
+    this.app.delete('/api/cassettes/:filename', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const filename = req.params.filename;
+
+        if (!filename) {
+          res.status(400).json({ error: 'Filename is required' });
+          return;
+        }
+
+        // Validate filename (prevent path traversal)
+        if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+          res.status(400).json({ error: 'Invalid filename' });
+          return;
+        }
+
+        const filePath = path.join(this.config.cassettesDir, filename);
+
+        // Check if file exists
+        if (!existsSync(filePath)) {
+          res.status(404).json({ error: 'File not found' });
+          return;
+        }
+
+        // Delete the file
+        await fs.unlink(filePath);
+
+        // Also delete notes from database
+        await this.database.deleteCassetteNote(filename);
+
+        res.json({ success: true, filename });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Update cassette notes/description
+    this.app.put('/api/cassettes/:filename/notes', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const filename = req.params.filename;
+        const { description, notes } = req.body;
+
+        if (!filename) {
+          res.status(400).json({ error: 'Filename is required' });
+          return;
+        }
+
+        // Validate filename (prevent path traversal)
+        if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+          res.status(400).json({ error: 'Invalid filename' });
+          return;
+        }
+
+        // Check if file exists
+        const filePath = path.join(this.config.cassettesDir, filename);
+        if (!existsSync(filePath)) {
+          res.status(404).json({ error: 'File not found' });
+          return;
+        }
+
+        // Update notes in database
+        await this.database.upsertCassetteNote(
+          filename,
+          description || '',
+          notes || ''
+        );
+
+        res.json({ success: true, filename });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Stream cassette file for client-side playback
+    this.app.get('/api/cassettes/:filename/stream', (req: Request, res: Response) => {
+      try {
+        const filename = req.params.filename;
+
+        if (!filename) {
+          res.status(400).json({ error: 'Filename is required' });
+          return;
+        }
+
+        // Validate filename (prevent path traversal)
+        if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+          res.status(400).json({ error: 'Invalid filename' });
+          return;
+        }
+
+        const filePath = path.join(this.config.cassettesDir, filename);
+
+        // Check if file exists
+        if (!existsSync(filePath)) {
+          res.status(404).json({ error: 'File not found' });
+          return;
+        }
+
+        // Stream the file
+        res.setHeader('Content-Type', 'audio/wav');
+        res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+
+        const stream = createReadStream(filePath);
+        stream.pipe(res);
+
+        stream.on('error', (err) => {
+          console.error('Stream error:', err);
+          if (!res.headersSent) {
+            res.status(500).json({ error: 'Error streaming file' });
+          }
+        });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Play cassette server-side
+    this.app.post('/api/cassettes/:filename/play', (req: Request, res: Response) => {
+      try {
+        const filename = req.params.filename;
+
+        if (!filename) {
+          res.status(400).json({ error: 'Filename is required' });
+          return;
+        }
+
+        // Validate filename (prevent path traversal)
+        if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+          res.status(400).json({ error: 'Invalid filename' });
+          return;
+        }
+
+        const filePath = path.join(this.config.cassettesDir, filename);
+
+        // Check if file exists
+        if (!existsSync(filePath)) {
+          res.status(404).json({ error: 'File not found' });
+          return;
+        }
+
+        // Stop any currently playing audio
+        if (this.currentAudioProcess && this.currentAudioProcess.kill) {
+          this.currentAudioProcess.kill();
+          this.currentAudioProcess = null;
+        }
+
+        // Play the audio file
+        this.currentAudioProcess = this.audioPlayer.play(filePath, (err: any) => {
+          if (err && !err.killed) {
+            console.error('Audio playback error:', err);
+          }
+          this.currentAudioProcess = null;
+        });
+
+        res.json({ success: true, message: 'Playback started', filename });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Stop server-side playback
+    this.app.post('/api/cassettes/stop', (_req: Request, res: Response) => {
+      try {
+        if (this.currentAudioProcess && this.currentAudioProcess.kill) {
+          this.currentAudioProcess.kill();
+          this.currentAudioProcess = null;
+          res.json({ success: true, message: 'Playback stopped' });
+        } else {
+          res.json({ success: true, message: 'No audio playing' });
+        }
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
     // Terminal API endpoints
 
     // Get terminal status
@@ -246,6 +785,143 @@ export class WebServer {
         this.io.emit('terminal:status', this.getTerminalStatus());
 
         res.json({ success: true, config: this.terminalManager.getConfig() });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Script API endpoints
+
+    // List all scripts
+    this.app.get('/api/scripts', async (_req: Request, res: Response): Promise<void> => {
+      try {
+        await fs.mkdir(this.config.scriptsDir, { recursive: true });
+        const files = await fs.readdir(this.config.scriptsDir);
+        const scripts = files.filter(file => file.endsWith('.txt'));
+        res.json({ scripts });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Get script content
+    this.app.get('/api/scripts/:name', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const name = req.params.name;
+
+        if (!name || !name.endsWith('.txt')) {
+          res.status(400).json({ error: 'Invalid script name' });
+          return;
+        }
+
+        // Validate filename (prevent path traversal)
+        if (name.includes('..') || name.includes('/') || name.includes('\\')) {
+          res.status(400).json({ error: 'Invalid script name' });
+          return;
+        }
+
+        const scriptPath = path.join(this.config.scriptsDir, name);
+
+        if (!existsSync(scriptPath)) {
+          res.status(404).json({ error: 'Script not found' });
+          return;
+        }
+
+        const content = await fs.readFile(scriptPath, 'utf-8');
+        res.json({ name, content });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Create new script
+    this.app.post('/api/scripts', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const { name, content } = req.body;
+
+        if (!name || !name.endsWith('.txt')) {
+          res.status(400).json({ error: 'Script name must end with .txt' });
+          return;
+        }
+
+        // Validate filename (prevent path traversal)
+        if (name.includes('..') || name.includes('/') || name.includes('\\')) {
+          res.status(400).json({ error: 'Invalid script name' });
+          return;
+        }
+
+        await fs.mkdir(this.config.scriptsDir, { recursive: true });
+
+        const scriptPath = path.join(this.config.scriptsDir, name);
+
+        if (existsSync(scriptPath)) {
+          res.status(409).json({ error: 'Script already exists' });
+          return;
+        }
+
+        await fs.writeFile(scriptPath, content || '', 'utf-8');
+        res.json({ success: true, name });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Update script
+    this.app.put('/api/scripts/:name', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const name = req.params.name;
+        const { content } = req.body;
+
+        if (!name || !name.endsWith('.txt')) {
+          res.status(400).json({ error: 'Invalid script name' });
+          return;
+        }
+
+        // Validate filename (prevent path traversal)
+        if (name.includes('..') || name.includes('/') || name.includes('\\')) {
+          res.status(400).json({ error: 'Invalid script name' });
+          return;
+        }
+
+        const scriptPath = path.join(this.config.scriptsDir, name);
+
+        if (!existsSync(scriptPath)) {
+          res.status(404).json({ error: 'Script not found' });
+          return;
+        }
+
+        await fs.writeFile(scriptPath, content || '', 'utf-8');
+        res.json({ success: true, name });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Delete script
+    this.app.delete('/api/scripts/:name', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const name = req.params.name;
+
+        if (!name || !name.endsWith('.txt')) {
+          res.status(400).json({ error: 'Invalid script name' });
+          return;
+        }
+
+        // Validate filename (prevent path traversal)
+        if (name.includes('..') || name.includes('/') || name.includes('\\')) {
+          res.status(400).json({ error: 'Invalid script name' });
+          return;
+        }
+
+        const scriptPath = path.join(this.config.scriptsDir, name);
+
+        if (!existsSync(scriptPath)) {
+          res.status(404).json({ error: 'Script not found' });
+          return;
+        }
+
+        await fs.unlink(scriptPath);
+        res.json({ success: true, name });
       } catch (error) {
         res.status(500).json({ error: (error as Error).message });
       }
@@ -332,6 +1008,8 @@ export class WebServer {
         connected: this.serialManager.isOpen(),
         device: this.serialManager.getDevice(),
         baudRate: this.serialManager.getBaudRate(),
+        configuredPort: this.runtimeConfig?.port || this.serialManager.getDevice(),
+        configuredBaudRate: this.runtimeConfig?.baudRate || this.serialManager.getBaudRate(),
       },
       drives: this.getDrivesStatus(),
       timestamp: new Date().toISOString(),
@@ -396,6 +1074,111 @@ export class WebServer {
   }
 
   /**
+   * List available disk images with file details (name, size, description, notes)
+   */
+  private async listDiskImagesWithDetails(): Promise<Array<{ name: string; size: number; description: string; notes: string }>> {
+    try {
+      // Ensure disks directory exists
+      await fs.mkdir(this.config.disksDir, { recursive: true });
+
+      const files = await fs.readdir(this.config.disksDir);
+
+      // Filter for disk image files
+      const diskFiles = files.filter((file) =>
+        file.match(/\.(dsk|img|ima)$/i)
+      );
+
+      // Get all notes from database
+      const notesMap = await this.database.getAllDiskNotes();
+
+      // Get file stats for each disk image
+      const fileDetails = await Promise.all(
+        diskFiles.map(async (file) => {
+          try {
+            const filePath = path.join(this.config.disksDir, file);
+            const stats = await fs.stat(filePath);
+            const note = notesMap.get(file);
+            return {
+              name: file,
+              size: stats.size,
+              description: note?.description || '',
+              notes: note?.notes || '',
+            };
+          } catch (error) {
+            console.error(`Error getting stats for ${file}:`, error);
+            return {
+              name: file,
+              size: 0,
+              description: '',
+              notes: '',
+            };
+          }
+        })
+      );
+
+      // Sort by name
+      return fileDetails.sort((a, b) => a.name.localeCompare(b.name));
+    } catch (error) {
+      console.error('Error listing disk images with details:', error);
+      return [];
+    }
+  }
+
+  /**
+   * List available cassettes with file details (name, size, duration, description, notes)
+   */
+  private async listCassettesWithDetails(): Promise<Array<{ name: string; size: number; duration?: number; description: string; notes: string }>> {
+    try {
+      // Ensure cassettes directory exists
+      await fs.mkdir(this.config.cassettesDir, { recursive: true });
+
+      const files = await fs.readdir(this.config.cassettesDir);
+
+      // Filter for WAV files
+      const wavFiles = files.filter((file) =>
+        file.match(/\.wav$/i)
+      );
+
+      // Get all notes from database
+      const notesMap = await this.database.getAllCassetteNotes();
+
+      // Get file stats for each cassette
+      const fileDetails = await Promise.all(
+        wavFiles.map(async (file) => {
+          try {
+            const filePath = path.join(this.config.cassettesDir, file);
+            const stats = await fs.stat(filePath);
+            const note = notesMap.get(file);
+
+            // Note: We're not parsing WAV headers for duration in this simple implementation
+            // Duration could be added later by parsing the WAV file header
+            return {
+              name: file,
+              size: stats.size,
+              description: note?.description || '',
+              notes: note?.notes || '',
+            };
+          } catch (error) {
+            console.error(`Error getting stats for ${file}:`, error);
+            return {
+              name: file,
+              size: 0,
+              description: '',
+              notes: '',
+            };
+          }
+        })
+      );
+
+      // Sort by name
+      return fileDetails.sort((a, b) => a.name.localeCompare(b.name));
+    } catch (error) {
+      console.error('Error listing cassettes with details:', error);
+      return [];
+    }
+  }
+
+  /**
    * Broadcast status update to all connected clients
    */
   public broadcastStatus(): void {
@@ -406,6 +1189,14 @@ export class WebServer {
    * Start the web server
    */
   async start(): Promise<void> {
+    // Initialize database first
+    try {
+      await this.database.initialize();
+    } catch (error) {
+      console.error('Failed to initialize database:', error);
+      throw error;
+    }
+
     return new Promise((resolve, reject) => {
       try {
         this.httpServer.listen(this.config.port, this.config.host, () => {
