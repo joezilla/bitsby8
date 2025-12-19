@@ -11,11 +11,11 @@ import { FDCSDS_NAME, FDCSDS_COPYRIGHT, FDCSDS_VERSION } from '../protocol';
  */
 export class DisplayManager {
   private screen: blessed.Widgets.Screen | null;
-  private boxes: Map<string, blessed.Widgets.BoxElement>;
+  private statusBoxes: Map<string, blessed.Widgets.BoxElement>;
 
   constructor() {
     this.screen = null;
-    this.boxes = new Map();
+    this.statusBoxes = new Map();
   }
 
   /**
@@ -44,7 +44,6 @@ export class DisplayManager {
       },
     });
     this.screen.append(title);
-    this.boxes.set('title', title);
 
     // Copyright (row 0, right side)
     const copyright = blessed.box({
@@ -59,130 +58,7 @@ export class DisplayManager {
       },
     });
     this.screen.append(copyright);
-    this.boxes.set('copyright', copyright);
-
-    // Port info (row 2)
-    const port = blessed.box({
-      top: 2,
-      left: 0,
-      width: 27,
-      height: 1,
-      content: 'PORT: ',
-      tags: true,
-      style: {
-        fg: 'white',
-      },
-    });
-    this.screen.append(port);
-    this.boxes.set('port', port);
-
-    // Baud rate (row 2)
-    const baud = blessed.box({
-      top: 2,
-      left: 27,
-      width: 20,
-      height: 1,
-      content: 'BAUD RATE: ',
-      tags: true,
-      style: {
-        fg: 'white',
-      },
-    });
-    this.screen.append(baud);
-    this.boxes.set('baud', baud);
-
-    // Command (row 2)
-    const command = blessed.box({
-      top: 2,
-      left: 47,
-      width: 18,
-      height: 1,
-      content: 'COMMAND: ',
-      tags: true,
-      style: {
-        fg: 'white',
-      },
-    });
-    this.screen.append(command);
-    this.boxes.set('command', command);
-
-    // Block info (row 2, right side)
-    const block = blessed.box({
-      top: 2,
-      left: 65,
-      width: 15,
-      height: 1,
-      content: '',
-      tags: true,
-      style: {
-        fg: 'white',
-      },
-    });
-    this.screen.append(block);
-    this.boxes.set('block', block);
-
-    // Drive status lines (rows 4-7)
-    for (let d = 0; d < 4; d++) {
-      const drive = blessed.box({
-        top: 4 + d,
-        left: 0,
-        width: 80,
-        height: 1,
-        content: `Disk ${d}                              Disk Enable -  Head Load -  Track ----  RO -`,
-        tags: true,
-        style: {
-          fg: 'white',
-        },
-      });
-      this.screen.append(drive);
-      this.boxes.set(`drive${d}`, drive);
-    }
-
-    // Error display (row 9)
-    const error = blessed.box({
-      top: 9,
-      left: 0,
-      width: 80,
-      height: 1,
-      content: 'ERROR: ',
-      tags: true,
-      style: {
-        fg: 'red',
-      },
-    });
-    this.screen.append(error);
-    this.boxes.set('error', error);
-
-    // Debug display (row 10)
-    const debug = blessed.box({
-      top: 10,
-      left: 0,
-      width: 80,
-      height: 1,
-      content: '',
-      tags: true,
-      style: {
-        fg: 'cyan',
-      },
-    });
-    this.screen.append(debug);
-    this.boxes.set('debug', debug);
-
-    // Buffer display area (rows 11-21)
-    const buffer = blessed.box({
-      top: 11,
-      left: 0,
-      width: 80,
-      height: 11,
-      content: '',
-      tags: true,
-      scrollable: false,
-      style: {
-        fg: 'white',
-      },
-    });
-    this.screen.append(buffer);
-    this.boxes.set('buffer', buffer);
+    this.createStatusScreen();
 
     // Help line (bottom row)
     const help = blessed.box({
@@ -190,14 +66,14 @@ export class DisplayManager {
       left: 0,
       width: '100%',
       height: 1,
-      content: '[C] = Clear Error Message | [Q] = Quit Program | [V] = Verbose Toggle',
+      content: '[C] Clear Errors | [Q] Quit | [V] Verbose | Configure via web UI',
       tags: true,
       style: {
         fg: 'yellow',
       },
     });
     this.screen.append(help);
-    this.boxes.set('help', help);
+    this.statusBoxes.set('help', help);
 
     // Setup keyboard handlers
     this.screen.key(['q', 'Q'], () => {
@@ -209,6 +85,7 @@ export class DisplayManager {
       this.clearError();
     });
 
+    this.render();
     this.screen.render();
   }
 
@@ -234,7 +111,7 @@ export class DisplayManager {
    * Display port info
    */
   displayPort(portPath: string): void {
-    const box = this.boxes.get('port');
+    const box = this.statusBoxes.get('port');
     if (box) {
       const basename = portPath.split('/').pop() || portPath;
       box.setContent(`PORT: ${basename.substring(0, 20)}`);
@@ -246,7 +123,7 @@ export class DisplayManager {
    * Display baud rate
    */
   displayBaud(baud: number): void {
-    const box = this.boxes.get('baud');
+    const box = this.statusBoxes.get('baud');
     if (box) {
       box.setContent(`BAUD RATE: ${baud}`);
       this.render();
@@ -257,7 +134,7 @@ export class DisplayManager {
    * Display current command
    */
   displayCommand(cmd: string): void {
-    const box = this.boxes.get('command');
+    const box = this.statusBoxes.get('command');
     if (box) {
       box.setContent(`COMMAND: ${cmd.substring(0, 4)}`);
       this.render();
@@ -268,7 +145,7 @@ export class DisplayManager {
    * Display block information (drive, track, length)
    */
   displayBlock(drive: number, track: number, length: number): void {
-    const box = this.boxes.get('block');
+    const box = this.statusBoxes.get('block');
     if (box) {
       const driveStr = drive >= 0 && drive <= 0xff ? `D:${drive.toString(16).padStart(2, '0').toUpperCase()}` : 'D:--';
       const trackStr = track !== -1 ? `T:${track.toString().padStart(4, '0')}` : 'T:----';
@@ -282,7 +159,7 @@ export class DisplayManager {
    * Display error message
    */
   displayError(message: string, errno?: NodeJS.ErrnoException): void {
-    const box = this.boxes.get('error');
+    const box = this.statusBoxes.get('error');
     if (box) {
       let errorMsg = message;
       if (errno && errno.message) {
@@ -297,7 +174,7 @@ export class DisplayManager {
    * Clear error message
    */
   clearError(): void {
-    const box = this.boxes.get('error');
+    const box = this.statusBoxes.get('error');
     if (box) {
       box.setContent('ERROR: ');
       this.render();
@@ -308,7 +185,7 @@ export class DisplayManager {
    * Display debug message
    */
   displayDebug(message: string): void {
-    const box = this.boxes.get('debug');
+    const box = this.statusBoxes.get('debug');
     if (box) {
       box.setContent(message);
       this.render();
@@ -325,7 +202,7 @@ export class DisplayManager {
 
     // Update all drive lines
     for (let d = 0; d < 4; d++) {
-      const box = this.boxes.get(`drive${d}`);
+      const box = this.statusBoxes.get(`drive${d}`);
       if (box) {
         const content = box.getContent();
         // Update disk enable position (48)
@@ -355,7 +232,7 @@ export class DisplayManager {
       return;
     }
 
-    const box = this.boxes.get(`drive${drive}`);
+    const box = this.statusBoxes.get(`drive${drive}`);
     if (box) {
       const content = box.getContent();
       const trackStr = track.toString().padStart(4, '0');
@@ -374,7 +251,7 @@ export class DisplayManager {
       return;
     }
 
-    const box = this.boxes.get(`drive${drive}`);
+    const box = this.statusBoxes.get(`drive${drive}`);
     if (box) {
       const content = box.getContent();
       const displayName = filename ? filename.substring(0, 25).padEnd(25, ' ') : ''.padEnd(25, ' ');
@@ -393,7 +270,7 @@ export class DisplayManager {
       return;
     }
 
-    const box = this.boxes.get(`drive${drive}`);
+    const box = this.statusBoxes.get(`drive${drive}`);
     if (box) {
       const content = box.getContent();
       const ro = readonly ? '*' : '-';
@@ -412,7 +289,7 @@ export class DisplayManager {
       return;
     }
 
-    const box = this.boxes.get('buffer');
+    const box = this.statusBoxes.get('buffer');
     if (!box) {
       return;
     }
@@ -449,6 +326,147 @@ export class DisplayManager {
       this.screen.render();
     }
   }
+
+  /**
+   * Build the status view and its boxes
+   */
+  private createStatusScreen(): void {
+    if (!this.screen) {
+      return;
+    }
+    const container = blessed.box({
+      top: 2,
+      left: 0,
+      width: '100%',
+      height: '100%-3',
+      tags: true,
+    });
+    this.screen.append(container);
+
+    // Port info (row 0 relative)
+    const port = blessed.box({
+      parent: container,
+      top: 0,
+      left: 0,
+      width: 27,
+      height: 1,
+      content: 'PORT: ',
+      tags: true,
+      style: {
+        fg: 'white',
+      },
+    });
+    this.statusBoxes.set('port', port);
+
+    // Baud rate (row 0)
+    const baud = blessed.box({
+      parent: container,
+      top: 0,
+      left: 27,
+      width: 20,
+      height: 1,
+      content: 'BAUD RATE: ',
+      tags: true,
+      style: {
+        fg: 'white',
+      },
+    });
+    this.statusBoxes.set('baud', baud);
+
+    // Command (row 0)
+    const command = blessed.box({
+      parent: container,
+      top: 0,
+      left: 47,
+      width: 18,
+      height: 1,
+      content: 'COMMAND: ',
+      tags: true,
+      style: {
+        fg: 'white',
+      },
+    });
+    this.statusBoxes.set('command', command);
+
+    // Block info (row 0, right side)
+    const block = blessed.box({
+      parent: container,
+      top: 0,
+      left: 65,
+      width: 15,
+      height: 1,
+      content: '',
+      tags: true,
+      style: {
+        fg: 'white',
+      },
+    });
+    this.statusBoxes.set('block', block);
+
+    // Drive status lines (rows 2-5)
+    for (let d = 0; d < 4; d++) {
+      const drive = blessed.box({
+        parent: container,
+        top: 2 + d,
+        left: 0,
+        width: 80,
+        height: 1,
+        content: `Disk ${d}                              Disk Enable -  Head Load -  Track ----  RO -`,
+        tags: true,
+        style: {
+          fg: 'white',
+        },
+      });
+      this.statusBoxes.set(`drive${d}`, drive);
+    }
+
+    // Error display (row 7)
+    const error = blessed.box({
+      parent: container,
+      top: 7,
+      left: 0,
+      width: 80,
+      height: 1,
+      content: 'ERROR: ',
+      tags: true,
+      style: {
+        fg: 'red',
+      },
+    });
+    this.statusBoxes.set('error', error);
+
+    // Debug display (row 8)
+    const debug = blessed.box({
+      parent: container,
+      top: 8,
+      left: 0,
+      width: 80,
+      height: 1,
+      content: '',
+      tags: true,
+      style: {
+        fg: 'cyan',
+      },
+    });
+    this.statusBoxes.set('debug', debug);
+
+    // Buffer display area (rows 10-20)
+    const buffer = blessed.box({
+      parent: container,
+      top: 10,
+      left: 0,
+      width: 80,
+      height: 11,
+      content: '',
+      tags: true,
+      scrollable: false,
+      style: {
+        fg: 'white',
+      },
+    });
+    this.statusBoxes.set('buffer', buffer);
+  }
+
 }
 
 /**

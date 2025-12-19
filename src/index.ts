@@ -259,114 +259,180 @@ async function main(): Promise<void> {
     }
   }
 
+  // Set write protection for read-only drives
+  for (const drive of config.readonlyDrives) {
+    driveManager.writeProtect(drive, true);
+    displayManager.displayRO(drive, true);
+  }
+
+  // Mount drives
+  for (const [driveNum, filename] of config.drives.entries()) {
+    try {
+      await driveManager.mountDrive(driveNum, filename);
+      displayManager.displayMount(driveNum, filename);
+    } catch (error) {
+      displayManager.displayMount(driveNum, '--ERROR--');
+      displayManager.displayError(
+        `Failed to mount drive ${driveNum}`,
+        error as NodeJS.ErrnoException
+      );
+    }
+  }
+
+  // Attempt to open serial port, but continue running if it fails
   try {
-    // Set write protection for read-only drives
-    for (const drive of config.readonlyDrives) {
-      driveManager.writeProtect(drive, true);
-      displayManager.displayRO(drive, true);
+    if (!config.port) {
+      throw new Error('No primary serial port configured');
     }
-
-    // Mount drives
-    for (const [driveNum, filename] of config.drives.entries()) {
-      try {
-        await driveManager.mountDrive(driveNum, filename);
-        displayManager.displayMount(driveNum, filename);
-      } catch (error) {
-        displayManager.displayMount(driveNum, '--ERROR--');
-        displayManager.displayError(
-          `Failed to mount drive ${driveNum}`,
-          error as NodeJS.ErrnoException
-        );
-      }
-    }
-
-    // Open serial port
-    await serialManager.openPort(config.port!, config.baudRate);
-    displayManager.displayPort(config.port!);
+    await serialManager.openPort(config.port, config.baudRate);
+    displayManager.displayPort(config.port);
     displayManager.displayBaud(config.baudRate);
+  } catch (error) {
+    console.error('Primary serial port unavailable; continuing without connection:', error);
+    displayManager.displayError('Primary serial unavailable - configure via web UI');
+    displayManager.displayDebug('Open the web interface to set port/baud and reconnect.');
+  }
 
-    // Auto-connect terminal if requested
-    if (mergedOptions.terminalPort && mergedOptions.terminalAutoconnect) {
-      try {
-        const terminalBaudValue = mergedOptions.terminalBaud || 9600;
-        const terminalBaud = typeof terminalBaudValue === 'string' ? parseInt(terminalBaudValue) : terminalBaudValue;
-        await terminalManager.openPort(mergedOptions.terminalPort, {
-          baudRate: terminalBaud as any,
-        });
-        console.log(`Terminal port connected: ${mergedOptions.terminalPort} @ ${terminalBaud} baud`);
-      } catch (error) {
-        console.error('Failed to auto-connect terminal port:', error);
-      }
+  // Auto-connect terminal if requested
+  if (mergedOptions.terminalPort && mergedOptions.terminalAutoconnect) {
+    try {
+      const terminalBaudValue = mergedOptions.terminalBaud || 9600;
+      const terminalBaud = typeof terminalBaudValue === 'string' ? parseInt(terminalBaudValue) : terminalBaudValue;
+      await terminalManager.openPort(mergedOptions.terminalPort, {
+        baudRate: terminalBaud as any,
+      });
+      console.log(`Terminal port connected: ${mergedOptions.terminalPort} @ ${terminalBaud} baud`);
+    } catch (error) {
+      console.error('Failed to auto-connect terminal port:', error);
     }
+  }
 
-    // Create web server if enabled
-    let webServer: WebServer | null = null;
+  // Initialize database and load saved drive assignments
+  const { Database } = await import('./database');
+  const dbPath = path.join(process.cwd(), 'fdcplus.db');
+  const database = new Database(dbPath);
+
+  try {
+    await database.initialize();
+    console.log('Database initialized successfully');
+
+    // Load saved drive assignments (only if web server will be enabled)
     if (mergedOptions.web) {
-      const webConfig = {
-        port: parseInt(mergedOptions.webPort || '3000'),
-        host: mergedOptions.webHost || 'localhost',
-        disksDir: path.join(process.cwd(), 'disks'),
-      };
+      try {
+        const savedAssignments = await database.getAllDriveAssignments();
+        console.log(`Found ${savedAssignments.length} saved drive assignment(s)`);
 
-      // Pass preferred terminal settings from config
-      const preferredTerminalSettings = {
-        port: mergedOptions.terminalPort,
-        baud: mergedOptions.terminalBaud,
-      };
+        for (const assignment of savedAssignments) {
+          try {
+            const fullPath = path.join(process.cwd(), 'disks', assignment.filename);
 
-      webServer = new WebServer(webConfig, driveManager, serialManager, terminalManager, preferredTerminalSettings);
-      await webServer.start();
+            // Check if file exists before mounting
+            const fs = await import('fs');
+            if (!fs.existsSync(fullPath)) {
+              console.warn(`Skipping drive ${assignment.drive_id}: file not found: ${assignment.filename}`);
+              await database.clearDriveAssignment(assignment.drive_id);
+              continue;
+            }
+
+            // Mount the drive
+            await driveManager.mountDrive(assignment.drive_id, fullPath);
+
+            // Set readonly status
+            if (assignment.readonly) {
+              driveManager.writeProtect(assignment.drive_id, true);
+            }
+
+            console.log(`Restored drive ${assignment.drive_id}: ${assignment.filename} (${assignment.readonly ? 'RO' : 'RW'})`);
+            displayManager.displayMount(assignment.drive_id, assignment.filename);
+            if (assignment.readonly) {
+              displayManager.displayRO(assignment.drive_id, true);
+            }
+          } catch (error) {
+            console.error(`Failed to restore drive ${assignment.drive_id}:`, error);
+            // Clear the invalid assignment from database
+            await database.clearDriveAssignment(assignment.drive_id);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load saved drive assignments:', error);
+      }
     }
+  } catch (error) {
+    console.error('Failed to initialize database:', error);
+    console.log('Continuing without database support');
+  }
 
-    // Create and start server
-    const server = new FdcServer(
-      driveManager,
-      serialManager,
-      displayManager,
-      config
-    );
+  // Create server
+  const server = new FdcServer(
+    driveManager,
+    serialManager,
+    displayManager,
+    config
+  );
 
-    // Setup signal handlers
-    const cleanup = async () => {
-      server.stop();
-      if (webServer) {
-        await webServer.stop();
-      }
-      await serialManager.closePort();
-      await terminalManager.closePort();
-      await driveManager.unmountAll();
-
-      // Cleanup GPIO LEDs
-      if (gpioController.isInitialized()) {
-        await gpioController.shutdown();
-      }
-
-      // Close logger
-      if (logger.isInitialized()) {
-        await logger.close();
-      }
-
-      displayManager.reset();
-      process.exit(0);
+  // Create web server if enabled
+  let webServer: WebServer | null = null;
+  if (mergedOptions.web) {
+    const webConfig = {
+      port: parseInt(mergedOptions.webPort || '3000'),
+      host: mergedOptions.webHost || 'localhost',
+      disksDir: path.join(process.cwd(), 'disks'),
+      cassettesDir: path.join(process.cwd(), 'cassettes'),
+      scriptsDir: path.join(process.cwd(), 'scripts'),
     };
 
-    process.on('SIGINT', cleanup);
-    process.on('SIGTERM', cleanup);
+    // Pass preferred terminal settings from config
+    const preferredTerminalSettings = {
+      port: mergedOptions.terminalPort,
+      baud: mergedOptions.terminalBaud,
+    };
 
-    // Start server
-    await server.start();
+    webServer = new WebServer(
+      webConfig,
+      driveManager,
+      serialManager,
+      terminalManager,
+      preferredTerminalSettings,
+      { server, displayManager, runtimeConfig: config, database }
+    );
+    await webServer.start();
+  }
 
-  } catch (error) {
-    displayManager.reset();
+  // Setup signal handlers
+  const cleanup = async () => {
+    server.stop();
+    if (webServer) {
+      await webServer.stop();
+    }
+    await serialManager.closePort();
+    await terminalManager.closePort();
+    await driveManager.unmountAll();
 
-    // Close logger if initialized
-    if (logger.isInitialized()) {
-      await logger.close().catch(() => {});
+    // Cleanup GPIO LEDs
+    if (gpioController.isInitialized()) {
+      await gpioController.shutdown();
     }
 
-    console.error('Error:', error);
-    process.exit(1);
-  }
+    // Close database
+    if (database && database.isInitialized()) {
+      await database.close();
+    }
+
+    // Close logger
+    if (logger.isInitialized()) {
+      await logger.close();
+    }
+
+    displayManager.reset();
+    process.exit(0);
+  };
+
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
+  process.on('SIGHUP', cleanup);
+
+  // Start server
+  await server.start();
 }
 
 // Run main function

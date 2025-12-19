@@ -27,6 +27,8 @@ export class FdcServer {
   private running: boolean;
   private verbose: boolean;
   private debug: boolean;
+  private paused: boolean;
+  private serialUnavailableNotified: boolean;
 
   constructor(
     driveManager: DriveManager,
@@ -40,6 +42,8 @@ export class FdcServer {
     this.running = false;
     this.verbose = config.verbose;
     this.debug = config.debug;
+    this.paused = false;
+    this.serialUnavailableNotified = false;
   }
 
   /**
@@ -50,6 +54,20 @@ export class FdcServer {
 
     // Main command loop
     while (this.running) {
+      if (this.paused) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+        continue;
+      }
+      if (!this.serialManager.isOpen()) {
+        if (!this.serialUnavailableNotified) {
+          this.displayManager.displayError('Serial port not open (waiting for connection)');
+          this.serialUnavailableNotified = true;
+        }
+        await new Promise(resolve => setTimeout(resolve, 200));
+        continue;
+      } else {
+        this.serialUnavailableNotified = false;
+      }
       try {
         // Wait for command from FDC+ (1 second timeout per iteration)
         const cmdBuffer = await this.serialManager.receiveBuffer(8, 1000);
@@ -96,6 +114,20 @@ export class FdcServer {
    */
   toggleVerbose(): void {
     this.verbose = !this.verbose;
+  }
+
+  /**
+   * Pause command handling (used during live reconfiguration)
+   */
+  pause(): void {
+    this.paused = true;
+  }
+
+  /**
+   * Resume command handling
+   */
+  resume(): void {
+    this.paused = false;
   }
 
   /**

@@ -9,6 +9,46 @@
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
     <style>
+        :root {
+            /* Light mode colors */
+            --bg-primary: #f5f5f5;
+            --bg-secondary: #ffffff;
+            --bg-tertiary: #f9fafb;
+            --text-primary: #1f2937;
+            --text-secondary: #6b7280;
+            --text-tertiary: #9ca3af;
+            --border-color: #e5e7eb;
+            --border-color-hover: #d1d5db;
+            --shadow: rgba(0, 0, 0, 0.1);
+            --panel-border: #4a9eff;
+            --panel-label: #4a9eff;
+            --hamburger-color: #4a9eff;
+            --card-bg: #ffffff;
+            --input-bg: #ffffff;
+            --input-border: #e5e7eb;
+            --hover-bg: #f3f4f6;
+        }
+
+        body.dark-mode {
+            /* Dark mode colors */
+            --bg-primary: #111827;
+            --bg-secondary: #1f2937;
+            --bg-tertiary: #374151;
+            --text-primary: #f9fafb;
+            --text-secondary: #d1d5db;
+            --text-tertiary: #9ca3af;
+            --border-color: #374151;
+            --border-color-hover: #4b5563;
+            --shadow: rgba(0, 0, 0, 0.3);
+            --panel-border: #4a9eff;
+            --panel-label: #4a9eff;
+            --hamburger-color: #4a9eff;
+            --card-bg: #1f2937;
+            --input-bg: #374151;
+            --input-border: #4b5563;
+            --hover-bg: #374151;
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -17,9 +57,10 @@
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: var(--bg-primary);
             min-height: 100vh;
             padding: 20px;
+            transition: background-color 0.3s ease;
         }
 
         .container {
@@ -28,80 +69,382 @@
         }
 
         header {
-            background: white;
+            background: #000;
             padding: 20px 30px;
             border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 6px var(--shadow);
             margin-bottom: 20px;
-        }
-
-        h1 {
-            color: #333;
-            margin-bottom: 10px;
-        }
-
-        .status-bar {
             display: flex;
-            gap: 20px;
+            justify-content: space-between;
             align-items: center;
             flex-wrap: wrap;
+            gap: 15px;
+            border: 3px solid var(--panel-border);
         }
 
-        .status-item {
+        .header-controls {
             display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .theme-toggle {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 60px;
+            height: 30px;
+            background: #4b5563;
+            border-radius: 15px;
+            transition: background-color 0.3s;
+            border: 2px solid var(--hamburger-color);
+        }
+
+        body.dark-mode .toggle-switch {
+            background: var(--hamburger-color);
+        }
+
+        .toggle-slider {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 22px;
+            height: 22px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+        }
+
+        body.dark-mode .toggle-slider {
+            transform: translateX(30px);
+        }
+
+        .theme-toggle:hover .toggle-switch {
+            box-shadow: 0 0 8px var(--hamburger-color);
+        }
+
+        .led-panel {
+            flex: 1;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            gap: 10px;
+            min-width: 600px;
+        }
+
+        .drive-panel {
+            display: flex;
+            flex-direction: column;
             align-items: center;
             gap: 8px;
         }
 
-        .status-dot {
-            width: 12px;
-            height: 12px;
+        .drive-label {
+            color: var(--panel-label);
+            font-size: 0.9em;
+            font-weight: 700;
+            letter-spacing: 1px;
+            margin-bottom: 4px;
+        }
+
+        .led-group {
+            display: flex;
+            gap: 15px;
+        }
+
+        .led-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .led {
+            width: 20px;
+            height: 20px;
             border-radius: 50%;
-            display: inline-block;
+            background: #2a0000;
+            border: 2px solid #500;
+            transition: all 0.3s;
         }
 
-        .status-dot.connected {
-            background: #10b981;
-            box-shadow: 0 0 8px #10b981;
+        .led.active {
+            background: #ff0000;
+            border-color: #ff4444;
+            box-shadow: 0 0 15px #ff0000, 0 0 30px rgba(255, 0, 0, 0.5);
         }
 
-        .status-dot.disconnected {
-            background: #ef4444;
+        .led-label {
+            color: #888;
+            font-size: 0.65em;
+            text-align: center;
+            line-height: 1.1;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            max-width: 60px;
+        }
+
+        .panel-divider {
+            width: 2px;
+            height: 80px;
+            background: var(--panel-border);
+            opacity: 0.5;
+        }
+
+        /* Hamburger Menu */
+        .hamburger-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            transition: all 0.3s;
+        }
+
+        .hamburger-btn:hover {
+            transform: scale(1.1);
+        }
+
+        .hamburger-btn span {
+            display: block;
+            width: 28px;
+            height: 3px;
+            background: var(--hamburger-color);
+            border-radius: 2px;
+            transition: all 0.3s;
+        }
+
+        .hamburger-btn.active span:nth-child(1) {
+            transform: rotate(45deg) translate(8px, 8px);
+        }
+
+        .hamburger-btn.active span:nth-child(2) {
+            opacity: 0;
+        }
+
+        .hamburger-btn.active span:nth-child(3) {
+            transform: rotate(-45deg) translate(7px, -6px);
+        }
+
+        /* Navigation Menu */
+        .nav-menu {
+            position: fixed;
+            top: 0;
+            right: -300px;
+            width: 280px;
+            height: 100vh;
+            background: var(--card-bg);
+            box-shadow: -4px 0 20px var(--shadow);
+            transition: right 0.3s ease;
+            z-index: 1000;
+            padding: 80px 0 20px 0;
+            overflow-y: auto;
+        }
+
+        .nav-menu.open {
+            right: 0;
+        }
+
+        .nav-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
+            z-index: 999;
+        }
+
+        .nav-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .nav-menu ul {
+            list-style: none;
+        }
+
+        .nav-menu li {
+            margin: 0;
+        }
+
+        .nav-menu a {
+            display: block;
+            padding: 16px 30px;
+            color: var(--text-primary);
+            text-decoration: none;
+            font-size: 1.1em;
+            font-weight: 500;
+            transition: all 0.2s;
+            border-left: 4px solid transparent;
+        }
+
+        .nav-menu a:hover {
+            background: var(--hover-bg);
+            border-left-color: #4a9eff;
+            padding-left: 35px;
+        }
+
+        .nav-menu a.active {
+            background: var(--hover-bg);
+            border-left-color: #4a9eff;
+            color: #4a9eff;
+        }
+
+        .nav-menu .close-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: none;
+            border: none;
+            font-size: 2em;
+            cursor: pointer;
+            color: var(--text-secondary);
+            padding: 5px 15px;
+            line-height: 1;
+            transition: all 0.2s;
+        }
+
+        .nav-menu .close-btn:hover {
+            color: var(--text-primary);
+            transform: rotate(90deg);
+        }
+
+        /* Page Content */
+        .page {
+            display: none;
+        }
+
+        .page.active {
+            display: block;
         }
 
         .drives-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .config-card {
+            background: var(--card-bg);
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px var(--shadow);
             margin-bottom: 20px;
         }
 
+        .config-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+        }
+
+        .config-title {
+            font-size: 1.4em;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .config-subtitle {
+            color: var(--text-secondary);
+            font-size: 0.95em;
+        }
+
+        .config-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: var(--hover-bg);
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .config-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+            margin-top: 14px;
+            align-items: end;
+        }
+
+        .config-field label {
+            display: block;
+            font-size: 0.95em;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 6px;
+        }
+
+        .config-field select {
+            width: 100%;
+        }
+
+        .config-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .config-help {
+            margin-top: 12px;
+            color: var(--text-secondary);
+            font-size: 0.9em;
+        }
+
+        .card-loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
         .drive-card {
-            background: white;
-            border-radius: 10px;
-            padding: 20px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            background: var(--card-bg);
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 2px 4px var(--shadow);
+            border: 1px solid var(--border-color);
         }
 
         .drive-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 15px;
-            padding-bottom: 15px;
-            border-bottom: 2px solid #e5e7eb;
+            margin-bottom: 12px;
         }
 
         .drive-title {
-            font-size: 1.5em;
+            font-size: 1.1em;
             font-weight: bold;
-            color: #333;
+            color: var(--text-primary);
         }
 
         .drive-badge {
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.9em;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.75em;
             font-weight: 600;
         }
 
@@ -116,53 +459,72 @@
         }
 
         .drive-info {
-            margin-bottom: 15px;
+            margin-bottom: 10px;
+            font-size: 0.85em;
         }
 
         .info-row {
             display: flex;
             justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid #f3f4f6;
+            padding: 4px 0;
         }
 
         .info-label {
             font-weight: 600;
-            color: #6b7280;
+            color: var(--text-secondary);
         }
 
         .info-value {
-            color: #111827;
+            color: var(--text-primary);
             font-family: monospace;
+            font-size: 0.95em;
         }
 
         .drive-controls {
             display: flex;
-            gap: 10px;
-            margin-top: 15px;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .drive-controls-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
         }
 
         select {
             flex: 1;
-            padding: 10px;
-            border: 2px solid #e5e7eb;
+            padding: 8px;
+            border: 2px solid var(--input-border);
             border-radius: 5px;
-            font-size: 1em;
-            background: white;
+            font-size: 0.9em;
+            background: var(--input-bg);
+            color: var(--text-primary);
         }
 
         button {
-            padding: 10px 20px;
+            padding: 8px 16px;
             border: none;
             border-radius: 5px;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s;
+            font-size: 0.9em;
         }
 
-        button:hover {
+        .btn-compact {
+            padding: 6px 12px;
+            font-size: 0.85em;
+        }
+
+        button:hover:not(:disabled) {
             transform: translateY(-2px);
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
         }
 
         .btn-primary {
@@ -170,7 +532,7 @@
             color: white;
         }
 
-        .btn-primary:hover {
+        .btn-primary:hover:not(:disabled) {
             background: #2563eb;
         }
 
@@ -179,7 +541,7 @@
             color: white;
         }
 
-        .btn-danger:hover {
+        .btn-danger:hover:not(:disabled) {
             background: #dc2626;
         }
 
@@ -188,34 +550,37 @@
             color: white;
         }
 
-        .btn-secondary:hover {
+        .btn-secondary:hover:not(:disabled) {
             background: #4b5563;
         }
 
-        .checkbox-container {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-top: 10px;
+        input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
         }
 
-        input[type="checkbox"] {
-            width: 18px;
-            height: 18px;
-            cursor: pointer;
+        .readonly-label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.85em;
+            white-space: nowrap;
+            color: var(--text-primary);
         }
 
         .notification {
             position: fixed;
             top: 20px;
             right: 20px;
-            background: white;
+            background: var(--card-bg);
             padding: 15px 20px;
             border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            box-shadow: 0 4px 12px var(--shadow);
             display: none;
             z-index: 1000;
             min-width: 300px;
+            color: var(--text-primary);
         }
 
         .notification.show {
@@ -244,7 +609,7 @@
 
         footer {
             text-align: center;
-            color: white;
+            color: var(--text-secondary);
             padding: 20px;
             font-size: 0.9em;
         }
@@ -256,10 +621,10 @@
 
         /* Terminal Styles */
         .terminal-section {
-            background: white;
+            background: var(--card-bg);
             border-radius: 10px;
             padding: 20px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 6px var(--shadow);
             margin-bottom: 20px;
         }
 
@@ -269,7 +634,7 @@
             align-items: center;
             margin-bottom: 15px;
             padding-bottom: 15px;
-            border-bottom: 2px solid #e5e7eb;
+            border-bottom: 2px solid var(--border-color);
             flex-wrap: wrap;
             gap: 15px;
         }
@@ -277,7 +642,7 @@
         .terminal-title {
             font-size: 1.5em;
             font-weight: bold;
-            color: #333;
+            color: var(--text-primary);
         }
 
         .terminal-controls {
@@ -299,8 +664,9 @@
             gap: 8px;
             padding: 6px 12px;
             border-radius: 5px;
-            background: #f3f4f6;
+            background: var(--hover-bg);
             font-size: 0.9em;
+            color: var(--text-primary);
         }
 
         .terminal-container {
@@ -320,7 +686,7 @@
             color: white;
         }
 
-        .btn-success:hover {
+        .btn-success:hover:not(:disabled) {
             background: #059669;
         }
 
@@ -329,7 +695,7 @@
             color: white;
         }
 
-        .btn-warning:hover {
+        .btn-warning:hover:not(:disabled) {
             background: #d97706;
         }
 
@@ -341,100 +707,807 @@
 
         .config-label {
             font-size: 0.85em;
-            color: #6b7280;
+            color: var(--text-secondary);
             font-weight: 600;
+        }
+
+        /* Empty State */
+        .empty-state {
+            background: var(--card-bg);
+            border-radius: 10px;
+            padding: 60px 40px;
+            box-shadow: 0 4px 6px var(--shadow);
+            text-align: center;
+        }
+
+        .empty-state h2 {
+            color: var(--text-primary);
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        .empty-state p {
+            color: var(--text-secondary);
+            font-size: 1.1em;
+        }
+
+        /* Disk Image Manager */
+        .disk-manager {
+            background: var(--card-bg);
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px var(--shadow);
+            margin-bottom: 20px;
+        }
+
+        .disk-manager-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid var(--border-color);
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .disk-manager-title {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: var(--text-primary);
+        }
+
+        .upload-form {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .file-input-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+
+        .file-input-wrapper input[type="file"] {
+            position: absolute;
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .file-input-label {
+            display: inline-block;
+            padding: 10px 20px;
+            background: #6b7280;
+            color: white;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .file-input-label:hover {
+            background: #4b5563;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .file-name-display {
+            padding: 10px 15px;
+            background: var(--hover-bg);
+            border-radius: 5px;
+            color: var(--text-primary);
+            font-size: 0.9em;
+            min-width: 200px;
+        }
+
+        .disk-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .disk-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            transition: all 0.2s;
+        }
+
+        .disk-item:hover {
+            background: var(--hover-bg);
+            border-color: var(--border-color-hover);
+        }
+
+        .disk-item-info {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .disk-item-icon {
+            font-size: 1.5em;
+        }
+
+        .disk-item-details {
+            flex: 1;
+        }
+
+        .disk-item-name {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .disk-item-size {
+            font-size: 0.85em;
+            color: var(--text-secondary);
+            font-family: monospace;
+        }
+
+        .disk-item-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 0.9em;
+        }
+
+        .btn-icon {
+            padding: 8px 12px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: #e5e7eb;
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 10px;
+            display: none;
+        }
+
+        .progress-bar.active {
+            display: block;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: #3b82f6;
+            transition: width 0.3s;
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+
+        .modal-overlay.show {
+            display: flex;
+        }
+
+        .modal {
+            background: var(--card-bg);
+            border-radius: 10px;
+            padding: 30px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 40px var(--shadow);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .modal-title {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: var(--text-primary);
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 1.8em;
+            cursor: pointer;
+            color: var(--text-secondary);
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .modal-close:hover {
+            color: var(--text-primary);
+            transform: rotate(90deg);
+        }
+
+        .modal-body {
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid var(--input-border);
+            border-radius: 5px;
+            font-size: 1em;
+            font-family: inherit;
+            background: var(--input-bg);
+            color: var(--text-primary);
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #3b82f6;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .btn-edit {
+            background: #8b5cf6;
+            color: white;
+        }
+
+        .btn-edit:hover:not(:disabled) {
+            background: #7c3aed;
+        }
+
+        .btn-clone {
+            background: #059669;
+            color: white;
+        }
+
+        .btn-clone:hover:not(:disabled) {
+            background: #047857;
+        }
+
+        .disk-item-meta {
+            font-size: 0.9em;
+            color: var(--text-secondary);
+            margin-top: 5px;
+        }
+
+        /* Play Button Dropdown */
+        .play-btn-group {
+            position: relative;
+            display: inline-block;
+        }
+
+        .btn-play {
+            background: #10b981;
+            color: white;
+            padding-right: 35px;
+            position: relative;
+        }
+
+        .btn-play:hover:not(:disabled) {
+            background: #059669;
+        }
+
+        .btn-play::after {
+            content: '▼';
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 0.7em;
+        }
+
+        .play-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 5px;
+            box-shadow: 0 4px 12px var(--shadow);
+            z-index: 100;
+            display: none;
+            min-width: 180px;
+            margin-top: 5px;
+        }
+
+        .play-dropdown.show {
+            display: block;
+        }
+
+        .play-dropdown button {
+            display: block;
+            width: 100%;
+            text-align: left;
+            padding: 10px 15px;
+            border: none;
+            background: none;
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .play-dropdown button:hover {
+            background: var(--hover-bg);
+            transform: none;
+            box-shadow: none;
+        }
+
+        .play-dropdown button:first-child {
+            border-radius: 5px 5px 0 0;
+        }
+
+        .play-dropdown button:last-child {
+            border-radius: 0 0 5px 5px;
+        }
+
+        /* Audio Player */
+        .audio-player {
+            margin-top: 10px;
+            padding: 10px;
+            background: var(--bg-tertiary);
+            border-radius: 5px;
+            display: none;
+        }
+
+        .audio-player.show {
+            display: block;
+        }
+
+        .audio-player audio {
+            width: 100%;
+        }
+
+        .audio-player-label {
+            font-size: 0.85em;
+            color: var(--text-secondary);
+            margin-bottom: 5px;
+        }
+
+        .btn-stop {
+            background: #f59e0b;
+            color: white;
+        }
+
+        .btn-stop:hover:not(:disabled) {
+            background: #d97706;
+        }
+
+        /* Tablet Styles */
+        @media (min-width: 769px) and (max-width: 1024px) {
+            .drives-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        /* Mobile Styles */
+        @media (max-width: 768px) {
+            .drives-grid {
+                grid-template-columns: 1fr;
+                gap: 12px;
+            }
+
+            .drive-card {
+                padding: 12px;
+            }
+
+            .drive-title {
+                font-size: 1em;
+            }
+
+            .config-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .terminal-container {
+                height: 400px;
+            }
+
+            .nav-menu {
+                width: 85%;
+                max-width: 300px;
+            }
+
+            header {
+                padding: 15px;
+            }
+
+            .led-panel {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                min-width: auto;
+                gap: 15px;
+            }
+
+            .panel-divider {
+                display: none;
+            }
+
+            .drive-panel {
+                width: 100%;
+            }
+
+            .drive-label {
+                font-size: 0.75em;
+            }
+
+            .led {
+                width: 14px;
+                height: 14px;
+            }
+
+            .led-label {
+                font-size: 0.5em;
+                max-width: 45px;
+            }
+
+            .led-group {
+                gap: 8px;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>🖥️ FDC+ Serial Drive Server</h1>
-            <div class="status-bar">
-                <div class="status-item">
-                    <span class="status-dot" id="serialStatus"></span>
-                    <span>Serial: <strong id="serialDevice">Not Connected</strong></span>
+            <div class="led-panel">
+                <div class="drive-panel">
+                    <div class="drive-label">DRIVE A</div>
+                    <div class="led-group">
+                        <div class="led-item">
+                            <div class="led" id="led-disk-0"></div>
+                            <div class="led-label">Disk<br>Enable</div>
+                        </div>
+                        <div class="led-item">
+                            <div class="led" id="led-head-0"></div>
+                            <div class="led-label">Head<br>Loaded</div>
+                        </div>
+                        <div class="led-item">
+                            <div class="led" id="led-write-0"></div>
+                            <div class="led-label">Write<br>Protect</div>
+                        </div>
+                    </div>
                 </div>
-                <div class="status-item">
-                    <span>Baud Rate: <strong id="baudRate">-</strong></span>
+
+                <div class="panel-divider"></div>
+
+                <div class="drive-panel">
+                    <div class="drive-label">DRIVE B</div>
+                    <div class="led-group">
+                        <div class="led-item">
+                            <div class="led" id="led-disk-1"></div>
+                            <div class="led-label">Disk<br>Enable</div>
+                        </div>
+                        <div class="led-item">
+                            <div class="led" id="led-head-1"></div>
+                            <div class="led-label">Head<br>Loaded</div>
+                        </div>
+                        <div class="led-item">
+                            <div class="led" id="led-write-1"></div>
+                            <div class="led-label">Write<br>Protect</div>
+                        </div>
+                    </div>
                 </div>
-                <div class="status-item">
-                    <span>Last Update: <strong id="lastUpdate">-</strong></span>
+
+                <div class="panel-divider"></div>
+
+                <div class="drive-panel">
+                    <div class="drive-label">DRIVE C</div>
+                    <div class="led-group">
+                        <div class="led-item">
+                            <div class="led" id="led-disk-2"></div>
+                            <div class="led-label">Disk<br>Enable</div>
+                        </div>
+                        <div class="led-item">
+                            <div class="led" id="led-head-2"></div>
+                            <div class="led-label">Head<br>Loaded</div>
+                        </div>
+                        <div class="led-item">
+                            <div class="led" id="led-write-2"></div>
+                            <div class="led-label">Write<br>Protect</div>
+                        </div>
+                    </div>
                 </div>
+
+                <div class="panel-divider"></div>
+
+                <div class="drive-panel">
+                    <div class="drive-label">DRIVE D</div>
+                    <div class="led-group">
+                        <div class="led-item">
+                            <div class="led" id="led-disk-3"></div>
+                            <div class="led-label">Disk<br>Enable</div>
+                        </div>
+                        <div class="led-item">
+                            <div class="led" id="led-head-3"></div>
+                            <div class="led-label">Head<br>Loaded</div>
+                        </div>
+                        <div class="led-item">
+                            <div class="led" id="led-write-3"></div>
+                            <div class="led-label">Write<br>Protect</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="header-controls">
+                <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle dark mode">
+                    <div class="toggle-switch">
+                        <div class="toggle-slider">
+                            <span id="themeIcon">🌙</span>
+                        </div>
+                    </div>
+                </button>
+                <button class="hamburger-btn" id="hamburgerBtn" onclick="toggleMenu()">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
             </div>
         </header>
 
-        <!-- Terminal Section -->
-        <div class="terminal-section">
-            <div class="terminal-header">
-                <div class="terminal-title">📟 Serial Terminal (VT102)</div>
-                <div class="terminal-status">
-                    <span class="status-dot" id="terminalStatus"></span>
-                    <span id="terminalDevice">Not Connected</span>
+        <!-- Navigation Menu -->
+        <div class="nav-overlay" id="navOverlay" onclick="closeMenu()"></div>
+        <nav class="nav-menu" id="navMenu">
+            <button class="close-btn" onclick="closeMenu()">&times;</button>
+            <ul>
+                <li><a href="#terminal" onclick="navigateTo('terminal'); return false;">📟 Terminal</a></li>
+                <li><a href="#disks" onclick="navigateTo('disks'); return false;">💾 Disks</a></li>
+                <li><a href="#cassettes" onclick="navigateTo('cassettes'); return false;">📼 Cassettes</a></li>
+                <li><a href="#roms" onclick="navigateTo('roms'); return false;">🔧 ROMs</a></li>
+                <li><a href="#scripts" onclick="navigateTo('scripts'); return false;">📜 Scripts</a></li>
+                <li><a href="#notes" onclick="navigateTo('notes'); return false;">📝 Notes</a></li>
+                <li><a href="#configuration" onclick="navigateTo('configuration'); return false;">⚙️ Configuration</a></li>
+            </ul>
+        </nav>
+
+        <!-- Terminal Page (Homepage) -->
+        <div id="page-terminal" class="page active">
+            <!-- Terminal Section -->
+            <div class="terminal-section">
+                <div class="terminal-header">
+                    <div class="terminal-title">📟 Serial Terminal (VT102)</div>
+                    <div class="terminal-status">
+                        <span class="status-dot" id="terminalStatus"></span>
+                        <span id="terminalDevice">Not Connected</span>
+                    </div>
                 </div>
-            </div>
-            <div class="terminal-controls">
-                <div class="config-group">
-                    <span class="config-label">Port:</span>
-                    <select id="terminalPortSelect">
-                        <option value="">Select port...</option>
-                    </select>
+                <div class="terminal-controls">
+                    <div class="config-group">
+                        <span class="config-label">Port:</span>
+                        <select id="terminalPortSelect">
+                            <option value="">Select port...</option>
+                        </select>
+                    </div>
+                    <div class="config-group">
+                        <span class="config-label">Baud:</span>
+                        <select id="terminalBaudRate">
+                            <option value="9600">9600</option>
+                            <option value="19200">19200</option>
+                            <option value="38400">38400</option>
+                            <option value="57600">57600</option>
+                            <option value="115200" selected>115200</option>
+                        </select>
+                    </div>
+                    <div class="config-group">
+                        <span class="config-label">Data:</span>
+                        <select id="terminalDataBits">
+                            <option value="5">5</option>
+                            <option value="6">6</option>
+                            <option value="7">7</option>
+                            <option value="8" selected>8</option>
+                        </select>
+                    </div>
+                    <div class="config-group">
+                        <span class="config-label">Stop:</span>
+                        <select id="terminalStopBits">
+                            <option value="1" selected>1</option>
+                            <option value="2">2</option>
+                        </select>
+                    </div>
+                    <div class="config-group">
+                        <span class="config-label">Parity:</span>
+                        <select id="terminalParity">
+                            <option value="none" selected>None</option>
+                            <option value="even">Even</option>
+                            <option value="odd">Odd</option>
+                            <option value="mark">Mark</option>
+                            <option value="space">Space</option>
+                        </select>
+                    </div>
+                    <div class="config-group">
+                        <span class="config-label">Flow:</span>
+                        <select id="terminalFlowControl">
+                            <option value="none" selected>None</option>
+                            <option value="hardware">Hardware</option>
+                            <option value="software">Software</option>
+                        </select>
+                    </div>
+                    <button class="btn-success" id="terminalConnect" onclick="connectTerminal()">Connect</button>
+                    <button class="btn-danger" id="terminalDisconnect" onclick="disconnectTerminal()" disabled>Disconnect</button>
+                    <button class="btn-warning" onclick="clearTerminal()">Clear</button>
+                    <div class="config-group" style="margin-left: 20px;">
+                        <span class="config-label">Script:</span>
+                        <select id="scriptSelect" style="min-width: 150px;">
+                            <option value="">Select script...</option>
+                        </select>
+                    </div>
+                    <button class="btn-primary btn-compact" onclick="replayScript()" id="replayBtn" disabled>▶ Replay</button>
+                    <button class="btn-danger btn-compact" onclick="toggleRecording()" id="recordBtn" disabled>⏺ Record</button>
                 </div>
-                <div class="config-group">
-                    <span class="config-label">Baud:</span>
-                    <select id="terminalBaudRate">
-                        <option value="9600">9600</option>
-                        <option value="19200">19200</option>
-                        <option value="38400">38400</option>
-                        <option value="57600">57600</option>
-                        <option value="115200" selected>115200</option>
-                    </select>
+                <div class="terminal-container">
+                    <div id="terminal"></div>
                 </div>
-                <div class="config-group">
-                    <span class="config-label">Data:</span>
-                    <select id="terminalDataBits">
-                        <option value="5">5</option>
-                        <option value="6">6</option>
-                        <option value="7">7</option>
-                        <option value="8" selected>8</option>
-                    </select>
-                </div>
-                <div class="config-group">
-                    <span class="config-label">Stop:</span>
-                    <select id="terminalStopBits">
-                        <option value="1" selected>1</option>
-                        <option value="2">2</option>
-                    </select>
-                </div>
-                <div class="config-group">
-                    <span class="config-label">Parity:</span>
-                    <select id="terminalParity">
-                        <option value="none" selected>None</option>
-                        <option value="even">Even</option>
-                        <option value="odd">Odd</option>
-                        <option value="mark">Mark</option>
-                        <option value="space">Space</option>
-                    </select>
-                </div>
-                <div class="config-group">
-                    <span class="config-label">Flow:</span>
-                    <select id="terminalFlowControl">
-                        <option value="none" selected>None</option>
-                        <option value="hardware">Hardware</option>
-                        <option value="software">Software</option>
-                    </select>
-                </div>
-                <button class="btn-success" id="terminalConnect" onclick="connectTerminal()">Connect</button>
-                <button class="btn-danger" id="terminalDisconnect" onclick="disconnectTerminal()" disabled>Disconnect</button>
-                <button class="btn-warning" onclick="clearTerminal()">Clear</button>
-            </div>
-            <div class="terminal-container">
-                <div id="terminal"></div>
             </div>
         </div>
 
-        <div class="drives-grid" id="drivesGrid">
-            <!-- Drive cards will be inserted here -->
+        <!-- Disks Page -->
+        <div id="page-disks" class="page">
+            <!-- Drive Cards -->
+            <div class="drives-grid" id="drivesGrid">
+                <!-- Drive cards will be inserted here -->
+            </div>
+
+            <!-- Disk Image Manager -->
+            <div class="disk-manager">
+                <div class="disk-manager-header">
+                    <div class="disk-manager-title">💾 Disk Image Library</div>
+                    <div class="upload-form">
+                        <div class="file-input-wrapper">
+                            <input type="file" id="diskImageFile" accept=".dsk,.img,.ima" onchange="handleFileSelect(event)">
+                            <label for="diskImageFile" class="file-input-label">Choose File</label>
+                        </div>
+                        <span class="file-name-display" id="fileNameDisplay">No file selected</span>
+                        <button class="btn-primary" id="uploadBtn" onclick="uploadDiskImage()" disabled>Upload</button>
+                    </div>
+                </div>
+                <div class="progress-bar" id="uploadProgress">
+                    <div class="progress-bar-fill" id="uploadProgressFill"></div>
+                </div>
+                <div class="disk-list" id="diskImageList">
+                    <!-- Disk images will be inserted here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Cassettes Page -->
+        <div id="page-cassettes" class="page">
+            <!-- Cassette Manager -->
+            <div class="disk-manager">
+                <div class="disk-manager-header">
+                    <div class="disk-manager-title">📼 Cassette Library</div>
+                    <div class="upload-form">
+                        <div class="file-input-wrapper">
+                            <input type="file" id="cassetteFile" accept=".wav" onchange="handleCassetteFileSelect(event)">
+                            <label for="cassetteFile" class="file-input-label">Choose File</label>
+                        </div>
+                        <span class="file-name-display" id="cassetteFileNameDisplay">No file selected</span>
+                        <button class="btn-primary" id="cassetteUploadBtn" onclick="uploadCassette()" disabled>Upload</button>
+                    </div>
+                </div>
+                <div class="progress-bar" id="cassetteUploadProgress">
+                    <div class="progress-bar-fill" id="cassetteUploadProgressFill"></div>
+                </div>
+                <div class="disk-list" id="cassetteList">
+                    <!-- Cassettes will be inserted here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- ROMs Page -->
+        <div id="page-roms" class="page">
+            <div class="empty-state">
+                <h2>🔧 ROMs</h2>
+                <p>ROM management coming soon</p>
+            </div>
+        </div>
+
+        <!-- Scripts Page -->
+        <div id="page-scripts" class="page">
+            <!-- Script Manager -->
+            <div class="disk-manager">
+                <div class="disk-manager-header">
+                    <div class="disk-manager-title">📜 Script Library</div>
+                    <button class="btn-primary" onclick="showNewScriptModal()">New Script</button>
+                </div>
+                <div class="disk-list" id="scriptList">
+                    <!-- Scripts will be inserted here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Notes Page -->
+        <div id="page-notes" class="page">
+            <div class="empty-state">
+                <h2>📝 Notes</h2>
+                <p>Notes coming soon</p>
+            </div>
+        </div>
+
+        <!-- Configuration Page -->
+        <div id="page-configuration" class="page">
+            <div class="config-card" id="primaryConfigCard">
+                <div class="config-header">
+                    <div>
+                        <div class="config-title">🔧 Primary Serial Configuration</div>
+                        <div class="config-subtitle">Set the main FDC+ link from here. This configures the serial port that connects to your FDC+ controller.</div>
+                    </div>
+                    <div class="config-status">
+                        <span class="status-dot disconnected" id="primaryStatusDot"></span>
+                        <span id="primaryStatusLabel">Not Connected</span>
+                    </div>
+                </div>
+                <div class="config-grid">
+                    <div class="config-field">
+                        <label for="primaryPortSelect">Port</label>
+                        <select id="primaryPortSelect">
+                            <option value="">Select port...</option>
+                        </select>
+                    </div>
+                    <div class="config-field">
+                        <label for="primaryBaudRate">Baud Rate</label>
+                        <select id="primaryBaudRate">
+                            <option value="9600">9600</option>
+                            <option value="19200">19200</option>
+                            <option value="38400">38400</option>
+                            <option value="57600">57600</option>
+                            <option value="76800">76800</option>
+                            <option value="230400" selected>230400</option>
+                            <option value="403200">403200</option>
+                            <option value="460800">460800</option>
+                        </select>
+                    </div>
+                    <div class="config-actions">
+                        <button class="btn-secondary" onclick="refreshPrimaryPorts()">Refresh Ports</button>
+                        <button class="btn-primary" onclick="applyPrimaryConfig()">Apply &amp; Connect</button>
+                    </div>
+                </div>
+                <div class="config-help" id="primaryConfigMessage">Select the serial port and baud rate for your FDC+ controller connection.</div>
+            </div>
         </div>
 
         <footer>
@@ -447,28 +1520,183 @@
         <div id="notificationMessage"></div>
     </div>
 
+    <!-- Notes Edit Modal -->
+    <div class="modal-overlay" id="notesModal" onclick="closeNotesModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div class="modal-title" id="modalTitle">Edit Notes</div>
+                <button class="modal-close" onclick="closeNotesModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="itemDescription">Description (short summary)</label>
+                    <input type="text" id="itemDescription" placeholder="e.g., CP/M 2.2 System Disk">
+                </div>
+                <div class="form-group">
+                    <label for="itemNotes">Notes</label>
+                    <textarea id="itemNotes" placeholder="Add detailed notes about this item..."></textarea>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeNotesModal()">Cancel</button>
+                <button class="btn-primary" id="saveNotesBtn" onclick="saveNotes()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script Editor Modal -->
+    <div class="modal-overlay" id="scriptModal" onclick="closeScriptModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div class="modal-title" id="scriptModalTitle">New Script</div>
+                <button class="modal-close" onclick="closeScriptModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="scriptName">Script Name</label>
+                    <input type="text" id="scriptName" placeholder="my-script.txt">
+                </div>
+                <div class="form-group">
+                    <label for="scriptContent">Script Content (commands sent to serial terminal)</label>
+                    <textarea id="scriptContent" placeholder="Enter commands here, one per line..." style="min-height: 300px; font-family: monospace;"></textarea>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeScriptModal()">Cancel</button>
+                <button class="btn-primary" id="saveScriptBtn" onclick="saveScript()">Save</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        // Connect to WebSocket
+        // ===== Theme Management =====
+        function initTheme() {
+            const savedTheme = localStorage.getItem('theme');
+            const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const themeIcon = document.getElementById('themeIcon');
+
+            if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
+                document.body.classList.add('dark-mode');
+                if (themeIcon) themeIcon.textContent = '☀️';
+            } else {
+                document.body.classList.remove('dark-mode');
+                if (themeIcon) themeIcon.textContent = '🌙';
+            }
+        }
+
+        function toggleTheme() {
+            const body = document.body;
+            const themeIcon = document.getElementById('themeIcon');
+
+            if (body.classList.contains('dark-mode')) {
+                body.classList.remove('dark-mode');
+                if (themeIcon) themeIcon.textContent = '🌙';
+                localStorage.setItem('theme', 'light');
+            } else {
+                body.classList.add('dark-mode');
+                if (themeIcon) themeIcon.textContent = '☀️';
+                localStorage.setItem('theme', 'dark');
+            }
+        }
+
+        // Initialize theme early to prevent flash
+        initTheme();
+
+        // Also initialize on DOM ready for safety
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initTheme);
+        }
+
+        // ===== Navigation & Menu =====
+        let currentPage = 'terminal';
+
+        function toggleMenu() {
+            const menu = document.getElementById('navMenu');
+            const overlay = document.getElementById('navOverlay');
+            const hamburger = document.getElementById('hamburgerBtn');
+
+            menu.classList.toggle('open');
+            overlay.classList.toggle('show');
+            hamburger.classList.toggle('active');
+        }
+
+        function closeMenu() {
+            const menu = document.getElementById('navMenu');
+            const overlay = document.getElementById('navOverlay');
+            const hamburger = document.getElementById('hamburgerBtn');
+
+            menu.classList.remove('open');
+            overlay.classList.remove('show');
+            hamburger.classList.remove('active');
+        }
+
+        function navigateTo(page) {
+            // Hide all pages
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+
+            // Show selected page
+            const pageElement = document.getElementById(`page-${page}`);
+            if (pageElement) {
+                pageElement.classList.add('active');
+            }
+
+            // Update active menu item
+            document.querySelectorAll('.nav-menu a').forEach(a => a.classList.remove('active'));
+            const activeLink = document.querySelector(`.nav-menu a[href="#${page}"]`);
+            if (activeLink) {
+                activeLink.classList.add('active');
+            }
+
+            currentPage = page;
+            closeMenu();
+
+            // Load page-specific data
+            if (page === 'scripts') {
+                loadScripts();
+            }
+
+            // Update URL hash without scrolling
+            history.pushState(null, '', `#${page}`);
+        }
+
+        // Handle browser back/forward
+        window.addEventListener('popstate', () => {
+            const hash = window.location.hash.slice(1) || 'terminal';
+            navigateTo(hash);
+        });
+
+        // Handle initial page load with hash
+        window.addEventListener('DOMContentLoaded', () => {
+            try {
+                const hash = window.location.hash.slice(1) || 'terminal';
+                navigateTo(hash);
+                initializeTerminal();
+                loadPrimaryPorts();
+                loadAvailablePorts();
+            } catch (error) {
+                console.error('Initialization error:', error);
+            }
+        });
+
+        // ===== WebSocket & Data =====
         const socket = io();
 
         let availableImages = [];
+        let primaryPorts = [];
+        let latestStatus = null;
         let term = null;
         let fitAddon = null;
         let terminalConnected = false;
         let preferredTerminalSettings = {};
-
-        // Initialize terminal on page load
-        window.addEventListener('DOMContentLoaded', () => {
-            initializeTerminal();
-            loadAvailablePorts();
-        });
+        let currentCommand = '';
 
         // Socket event handlers
         socket.on('connect', () => {
             console.log('Connected to server');
             socket.emit('request-status');
             loadAvailableImages();
+            loadPrimaryPorts();
             loadAvailablePorts();
         });
 
@@ -518,26 +1746,49 @@
 
         // Update status display
         function updateStatus(status) {
-            // Update serial status
-            const serialStatus = document.getElementById('serialStatus');
-            const serialDevice = document.getElementById('serialDevice');
-            const baudRate = document.getElementById('baudRate');
-            const lastUpdate = document.getElementById('lastUpdate');
-
-            if (status.serial.connected) {
-                serialStatus.className = 'status-dot connected';
-                serialDevice.textContent = status.serial.device || 'Connected';
-                baudRate.textContent = status.serial.baudRate || '-';
-            } else {
-                serialStatus.className = 'status-dot disconnected';
-                serialDevice.textContent = 'Not Connected';
-                baudRate.textContent = '-';
-            }
-
-            lastUpdate.textContent = new Date(status.timestamp).toLocaleTimeString();
-
+            latestStatus = status;
+            updatePrimaryConfigUI(status.serial);
             // Update drives
             updateDrives(status.drives);
+            // Update LED panel
+            updateLEDPanel(status.drives);
+        }
+
+        // Update LED panel based on drive status
+        function updateLEDPanel(drives) {
+            drives.forEach((drive) => {
+                const driveId = drive.id;
+
+                // Update DISK ENABLE LED (on if mounted)
+                const diskLed = document.getElementById(`led-disk-${driveId}`);
+                if (diskLed) {
+                    if (drive.mounted) {
+                        diskLed.classList.add('active');
+                    } else {
+                        diskLed.classList.remove('active');
+                    }
+                }
+
+                // Update HEAD LOADED LED
+                const headLed = document.getElementById(`led-head-${driveId}`);
+                if (headLed) {
+                    if (drive.headLoaded) {
+                        headLed.classList.add('active');
+                    } else {
+                        headLed.classList.remove('active');
+                    }
+                }
+
+                // Update WRITE PROTECT LED
+                const writeLed = document.getElementById(`led-write-${driveId}`);
+                if (writeLed) {
+                    if (drive.readonly) {
+                        writeLed.classList.add('active');
+                    } else {
+                        writeLed.classList.remove('active');
+                    }
+                }
+            });
         }
 
         // Update drives display
@@ -562,41 +1813,35 @@
             card.className = 'drive-card';
             card.id = `drive-${drive.id}`;
 
+            const driveLetter = String.fromCharCode(65 + drive.id); // 0=A, 1=B, 2=C, 3=D
+
             card.innerHTML = `
                 <div class="drive-header">
-                    <div class="drive-title">Drive ${drive.id}</div>
+                    <div class="drive-title">Drive ${driveLetter}</div>
                     <div class="drive-badge ${drive.mounted ? 'mounted' : 'unmounted'}">
-                        ${drive.mounted ? 'Mounted' : 'Empty'}
+                        ${drive.mounted ? '●' : '○'} ${drive.mounted ? 'Mounted' : 'Empty'}
                     </div>
                 </div>
                 <div class="drive-info">
                     <div class="info-row">
-                        <span class="info-label">Image File:</span>
-                        <span class="info-value">${drive.filename || '-'}</span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">Current Track:</span>
-                        <span class="info-value">${drive.track}</span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">Head Status:</span>
-                        <span class="info-value">${drive.headLoaded ? 'Loaded' : 'Unloaded'}</span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">Write Protection:</span>
-                        <span class="info-value">${drive.readonly ? 'Read-Only' : 'Read-Write'}</span>
+                        <span class="info-label">Image:</span>
+                        <span class="info-value">${drive.filename || 'None'}</span>
                     </div>
                 </div>
                 <div class="drive-controls">
-                    <select id="select-${drive.id}">
-                        <option value="">Select disk image...</option>
-                    </select>
-                    <button class="btn-primary" onclick="mountDrive(${drive.id})">Mount</button>
-                    <button class="btn-danger" onclick="unmountDrive(${drive.id})" ${!drive.mounted ? 'disabled' : ''}>Unmount</button>
-                </div>
-                <div class="checkbox-container">
-                    <input type="checkbox" id="ro-${drive.id}" ${drive.readonly ? 'checked' : ''} onchange="toggleReadOnly(${drive.id}, this.checked)">
-                    <label for="ro-${drive.id}">Read-Only</label>
+                    <div class="drive-controls-row">
+                        <select id="select-${drive.id}">
+                            <option value="">Select image...</option>
+                        </select>
+                    </div>
+                    <div class="drive-controls-row">
+                        <button class="btn-primary btn-compact" onclick="mountDrive(${drive.id})" style="flex: 1;">Mount</button>
+                        <button class="btn-danger btn-compact" onclick="unmountDrive(${drive.id})" ${!drive.mounted ? 'disabled' : ''} style="flex: 1;">Unmount</button>
+                        <label class="readonly-label">
+                            <input type="checkbox" id="ro-${drive.id}" ${drive.readonly ? 'checked' : ''} onchange="toggleReadOnly(${drive.id}, this.checked)">
+                            <span>R/O</span>
+                        </label>
+                    </div>
                 </div>
             `;
 
@@ -621,13 +1866,10 @@
         function updateDriveCard(card, drive) {
             const badge = card.querySelector('.drive-badge');
             badge.className = `drive-badge ${drive.mounted ? 'mounted' : 'unmounted'}`;
-            badge.textContent = drive.mounted ? 'Mounted' : 'Empty';
+            badge.innerHTML = `${drive.mounted ? '●' : '○'} ${drive.mounted ? 'Mounted' : 'Empty'}`;
 
             const values = card.querySelectorAll('.info-value');
-            values[0].textContent = drive.filename || '-';
-            values[1].textContent = drive.track;
-            values[2].textContent = drive.headLoaded ? 'Loaded' : 'Unloaded';
-            values[3].textContent = drive.readonly ? 'Read-Only' : 'Read-Write';
+            values[0].textContent = drive.filename || 'None';
 
             const unmountBtn = card.querySelector('.btn-danger');
             unmountBtn.disabled = !drive.mounted;
@@ -721,6 +1963,123 @@
             }, 3000);
         }
 
+        // Primary serial configuration helpers
+        function setPrimaryCardLoading(isLoading) {
+            const card = document.getElementById('primaryConfigCard');
+            if (!card) return;
+            card.classList.toggle('card-loading', Boolean(isLoading));
+        }
+
+        async function loadPrimaryPorts() {
+            try {
+                setPrimaryCardLoading(true);
+                const response = await fetch('/api/serial/ports');
+                const data = await response.json();
+                primaryPorts = data.ports || [];
+
+                const select = document.getElementById('primaryPortSelect');
+                if (select) {
+                    select.innerHTML = '<option value="">Select port...</option>';
+                    primaryPorts.forEach(port => {
+                        const option = document.createElement('option');
+                        option.value = port.path;
+                        option.textContent = `${port.path}${port.manufacturer ? ' - ' + port.manufacturer : ''}`;
+                        select.appendChild(option);
+                    });
+                }
+
+                if (latestStatus && latestStatus.serial) {
+                    updatePrimaryConfigUI(latestStatus.serial);
+                }
+            } catch (error) {
+                console.error('Failed to load primary ports:', error);
+                showNotification(`Could not load primary ports: ${error.message}`, 'error');
+            } finally {
+                setPrimaryCardLoading(false);
+            }
+        }
+
+        function refreshPrimaryPorts() {
+            return loadPrimaryPorts();
+        }
+
+        async function applyPrimaryConfig() {
+            const device = document.getElementById('primaryPortSelect').value;
+            const baudRate = parseInt(document.getElementById('primaryBaudRate').value, 10);
+
+            if (!device) {
+                showNotification('Select a primary serial port first', 'error');
+                return;
+            }
+
+            if (!baudRate || Number.isNaN(baudRate)) {
+                showNotification('Select a baud rate', 'error');
+                return;
+            }
+
+            try {
+                setPrimaryCardLoading(true);
+                const response = await fetch('/api/serial/config', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ device, baudRate })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showNotification(`Primary serial set to ${device} @ ${baudRate} baud`, 'success');
+                } else {
+                    showNotification(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Failed to update serial config: ${error.message}`, 'error');
+            } finally {
+                setPrimaryCardLoading(false);
+            }
+        }
+
+        function updatePrimaryConfigUI(serial) {
+            if (!serial) return;
+
+            const portSelect = document.getElementById('primaryPortSelect');
+            const baudSelect = document.getElementById('primaryBaudRate');
+            const statusDot = document.getElementById('primaryStatusDot');
+            const statusLabel = document.getElementById('primaryStatusLabel');
+            const message = document.getElementById('primaryConfigMessage');
+
+            const configuredPort = serial.configuredPort || serial.device || '';
+            const configuredBaud = serial.configuredBaudRate || serial.baudRate || (baudSelect ? baudSelect.value : null);
+
+            if (statusDot && statusLabel) {
+                statusDot.className = `status-dot ${serial.connected ? 'connected' : 'disconnected'}`;
+                statusLabel.textContent = serial.connected
+                    ? (configuredPort || 'Connected')
+                    : 'Not Connected';
+            }
+
+            if (message) {
+                message.textContent = serial.connected
+                    ? 'Primary link is live. Adjust the port or baud here if you need to reconnect.'
+                    : 'Select a port and baud, then apply to bring the primary link online.';
+            }
+
+            if (portSelect && configuredPort) {
+                const exists = Array.from(portSelect.options).some(opt => opt.value === configuredPort);
+                if (!exists) {
+                    const option = document.createElement('option');
+                    option.value = configuredPort;
+                    option.textContent = configuredPort;
+                    portSelect.appendChild(option);
+                }
+                portSelect.value = configuredPort;
+            }
+
+            if (baudSelect && configuredBaud) {
+                baudSelect.value = configuredBaud.toString();
+            }
+        }
+
         // ===== Terminal Functions =====
 
         // Initialize xterm.js terminal
@@ -766,6 +2125,23 @@
             term.onData((data) => {
                 if (terminalConnected) {
                     socket.emit('terminal:write', data);
+
+                    // Record commands if recording is active
+                    if (isRecording) {
+                        // Capture newline-terminated commands
+                        if (data === '\r' || data === '\n') {
+                            if (currentCommand.trim()) {
+                                recordedCommands.push(currentCommand.trim());
+                                currentCommand = '';
+                            }
+                        } else if (data === '\u007F' || data === '\b') {
+                            // Handle backspace
+                            currentCommand = currentCommand.slice(0, -1);
+                        } else if (data >= ' ' && data <= '~') {
+                            // Printable characters only
+                            currentCommand += data;
+                        }
+                    }
                 }
             });
 
@@ -840,6 +2216,8 @@
                     terminalConnected = true;
                     document.getElementById('terminalConnect').disabled = true;
                     document.getElementById('terminalDisconnect').disabled = false;
+                    updateReplayButton();
+                    updateRecordButton();
                     showNotification('Terminal connected successfully', 'success');
 
                     term.writeln('\x1b[1;32m✓ Connected to ' + device + '\x1b[0m');
@@ -867,6 +2245,8 @@
                     terminalConnected = false;
                     document.getElementById('terminalConnect').disabled = false;
                     document.getElementById('terminalDisconnect').disabled = true;
+                    updateReplayButton();
+                    updateRecordButton();
                     showNotification('Terminal disconnected', 'success');
 
                     term.writeln('');
@@ -904,6 +2284,9 @@
                 document.getElementById('terminalConnect').disabled = false;
                 document.getElementById('terminalDisconnect').disabled = true;
             }
+
+            updateReplayButton();
+            updateRecordButton();
         }
 
         // Pre-select terminal settings from config file
@@ -948,6 +2331,901 @@
                 console.log('Baud rate pre-selected:', preferredTerminalSettings.baud);
             }
         }
+
+        // ===== Disk Image Management =====
+
+        let selectedFile = null;
+
+        // Handle file selection
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                selectedFile = file;
+                document.getElementById('fileNameDisplay').textContent = file.name;
+                document.getElementById('uploadBtn').disabled = false;
+            } else {
+                selectedFile = null;
+                document.getElementById('fileNameDisplay').textContent = 'No file selected';
+                document.getElementById('uploadBtn').disabled = true;
+            }
+        }
+
+        // Upload disk image
+        async function uploadDiskImage() {
+            if (!selectedFile) {
+                showNotification('Please select a file first', 'error');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('diskImage', selectedFile);
+
+            const progressBar = document.getElementById('uploadProgress');
+            const progressFill = document.getElementById('uploadProgressFill');
+            const uploadBtn = document.getElementById('uploadBtn');
+
+            try {
+                uploadBtn.disabled = true;
+                progressBar.classList.add('active');
+                progressFill.style.width = '0%';
+
+                const xhr = new XMLHttpRequest();
+
+                // Track upload progress
+                xhr.upload.addEventListener('progress', (e) => {
+                    if (e.lengthComputable) {
+                        const percentComplete = (e.loaded / e.total) * 100;
+                        progressFill.style.width = percentComplete + '%';
+                    }
+                });
+
+                // Handle completion
+                xhr.addEventListener('load', () => {
+                    if (xhr.status === 200) {
+                        showNotification('Disk image uploaded successfully', 'success');
+                        // Reset form
+                        document.getElementById('diskImageFile').value = '';
+                        selectedFile = null;
+                        document.getElementById('fileNameDisplay').textContent = 'No file selected';
+                        // Reload disk list
+                        loadDiskImageList();
+                        loadAvailableImages();
+                    } else {
+                        const response = JSON.parse(xhr.responseText);
+                        showNotification(`Upload failed: ${response.error}`, 'error');
+                    }
+                    progressBar.classList.remove('active');
+                    uploadBtn.disabled = false;
+                });
+
+                // Handle errors
+                xhr.addEventListener('error', () => {
+                    showNotification('Upload failed: Network error', 'error');
+                    progressBar.classList.remove('active');
+                    uploadBtn.disabled = false;
+                });
+
+                xhr.open('POST', '/api/images/upload');
+                xhr.send(formData);
+
+            } catch (error) {
+                showNotification(`Upload failed: ${error.message}`, 'error');
+                progressBar.classList.remove('active');
+                uploadBtn.disabled = false;
+            }
+        }
+
+        // Clone disk image
+        async function cloneDiskImage(filename) {
+            try {
+                const response = await fetch(`/api/images/${encodeURIComponent(filename)}/clone`, {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showNotification(`Created copy: ${data.filename}`, 'success');
+                    loadDiskImageList();
+                    loadAvailableImages();
+                } else {
+                    showNotification(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Failed to clone: ${error.message}`, 'error');
+            }
+        }
+
+        // Delete disk image
+        async function deleteDiskImage(filename) {
+            if (!confirm(`Are you sure you want to delete "${filename}"?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/images/${encodeURIComponent(filename)}`, {
+                    method: 'DELETE'
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showNotification(`Deleted ${filename}`, 'success');
+                    loadDiskImageList();
+                    loadAvailableImages();
+                } else {
+                    showNotification(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Failed to delete: ${error.message}`, 'error');
+            }
+        }
+
+        // Format file size
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        // Load and display disk image list
+        async function loadDiskImageList() {
+            try {
+                const response = await fetch('/api/images/details');
+                const data = await response.json();
+
+                const listContainer = document.getElementById('diskImageList');
+                listContainer.innerHTML = '';
+
+                if (data.images.length === 0) {
+                    listContainer.innerHTML = '<p style="text-align: center; color: #6b7280; padding: 20px;">No disk images found. Upload one to get started.</p>';
+                    return;
+                }
+
+                data.images.forEach(image => {
+                    const item = document.createElement('div');
+                    item.className = 'disk-item';
+
+                    const escapedName = image.name.replace(/'/g, "\\'");
+                    const description = image.description || '';
+                    const notes = image.notes || '';
+                    const metaText = description || '(no description)';
+
+                    item.innerHTML = `
+                        <div class="disk-item-info">
+                            <div class="disk-item-icon">💾</div>
+                            <div class="disk-item-details">
+                                <div class="disk-item-name">${image.name}</div>
+                                <div class="disk-item-size">${formatFileSize(image.size)}</div>
+                                <div class="disk-item-meta">${metaText}</div>
+                            </div>
+                        </div>
+                        <div class="disk-item-actions">
+                            <button class="btn-clone btn-small" onclick="cloneDiskImage('${escapedName}')">Clone</button>
+                            <button class="btn-edit btn-small" onclick="editDiskNotes('${escapedName}', '${escapeHtml(description)}', '${escapeHtml(notes)}')">Edit</button>
+                            <button class="btn-danger btn-small" onclick="deleteDiskImage('${escapedName}')">Delete</button>
+                        </div>
+                    `;
+                    listContainer.appendChild(item);
+                });
+            } catch (error) {
+                console.error('Failed to load disk images:', error);
+            }
+        }
+
+        // Load disk list when navigating to disks page
+        const originalNavigateTo = navigateTo;
+        navigateTo = function(page) {
+            originalNavigateTo(page);
+            if (page === 'disks') {
+                loadDiskImageList();
+            }
+        };
+
+        // Load disk list on initial page load if on disks page
+        socket.on('connect', () => {
+            if (currentPage === 'disks') {
+                loadDiskImageList();
+            }
+            if (currentPage === 'cassettes') {
+                loadCassetteList();
+            }
+        });
+
+        // ===== Cassette Management =====
+
+        let selectedCassetteFile = null;
+
+        // Handle cassette file selection
+        function handleCassetteFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                selectedCassetteFile = file;
+                document.getElementById('cassetteFileNameDisplay').textContent = file.name;
+                document.getElementById('cassetteUploadBtn').disabled = false;
+            } else {
+                selectedCassetteFile = null;
+                document.getElementById('cassetteFileNameDisplay').textContent = 'No file selected';
+                document.getElementById('cassetteUploadBtn').disabled = true;
+            }
+        }
+
+        // Upload cassette
+        async function uploadCassette() {
+            if (!selectedCassetteFile) {
+                showNotification('Please select a file first', 'error');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('cassette', selectedCassetteFile);
+
+            const progressBar = document.getElementById('cassetteUploadProgress');
+            const progressFill = document.getElementById('cassetteUploadProgressFill');
+            const uploadBtn = document.getElementById('cassetteUploadBtn');
+
+            try {
+                uploadBtn.disabled = true;
+                progressBar.classList.add('active');
+                progressFill.style.width = '0%';
+
+                const xhr = new XMLHttpRequest();
+
+                // Track upload progress
+                xhr.upload.addEventListener('progress', (e) => {
+                    if (e.lengthComputable) {
+                        const percentComplete = (e.loaded / e.total) * 100;
+                        progressFill.style.width = percentComplete + '%';
+                    }
+                });
+
+                // Handle completion
+                xhr.addEventListener('load', () => {
+                    if (xhr.status === 200) {
+                        showNotification('Cassette uploaded successfully', 'success');
+                        // Reset form
+                        document.getElementById('cassetteFile').value = '';
+                        selectedCassetteFile = null;
+                        document.getElementById('cassetteFileNameDisplay').textContent = 'No file selected';
+                        // Reload cassette list
+                        loadCassetteList();
+                    } else {
+                        const response = JSON.parse(xhr.responseText);
+                        showNotification(`Upload failed: ${response.error}`, 'error');
+                    }
+                    progressBar.classList.remove('active');
+                    uploadBtn.disabled = false;
+                });
+
+                // Handle errors
+                xhr.addEventListener('error', () => {
+                    showNotification('Upload failed: Network error', 'error');
+                    progressBar.classList.remove('active');
+                    uploadBtn.disabled = false;
+                });
+
+                xhr.open('POST', '/api/cassettes/upload');
+                xhr.send(formData);
+
+            } catch (error) {
+                showNotification(`Upload failed: ${error.message}`, 'error');
+                progressBar.classList.remove('active');
+                uploadBtn.disabled = false;
+            }
+        }
+
+        // Delete cassette
+        async function deleteCassette(filename) {
+            if (!confirm(`Are you sure you want to delete "${filename}"?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/cassettes/${encodeURIComponent(filename)}`, {
+                    method: 'DELETE'
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showNotification(`Deleted ${filename}`, 'success');
+                    loadCassetteList();
+                } else {
+                    showNotification(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Failed to delete: ${error.message}`, 'error');
+            }
+        }
+
+        // Format audio duration from seconds
+        function formatDuration(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        // Load and display cassette list
+        async function loadCassetteList() {
+            try {
+                const response = await fetch('/api/cassettes/details');
+                const data = await response.json();
+
+                const listContainer = document.getElementById('cassetteList');
+                listContainer.innerHTML = '';
+
+                if (data.cassettes.length === 0) {
+                    listContainer.innerHTML = '<p style="text-align: center; color: #6b7280; padding: 20px;">No cassettes found. Upload one to get started.</p>';
+                    return;
+                }
+
+                data.cassettes.forEach((cassette, index) => {
+                    const wrapper = document.createElement('div');
+
+                    const escapedName = cassette.name.replace(/'/g, "\\'");
+                    const description = cassette.description || '';
+                    const notes = cassette.notes || '';
+                    const metaText = description || '(no description)';
+
+                    const sizeInfo = formatFileSize(cassette.size);
+                    const durationInfo = cassette.duration ? ` • ${formatDuration(cassette.duration)}` : '';
+
+                    wrapper.innerHTML = `
+                        <div class="disk-item">
+                            <div class="disk-item-info">
+                                <div class="disk-item-icon">📼</div>
+                                <div class="disk-item-details">
+                                    <div class="disk-item-name">${cassette.name}</div>
+                                    <div class="disk-item-size">${sizeInfo}${durationInfo}</div>
+                                    <div class="disk-item-meta">${metaText}</div>
+                                </div>
+                            </div>
+                            <div class="disk-item-actions">
+                                <div class="play-btn-group">
+                                    <button class="btn-play btn-small" onclick="togglePlayDropdown(${index})">Play</button>
+                                    <div class="play-dropdown" id="playDropdown${index}">
+                                        <button onclick="playClientSide('${escapedName}', ${index})">🖥️ Play in Browser</button>
+                                        <button onclick="playServerSide('${escapedName}')">🔊 Play on Server</button>
+                                        <button onclick="stopServerSide()">⏹️ Stop Server Playback</button>
+                                    </div>
+                                </div>
+                                <button class="btn-edit btn-small" onclick="editCassetteNotes('${escapedName}', '${escapeHtml(description)}', '${escapeHtml(notes)}')">Edit</button>
+                                <button class="btn-danger btn-small" onclick="deleteCassette('${escapedName}')">Delete</button>
+                            </div>
+                        </div>
+                        <div class="audio-player" id="audioPlayer${index}">
+                            <div class="audio-player-label">🖥️ Playing in browser:</div>
+                            <audio controls id="audio${index}">
+                                <source src="/api/cassettes/${encodeURIComponent(cassette.name)}/stream" type="audio/wav">
+                                Your browser does not support the audio element.
+                            </audio>
+                        </div>
+                    `;
+                    listContainer.appendChild(wrapper);
+                });
+            } catch (error) {
+                console.error('Failed to load cassettes:', error);
+            }
+        }
+
+        // Update navigateTo to load cassette list when navigating to cassettes page
+        const originalNavigateTo2 = navigateTo;
+        navigateTo = function(page) {
+            originalNavigateTo2(page);
+            if (page === 'cassettes') {
+                loadCassetteList();
+            }
+            if (page === 'configuration') {
+                loadPrimaryPorts();
+            }
+        };
+
+        // ===== Audio Playback Functions =====
+
+        let currentOpenDropdown = null;
+
+        // Toggle play dropdown menu
+        function togglePlayDropdown(index) {
+            const dropdown = document.getElementById(`playDropdown${index}`);
+
+            // Close any other open dropdown
+            if (currentOpenDropdown && currentOpenDropdown !== dropdown) {
+                currentOpenDropdown.classList.remove('show');
+            }
+
+            dropdown.classList.toggle('show');
+            currentOpenDropdown = dropdown.classList.contains('show') ? dropdown : null;
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.play-btn-group')) {
+                document.querySelectorAll('.play-dropdown').forEach(dropdown => {
+                    dropdown.classList.remove('show');
+                });
+                currentOpenDropdown = null;
+            }
+        });
+
+        // Play cassette client-side (in browser)
+        function playClientSide(filename, index) {
+            // Close dropdown
+            if (currentOpenDropdown) {
+                currentOpenDropdown.classList.remove('show');
+                currentOpenDropdown = null;
+            }
+
+            // Hide all other audio players
+            document.querySelectorAll('.audio-player').forEach(player => {
+                player.classList.remove('show');
+                const audio = player.querySelector('audio');
+                if (audio) {
+                    audio.pause();
+                    audio.currentTime = 0;
+                }
+            });
+
+            // Show and play this audio player
+            const audioPlayer = document.getElementById(`audioPlayer${index}`);
+            const audio = document.getElementById(`audio${index}`);
+
+            audioPlayer.classList.add('show');
+            audio.load(); // Reload in case source changed
+            audio.play().catch(err => {
+                console.error('Error playing audio:', err);
+                showNotification('Failed to play audio in browser', 'error');
+            });
+        }
+
+        // Play cassette server-side (on Raspberry Pi)
+        async function playServerSide(filename) {
+            // Close dropdown
+            if (currentOpenDropdown) {
+                currentOpenDropdown.classList.remove('show');
+                currentOpenDropdown = null;
+            }
+
+            try {
+                const response = await fetch(`/api/cassettes/${encodeURIComponent(filename)}/play`, {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showNotification(`Playing "${filename}" on server`, 'success');
+                } else {
+                    showNotification(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Failed to play on server: ${error.message}`, 'error');
+            }
+        }
+
+        // Stop server-side playback
+        async function stopServerSide() {
+            // Close dropdown
+            if (currentOpenDropdown) {
+                currentOpenDropdown.classList.remove('show');
+                currentOpenDropdown = null;
+            }
+
+            try {
+                const response = await fetch('/api/cassettes/stop', {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showNotification('Server playback stopped', 'success');
+                } else {
+                    showNotification(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Failed to stop playback: ${error.message}`, 'error');
+            }
+        }
+
+        // ===== Notes Modal Management =====
+
+        let currentEditItem = null;
+        let currentEditType = null; // 'disk' or 'cassette'
+
+        // HTML escape helper
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        // HTML unescape helper
+        function unescapeHtml(text) {
+            const div = document.createElement('div');
+            div.innerHTML = text || '';
+            return div.textContent;
+        }
+
+        // Open modal to edit disk notes
+        function editDiskNotes(filename, description, notes) {
+            currentEditItem = filename;
+            currentEditType = 'disk';
+
+            document.getElementById('modalTitle').textContent = `Edit Notes: ${filename}`;
+            document.getElementById('itemDescription').value = unescapeHtml(description);
+            document.getElementById('itemNotes').value = unescapeHtml(notes);
+            document.getElementById('notesModal').classList.add('show');
+        }
+
+        // Open modal to edit cassette notes
+        function editCassetteNotes(filename, description, notes) {
+            currentEditItem = filename;
+            currentEditType = 'cassette';
+
+            document.getElementById('modalTitle').textContent = `Edit Notes: ${filename}`;
+            document.getElementById('itemDescription').value = unescapeHtml(description);
+            document.getElementById('itemNotes').value = unescapeHtml(notes);
+            document.getElementById('notesModal').classList.add('show');
+        }
+
+        // Close notes modal
+        function closeNotesModal(event) {
+            // Only close if clicking overlay or close button
+            if (event && event.target !== event.currentTarget && !event.target.classList.contains('modal-close')) {
+                return;
+            }
+
+            document.getElementById('notesModal').classList.remove('show');
+            currentEditItem = null;
+            currentEditType = null;
+        }
+
+        // Save notes
+        async function saveNotes() {
+            if (!currentEditItem || !currentEditType) {
+                return;
+            }
+
+            const description = document.getElementById('itemDescription').value;
+            const notes = document.getElementById('itemNotes').value;
+
+            const apiPath = currentEditType === 'disk'
+                ? `/api/images/${encodeURIComponent(currentEditItem)}/notes`
+                : `/api/cassettes/${encodeURIComponent(currentEditItem)}/notes`;
+
+            try {
+                const response = await fetch(apiPath, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ description, notes })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showNotification('Notes updated successfully', 'success');
+                    closeNotesModal();
+
+                    // Reload the appropriate list
+                    if (currentEditType === 'disk') {
+                        loadDiskImageList();
+                    } else {
+                        loadCassetteList();
+                    }
+                } else {
+                    showNotification(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Failed to save notes: ${error.message}`, 'error');
+            }
+        }
+
+        // ===== Script Management =====
+        let currentEditScript = null;
+        let isRecording = false;
+        let recordedCommands = [];
+        let isReplaying = false;
+
+        // Load scripts list
+        async function loadScripts() {
+            try {
+                const response = await fetch('/api/scripts');
+                const data = await response.json();
+
+                const scriptList = document.getElementById('scriptList');
+                const scriptSelect = document.getElementById('scriptSelect');
+
+                if (data.scripts && data.scripts.length > 0) {
+                    scriptList.innerHTML = '';
+                    scriptSelect.innerHTML = '<option value="">Select script...</option>';
+
+                    data.scripts.forEach(script => {
+                        // Add to script list
+                        const item = document.createElement('div');
+                        item.className = 'disk-item';
+                        item.innerHTML = `
+                            <div class="disk-item-info">
+                                <div class="disk-item-icon">📜</div>
+                                <div class="disk-item-details">
+                                    <div class="disk-item-name">${script}</div>
+                                </div>
+                            </div>
+                            <div class="disk-item-actions">
+                                <button class="btn-edit btn-small" onclick="editScript('${script}')">Edit</button>
+                                <button class="btn-danger btn-small" onclick="deleteScript('${script}')">Delete</button>
+                            </div>
+                        `;
+                        scriptList.appendChild(item);
+
+                        // Add to select dropdown
+                        const option = document.createElement('option');
+                        option.value = script;
+                        option.textContent = script;
+                        scriptSelect.appendChild(option);
+                    });
+                } else {
+                    scriptList.innerHTML = '<div class="empty-state"><p>No scripts yet. Create one to get started!</p></div>';
+                }
+
+                updateReplayButton();
+            } catch (error) {
+                console.error('Failed to load scripts:', error);
+            }
+        }
+
+        // Show new script modal
+        function showNewScriptModal() {
+            currentEditScript = null;
+            document.getElementById('scriptModalTitle').textContent = 'New Script';
+            document.getElementById('scriptName').value = '';
+            document.getElementById('scriptName').disabled = false;
+            document.getElementById('scriptContent').value = '';
+            document.getElementById('scriptModal').classList.add('show');
+        }
+
+        // Edit script
+        async function editScript(name) {
+            try {
+                const response = await fetch(`/api/scripts/${encodeURIComponent(name)}`);
+                const data = await response.json();
+
+                if (response.ok) {
+                    currentEditScript = name;
+                    document.getElementById('scriptModalTitle').textContent = 'Edit Script';
+                    document.getElementById('scriptName').value = name;
+                    document.getElementById('scriptName').disabled = true;
+                    document.getElementById('scriptContent').value = data.content;
+                    document.getElementById('scriptModal').classList.add('show');
+                } else {
+                    showNotification(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Failed to load script: ${error.message}`, 'error');
+            }
+        }
+
+        // Close script modal
+        function closeScriptModal(event) {
+            if (event && event.target !== event.currentTarget) return;
+            document.getElementById('scriptModal').classList.remove('show');
+            currentEditScript = null;
+        }
+
+        // Save script
+        async function saveScript() {
+            let name = document.getElementById('scriptName').value.trim();
+            const content = document.getElementById('scriptContent').value;
+
+            if (!name) {
+                showNotification('Please enter a script name', 'error');
+                return;
+            }
+
+            // Ensure .txt extension
+            if (!name.endsWith('.txt')) {
+                name += '.txt';
+            }
+
+            try {
+                let response;
+                if (currentEditScript) {
+                    // Update existing script
+                    response = await fetch(`/api/scripts/${encodeURIComponent(currentEditScript)}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ content })
+                    });
+                } else {
+                    // Create new script
+                    response = await fetch('/api/scripts', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name, content })
+                    });
+                }
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showNotification(`Script ${currentEditScript ? 'updated' : 'created'} successfully`, 'success');
+                    closeScriptModal();
+                    loadScripts();
+                } else {
+                    showNotification(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Failed to save script: ${error.message}`, 'error');
+            }
+        }
+
+        // Delete script
+        async function deleteScript(name) {
+            if (!confirm(`Are you sure you want to delete "${name}"?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/scripts/${encodeURIComponent(name)}`, {
+                    method: 'DELETE'
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showNotification(`Deleted ${name}`, 'success');
+                    loadScripts();
+                } else {
+                    showNotification(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Failed to delete: ${error.message}`, 'error');
+            }
+        }
+
+        // Update replay button state
+        function updateReplayButton() {
+            const scriptSelect = document.getElementById('scriptSelect');
+            const replayBtn = document.getElementById('replayBtn');
+
+            replayBtn.disabled = !scriptSelect.value || !terminalConnected || isReplaying;
+        }
+
+        // Update record button state
+        function updateRecordButton() {
+            const recordBtn = document.getElementById('recordBtn');
+
+            recordBtn.disabled = !terminalConnected || isReplaying;
+
+            if (isRecording) {
+                recordBtn.textContent = '⏹ Stop Recording';
+                recordBtn.className = 'btn-warning btn-compact';
+            } else {
+                recordBtn.textContent = '⏺ Record';
+                recordBtn.className = 'btn-danger btn-compact';
+            }
+        }
+
+        // Toggle recording
+        function toggleRecording() {
+            if (isRecording) {
+                // Stop recording
+                isRecording = false;
+                updateRecordButton();
+
+                if (recordedCommands.length > 0) {
+                    // Prompt to save
+                    const name = prompt('Save recording as (leave empty to discard):');
+                    if (name) {
+                        saveRecordedScript(name, recordedCommands.join('\n'));
+                    }
+                }
+                recordedCommands = [];
+            } else {
+                // Start recording
+                isRecording = true;
+                recordedCommands = [];
+                updateRecordButton();
+                showNotification('Recording started - type commands in terminal', 'success');
+            }
+        }
+
+        // Save recorded script
+        async function saveRecordedScript(name, content) {
+            // Ensure .txt extension
+            if (!name.endsWith('.txt')) {
+                name += '.txt';
+            }
+
+            try {
+                const response = await fetch('/api/scripts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, content })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showNotification(`Script saved as ${name}`, 'success');
+                    loadScripts();
+                } else {
+                    showNotification(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Failed to save script: ${error.message}`, 'error');
+            }
+        }
+
+        // Replay script
+        async function replayScript() {
+            const scriptSelect = document.getElementById('scriptSelect');
+            const scriptName = scriptSelect.value;
+
+            if (!scriptName) {
+                showNotification('Please select a script', 'error');
+                return;
+            }
+
+            if (!terminalConnected) {
+                showNotification('Terminal not connected', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/scripts/${encodeURIComponent(scriptName)}`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showNotification(`Error: ${data.error}`, 'error');
+                    return;
+                }
+
+                const commands = data.content.split('\n').filter(line => line.trim());
+
+                if (commands.length === 0) {
+                    showNotification('Script is empty', 'error');
+                    return;
+                }
+
+                isReplaying = true;
+                updateReplayButton();
+                updateRecordButton();
+
+                showNotification(`Replaying ${scriptName}...`, 'success');
+
+                // Send commands one at a time with delay
+                for (let i = 0; i < commands.length; i++) {
+                    const command = commands[i];
+
+                    // Send command followed by Enter (use terminal:write like keyboard input)
+                    socket.emit('terminal:write', command + '\r');
+
+                    // Wait a bit before sending next command
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+
+                isReplaying = false;
+                updateReplayButton();
+                updateRecordButton();
+
+                showNotification('Script replay complete', 'success');
+            } catch (error) {
+                isReplaying = false;
+                updateReplayButton();
+                updateRecordButton();
+                showNotification(`Failed to replay script: ${error.message}`, 'error');
+            }
+        }
+
+        // Listen for script select changes
+        document.addEventListener('DOMContentLoaded', () => {
+            const scriptSelect = document.getElementById('scriptSelect');
+            if (scriptSelect) {
+                scriptSelect.addEventListener('change', updateReplayButton);
+            }
+        });
     </script>
 </body>
 </html>

@@ -11,6 +11,7 @@ The web interface provides real-time monitoring and remote management of the FDC
 ✅ **Real-Time Status Updates** - WebSocket-based live updates every second
 ✅ **Drive Management** - Mount and unmount disk images remotely
 ✅ **Write Protection** - Toggle read-only status on any drive
+✅ **Primary Serial Config** - Select the main FDC+ port and baud from the browser
 ✅ **Serial Port Monitoring** - View connection status and baud rate
 ✅ **Track Position Display** - See current head position and track number
 ✅ **Modern UI** - Clean, responsive interface with live notifications
