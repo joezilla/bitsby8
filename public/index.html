@@ -3088,7 +3088,6 @@
         function updateReplayButton() {
             const scriptSelect = document.getElementById('scriptSelect');
             const replayBtn = document.getElementById('replayBtn');
-            const terminalConnected = terminalSocket && terminalSocket.connected;
 
             replayBtn.disabled = !scriptSelect.value || !terminalConnected || isReplaying;
         }
@@ -3096,7 +3095,6 @@
         // Update record button state
         function updateRecordButton() {
             const recordBtn = document.getElementById('recordBtn');
-            const terminalConnected = terminalSocket && terminalSocket.connected;
 
             recordBtn.disabled = !terminalConnected || isReplaying;
 
@@ -3170,7 +3168,7 @@
                 return;
             }
 
-            if (!terminalSocket || !terminalSocket.connected) {
+            if (!terminalConnected) {
                 showNotification('Terminal not connected', 'error');
                 return;
             }
@@ -3201,8 +3199,8 @@
                 for (let i = 0; i < commands.length; i++) {
                     const command = commands[i];
 
-                    // Send command followed by Enter
-                    terminalSocket.emit('terminal:data', command + '\r');
+                    // Send command followed by Enter (use terminal:write like keyboard input)
+                    socket.emit('terminal:write', command + '\r');
 
                     // Wait a bit before sending next command
                     await new Promise(resolve => setTimeout(resolve, 500));
