@@ -1886,6 +1886,7 @@
         function updateStatus(status) {
             latestStatus = status;
             updatePrimaryConfigUI(status.serial);
+            updateTerminalStatusUI();
             // Update drives
             updateDrives(status.drives);
             // Update LED panel
@@ -2195,6 +2196,9 @@
         // ===== Full Configuration Management =====
         async function loadConfiguration() {
             try {
+                // Load terminal ports first to populate dropdown
+                await loadTerminalPorts();
+
                 const response = await fetch('/api/config');
                 const config = await response.json();
 
@@ -2209,9 +2213,20 @@
                     document.getElementById('configWebHost').value = config.webHost || 'localhost';
                 }
 
-                // Terminal Options
+                // Terminal Options - set after ports are loaded
                 if (document.getElementById('configTerminalPort')) {
-                    document.getElementById('configTerminalPort').value = config.terminalPort || '';
+                    const terminalPortSelect = document.getElementById('configTerminalPort');
+                    if (config.terminalPort) {
+                        terminalPortSelect.value = config.terminalPort;
+                        // If the configured port isn't in the list, add it
+                        if (terminalPortSelect.value !== config.terminalPort) {
+                            const option = document.createElement('option');
+                            option.value = config.terminalPort;
+                            option.textContent = config.terminalPort;
+                            terminalPortSelect.appendChild(option);
+                            terminalPortSelect.value = config.terminalPort;
+                        }
+                    }
                 }
                 if (document.getElementById('configTerminalBaud')) {
                     document.getElementById('configTerminalBaud').value = config.terminalBaud || '';
