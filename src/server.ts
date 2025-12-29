@@ -311,7 +311,16 @@ export class FdcServer {
       driveState.track = track;
     }
 
-    // Send initial OK response
+    // Validate drive is writable before committing to receive data
+    // This prevents EBADF errors after we've already told the FDC we're ready
+    const canWrite = await this.driveManager.canWrite(drive);
+    if (!canWrite) {
+      console.warn(`WRIT command rejected - Drive ${drive} not writable (readonly=${driveState?.readonly}, mounted=${driveState?.mounted})`);
+      await this.sendWriteResponse(cmd, FdcError.NOT_READY);
+      return;
+    }
+
+    // Send initial OK response - we're ready to receive track data
     await this.sendWriteResponse(cmd, FdcError.OK);
 
     try {

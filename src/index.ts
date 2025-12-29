@@ -278,7 +278,7 @@ async function main(): Promise<void> {
   if (!mergedOptions.terminalOnly) {
     // Set write protection for read-only drives
     for (const drive of config.readonlyDrives) {
-      driveManager.writeProtect(drive, true);
+      await driveManager.writeProtect(drive, true);
       displayManager.displayRO(drive, true);
     }
 
@@ -357,7 +357,7 @@ async function main(): Promise<void> {
 
             // Set readonly status
             if (assignment.readonly) {
-              driveManager.writeProtect(assignment.drive_id, true);
+              await driveManager.writeProtect(assignment.drive_id, true);
             }
 
             console.log(`Restored drive ${assignment.drive_id}: ${assignment.filename} (${assignment.readonly ? 'RO' : 'RW'})`);

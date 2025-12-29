@@ -346,7 +346,8 @@ export class WebServer {
           return;
         }
 
-        this.driveManager.writeProtect(driveId, readonly);
+        // Update write protection (may remount file with correct mode)
+        await this.driveManager.writeProtect(driveId, readonly);
 
         // Update database if drive is mounted
         try {

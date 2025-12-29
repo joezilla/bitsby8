@@ -105,6 +105,9 @@ export class DriveManager {
 
       this.fileHandles.set(drive, fileHandle);
 
+      // Log successful mount with mode
+      console.log(`Mounted drive ${drive}: ${filename}, mode=${driveState.readonly ? 'RO' : 'RW'}, fd=${fileHandle.fd}`);
+
       // Update GPIO LEDs
       getGpioLedController().updateDriveStatus(drive, driveState);
 
@@ -185,15 +188,71 @@ export class DriveManager {
   }
 
   /**
-   * Set write protection on a drive
+   * Remount a drive with the correct file mode (read-only or read-write)
+   * This is necessary when the readonly flag changes after mount
    */
-  writeProtect(drive: number, flag: boolean): void {
+  private async remountWithMode(drive: number, readonly: boolean): Promise<void> {
+    const driveState = this.drives.get(drive)!;
+    const filename = driveState.filename;
+
+    if (!filename || !driveState.mounted) {
+      return; // Nothing to remount
+    }
+
+    console.log(`Remounting drive ${drive} with mode ${readonly ? 'RO' : 'RW'} (file: ${filename})`);
+
+    // Close current handle
+    const fileHandle = this.fileHandles.get(drive);
+    if (fileHandle) {
+      try {
+        await fileHandle.close();
+      } catch (error) {
+        console.error(`Error closing file handle during remount for drive ${drive}:`, error);
+        // Continue with remount anyway
+      }
+      this.fileHandles.delete(drive);
+    }
+
+    // Reopen with correct mode
+    const mode = readonly
+      ? fsSync.constants.O_RDONLY
+      : fsSync.constants.O_RDWR;
+
+    try {
+      const newHandle = await fs.open(filename, mode);
+      driveState.fd = newHandle.fd;
+      this.fileHandles.set(drive, newHandle);
+      console.log(`Successfully remounted drive ${drive}, fd=${newHandle.fd}, mode=${readonly ? 'RO' : 'RW'}`);
+    } catch (error) {
+      console.error(`Failed to remount drive ${drive}:`, error);
+      // Mark drive as unmounted on remount failure
+      driveState.mounted = false;
+      driveState.fd = null;
+      throw error;
+    }
+  }
+
+  /**
+   * Set write protection on a drive
+   * If the drive is mounted, this will remount it with the correct file mode
+   */
+  async writeProtect(drive: number, flag: boolean): Promise<void> {
     if (drive >= MAX_DRIVES) {
       throw new Error(`Invalid drive number: ${drive}`);
     }
 
     const driveState = this.drives.get(drive)!;
+    const oldFlag = driveState.readonly;
+
+    console.log(`WriteProtect drive ${drive}: ${flag ? 'RO' : 'RW'}, mounted=${driveState.mounted}, changing=${oldFlag !== flag}`);
+
+    // Update flag
     driveState.readonly = flag;
+
+    // If mounted and flag changed, remount with correct mode to prevent EBADF errors
+    if (driveState.mounted && oldFlag !== flag) {
+      await this.remountWithMode(drive, flag);
+    }
 
     // Update GPIO LEDs
     getGpioLedController().updateDriveStatus(drive, driveState);
@@ -287,6 +346,19 @@ export class DriveManager {
     if (driveState.readonly) {
       this.fdcErrno = FdcError.WRITE_ERR;
       throw new Error(`Drive ${drive} is read-only`);
+    }
+
+    // Validate file handle is writable (test actual file mode, not just flag)
+    // This catches cases where file was opened RO but readonly flag was changed
+    try {
+      await fileHandle.datasync();
+    } catch (error: any) {
+      if (error.code === 'EBADF' || error.code === 'EACCES') {
+        this.fdcErrno = FdcError.WRITE_ERR;
+        console.error(`Drive ${drive} file handle not writable (fd=${fileHandle.fd}, error=${error.code})`);
+        throw new Error(`Drive ${drive} file not open for writing (fd=${fileHandle.fd})`);
+      }
+      // Other errors will be caught in the write attempt below
     }
 
     // Validate parameters
@@ -395,6 +467,40 @@ export class DriveManager {
       return false;
     }
     return this.drives.get(drive)?.readonly || false;
+  }
+
+  /**
+   * Check if a drive can accept write operations
+   * Returns false if drive is not mounted, readonly, or file handle is invalid
+   */
+  async canWrite(drive: number): Promise<boolean> {
+    if (drive >= MAX_DRIVES) {
+      return false;
+    }
+
+    const driveState = this.drives.get(drive);
+    const fileHandle = this.fileHandles.get(drive);
+
+    if (!driveState || !driveState.mounted || !fileHandle) {
+      return false;
+    }
+
+    if (driveState.readonly) {
+      return false;
+    }
+
+    // Test if file handle is actually writable
+    try {
+      await fileHandle.datasync();
+      return true;
+    } catch (error: any) {
+      if (error.code === 'EBADF' || error.code === 'EACCES') {
+        console.warn(`Drive ${drive} file handle not writable (fd=${fileHandle.fd}, error=${error.code})`);
+        return false;
+      }
+      // If it's some other error, assume writable for now
+      return true;
+    }
   }
 }
 
