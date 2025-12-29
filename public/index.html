@@ -2015,15 +2015,12 @@
                     </div>
                 </div>
                 <div class="config-grid">
-                    <div class="config-field">
-                        <label for="diskServingToggle">Disk Serving</label>
-                        <div class="toggle-container">
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="diskServingToggle" onchange="toggleDiskServing()">
-                                <span class="toggle-slider"></span>
-                            </label>
-                            <span id="diskServingToggleLabel">Disabled</span>
-                        </div>
+                    <div class="config-field" style="display: flex; align-items: center; gap: 12px;">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="diskServingToggle" onchange="toggleDiskServing()">
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <span id="diskServingToggleLabel" style="font-weight: 500; color: var(--text-primary);">Disabled</span>
                     </div>
                 </div>
                 <div class="config-help" id="diskServingMessage">Enable disk serving to allow FDC+ to access disk images. Disable to free the serial port for other uses.</div>
