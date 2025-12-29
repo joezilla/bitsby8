@@ -352,18 +352,36 @@ async function main(): Promise<void> {
               continue;
             }
 
-            // Mount the drive
-            await driveManager.mountDrive(assignment.drive_id, fullPath);
+            // Check if drive is already mounted (from config)
+            const driveState = driveManager.getDriveState(assignment.drive_id);
+            const alreadyMounted = driveState && driveState.mounted;
+            console.log(`DEBUG: Drive ${assignment.drive_id} state check: driveState=${JSON.stringify(driveState)}, alreadyMounted=${alreadyMounted}`);
 
-            // Set readonly status
-            if (assignment.readonly) {
-              await driveManager.writeProtect(assignment.drive_id, true);
-            }
+            if (alreadyMounted) {
+              // Drive already mounted from config - only update readonly status if different
+              console.log(`Drive ${assignment.drive_id} already mounted, updating readonly status to ${assignment.readonly ? 'RO' : 'RW'}`);
+              await driveManager.writeProtect(assignment.drive_id, !!assignment.readonly);
 
-            console.log(`Restored drive ${assignment.drive_id}: ${assignment.filename} (${assignment.readonly ? 'RO' : 'RW'})`);
-            displayManager.displayMount(assignment.drive_id, assignment.filename);
-            if (assignment.readonly) {
-              displayManager.displayRO(assignment.drive_id, true);
+              // Update display
+              if (assignment.readonly) {
+                displayManager.displayRO(assignment.drive_id, true);
+              } else {
+                displayManager.displayRO(assignment.drive_id, false);
+              }
+            } else {
+              // Drive not mounted yet - mount it now
+              await driveManager.mountDrive(assignment.drive_id, fullPath);
+
+              // Set readonly status after mounting
+              if (assignment.readonly) {
+                await driveManager.writeProtect(assignment.drive_id, true);
+              }
+
+              console.log(`Restored drive ${assignment.drive_id}: ${assignment.filename} (${assignment.readonly ? 'RO' : 'RW'})`);
+              displayManager.displayMount(assignment.drive_id, assignment.filename);
+              if (assignment.readonly) {
+                displayManager.displayRO(assignment.drive_id, true);
+              }
             }
           } catch (error) {
             console.error(`Failed to restore drive ${assignment.drive_id}:`, error);
