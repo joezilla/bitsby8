@@ -48,7 +48,7 @@ export class WebServer {
   private runtimeConfig: ConfigFile | null;
   private statusInterval: NodeJS.Timeout | null = null;
   private database: Database;
-  private audioPlayer: any;
+  private audioPlayer: any = null;
   private currentAudioProcess: any = null;
 
   constructor(
@@ -81,8 +81,8 @@ export class WebServer {
       this.database = new Database(dbPath);
     }
 
-    // Initialize audio player
-    this.audioPlayer = playSound({});
+    // Audio player will be lazy-loaded when first needed
+    // (prevents ERR_INVALID_STATE errors on systems without audio)
 
     // Create Express app
     this.app = express();
@@ -778,8 +778,11 @@ export class WebServer {
           this.currentAudioProcess = null;
         }
 
+        // Get audio player (lazy-loaded on first use)
+        const audioPlayer = this.getAudioPlayer();
+
         // Play the audio file
-        this.currentAudioProcess = this.audioPlayer.play(filePath, (err: any) => {
+        this.currentAudioProcess = audioPlayer.play(filePath, (err: any) => {
           if (err && !err.killed) {
             console.error('Audio playback error:', err);
           }
@@ -1141,6 +1144,28 @@ export class WebServer {
       config: this.terminalManager.getConfig(),
       preferred: this.preferredTerminalSettings,
     };
+  }
+
+  /**
+   * Lazy-load audio player (only initialized when first needed)
+   * Prevents ERR_INVALID_STATE errors on systems without audio support
+   */
+  private getAudioPlayer(): any {
+    if (!this.audioPlayer) {
+      try {
+        this.audioPlayer = playSound({});
+      } catch (error) {
+        console.error('Failed to initialize audio player:', error);
+        console.error('Server-side audio playback will not be available');
+        // Return a dummy player that does nothing
+        this.audioPlayer = {
+          play: () => {
+            throw new Error('Audio player initialization failed - playback not available');
+          }
+        };
+      }
+    }
+    return this.audioPlayer;
   }
 
   /**
