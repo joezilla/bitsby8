@@ -217,6 +217,12 @@ async function main(): Promise<void> {
   const gpioController = getGpioLedController();
   const logger = getLogger();
 
+  // Enable debug logging if requested
+  if (config.debug) {
+    driveManager.setDebug(true);
+    console.log('Debug mode enabled - all serial drive operations will be logged');
+  }
+
   // Initialize file-based logging if requested
   if (mergedOptions.logFile) {
     try {

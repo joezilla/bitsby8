@@ -23,6 +23,7 @@ export class DriveManager {
   public fdcErrno: FdcError;
   private readonly MAX_RETRIES = 3;
   private readonly RETRY_DELAY_MS = 100;
+  private debug: boolean = false;
 
   constructor() {
     this.drives = new Map();
@@ -40,6 +41,16 @@ export class DriveManager {
         hdld: false,
         track: 0,
       });
+    }
+  }
+
+  /**
+   * Enable or disable debug logging
+   */
+  setDebug(enabled: boolean): void {
+    this.debug = enabled;
+    if (this.debug) {
+      console.log('[DEBUG] DriveManager debug logging enabled');
     }
   }
 
@@ -89,6 +100,10 @@ export class DriveManager {
       ? fsSync.constants.O_RDONLY
       : fsSync.constants.O_RDWR;
 
+    if (this.debug) {
+      console.log(`[DEBUG] DriveManager.mountDrive: drive=${drive}, filename=${filename}, readonly=${driveState.readonly}, mode=${mode === fsSync.constants.O_RDONLY ? 'O_RDONLY' : 'O_RDWR'}`);
+    }
+
     try {
       // Check if file exists
       await fs.access(filename, fsSync.constants.F_OK);
@@ -108,12 +123,19 @@ export class DriveManager {
       // Log successful mount with mode
       console.log(`Mounted drive ${drive}: ${filename}, mode=${driveState.readonly ? 'RO' : 'RW'}, fd=${fileHandle.fd}`);
 
+      if (this.debug) {
+        console.log(`[DEBUG] DriveManager.mountDrive SUCCESS: drive=${drive}, fd=${fileHandle.fd}, filesize=${(await fileHandle.stat()).size} bytes`);
+      }
+
       // Update GPIO LEDs
       getGpioLedController().updateDriveStatus(drive, driveState);
 
       return fileHandle.fd;
     } catch (error) {
       console.error(`Failed to mount drive ${drive} (${filename}):`, error);
+      if (this.debug) {
+        console.log(`[DEBUG] DriveManager.mountDrive FAILED: drive=${drive}, error=${(error as Error).message}`);
+      }
       driveState.mounted = false;
       driveState.filename = '--ERROR--';
       throw error;
@@ -288,6 +310,10 @@ export class DriveManager {
     // Calculate offset
     const offset = track * length;
 
+    if (this.debug) {
+      console.log(`[DEBUG] DriveManager.readTrack: drive=${drive}, track=${track}, length=${length}, offset=${offset}, fd=${fileHandle.fd}, filename=${driveState.filename}`);
+    }
+
     // Update drive state
     driveState.track = track;
     driveState.hdld = true;
@@ -301,6 +327,10 @@ export class DriveManager {
         throw new Error(
           `Read ${bytesRead} bytes, expected ${length}`
         );
+      }
+
+      if (this.debug) {
+        console.log(`[DEBUG] DriveManager.readTrack SUCCESS: drive=${drive}, track=${track}, bytesRead=${bytesRead}`);
       }
 
       this.fdcErrno = FdcError.OK;
@@ -380,6 +410,10 @@ export class DriveManager {
     // Calculate offset
     const offset = track * length;
 
+    if (this.debug) {
+      console.log(`[DEBUG] DriveManager.writeTrack: drive=${drive}, track=${track}, length=${length}, offset=${offset}, fd=${fileHandle.fd}, filename=${driveState.filename}, readonly=${driveState.readonly}`);
+    }
+
     // Update drive state
     driveState.track = track;
     driveState.hdld = true;
@@ -394,6 +428,10 @@ export class DriveManager {
       // Retry loop for transient errors
       for (let attempt = 0; attempt < this.MAX_RETRIES; attempt++) {
         try {
+          if (this.debug && attempt > 0) {
+            console.log(`[DEBUG] DriveManager.writeTrack retry attempt ${attempt + 1}/${this.MAX_RETRIES}`);
+          }
+
           // Write track data
           const result = await fileHandle.write(buffer, 0, length, offset);
           bytesWritten = result.bytesWritten;
@@ -411,6 +449,11 @@ export class DriveManager {
           if (attempt > 0) {
             console.log(`Write succeeded on attempt ${attempt + 1}`);
           }
+
+          if (this.debug) {
+            console.log(`[DEBUG] DriveManager.writeTrack SUCCESS: drive=${drive}, track=${track}, bytesWritten=${bytesWritten}, synced to disk`);
+          }
+
           this.fdcErrno = FdcError.OK;
           return bytesWritten;
 
