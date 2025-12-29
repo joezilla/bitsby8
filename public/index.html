@@ -3705,6 +3705,10 @@
         let recordedCommands = [];
         let isReplaying = false;
 
+        // Script replay timing parameters (Phase 1: Character-by-Character Transmission)
+        const SCRIPT_CHAR_DELAY_MS = 10;   // Delay between individual characters (prevents buffer overflow)
+        const SCRIPT_CMD_DELAY_MS = 500;    // Delay between complete commands (allows command execution)
+
         // Load scripts list
         async function loadScripts() {
             try {
@@ -3972,15 +3976,22 @@
 
                 showNotification(`Replaying ${scriptName}...`, 'success');
 
-                // Send commands one at a time with delay
+                // Send commands character-by-character to prevent serial buffer overflow
+                // This is critical for devices with small input buffers (typically 16-128 bytes)
                 for (let i = 0; i < commands.length; i++) {
                     const command = commands[i];
 
-                    // Send command followed by Enter (use terminal:write like keyboard input)
-                    socket.emit('terminal:write', command + '\r');
+                    // Send each character individually with delay
+                    for (let j = 0; j < command.length; j++) {
+                        socket.emit('terminal:write', command[j]);
+                        await new Promise(resolve => setTimeout(resolve, SCRIPT_CHAR_DELAY_MS));
+                    }
 
-                    // Wait a bit before sending next command
-                    await new Promise(resolve => setTimeout(resolve, 500));
+                    // Send carriage return to execute the command
+                    socket.emit('terminal:write', '\r');
+
+                    // Wait for command to execute before sending next one
+                    await new Promise(resolve => setTimeout(resolve, SCRIPT_CMD_DELAY_MS));
                 }
 
                 isReplaying = false;
