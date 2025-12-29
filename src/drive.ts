@@ -21,6 +21,8 @@ export class DriveManager {
   private fileHandles: Map<number, fs.FileHandle>;
   private trackBuffer: Buffer;
   public fdcErrno: FdcError;
+  private readonly MAX_RETRIES = 3;
+  private readonly RETRY_DELAY_MS = 100;
 
   constructor() {
     this.drives = new Map();
@@ -39,6 +41,22 @@ export class DriveManager {
         track: 0,
       });
     }
+  }
+
+  /**
+   * Sleep for a specified duration
+   */
+  private async sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Check if an error is transient and retryable
+   */
+  private isTransientError(error: any): boolean {
+    const code = error?.code;
+    // Retry on common transient file system errors
+    return code === 'EAGAIN' || code === 'EBUSY' || code === 'EINTR' || code === 'EIO';
   }
 
   /**
@@ -202,6 +220,12 @@ export class DriveManager {
       throw new Error(`Drive ${drive} not mounted`);
     }
 
+    // Validate file handle is still open
+    if (fileHandle.fd === undefined || fileHandle.fd < 0) {
+      this.fdcErrno = FdcError.NOT_READY;
+      throw new Error(`Drive ${drive} file handle is invalid (fd=${fileHandle.fd})`);
+    }
+
     // Calculate offset
     const offset = track * length;
 
@@ -223,7 +247,10 @@ export class DriveManager {
       this.fdcErrno = FdcError.OK;
       return buffer;
     } catch (error) {
-      console.error(`Failed to read track - Drive ${drive}, Track ${track}, Length ${length}:`, error);
+      const errDetails = error instanceof Error
+        ? { message: error.message, code: (error as any).code, stack: error.stack }
+        : error;
+      console.error(`Failed to read track - Drive ${drive}, Track ${track}, Length ${length}:`, errDetails);
       this.fdcErrno = FdcError.NOT_READY;
       throw error;
     }
@@ -251,9 +278,31 @@ export class DriveManager {
       throw new Error(`Drive ${drive} not mounted`);
     }
 
+    // Validate file handle is still open
+    if (fileHandle.fd === undefined || fileHandle.fd < 0) {
+      this.fdcErrno = FdcError.NOT_READY;
+      throw new Error(`Drive ${drive} file handle is invalid (fd=${fileHandle.fd})`);
+    }
+
     if (driveState.readonly) {
       this.fdcErrno = FdcError.WRITE_ERR;
       throw new Error(`Drive ${drive} is read-only`);
+    }
+
+    // Validate parameters
+    if (length <= 0 || length > MAX_TRACK_LEN) {
+      this.fdcErrno = FdcError.WRITE_ERR;
+      throw new Error(`Invalid track length: ${length} (max: ${MAX_TRACK_LEN})`);
+    }
+
+    if (buffer.length < length) {
+      this.fdcErrno = FdcError.WRITE_ERR;
+      throw new Error(`Buffer too small: ${buffer.length} < ${length}`);
+    }
+
+    if (track < 0) {
+      this.fdcErrno = FdcError.WRITE_ERR;
+      throw new Error(`Invalid track number: ${track}`);
     }
 
     // Calculate offset
@@ -264,23 +313,58 @@ export class DriveManager {
     driveState.hdld = true;
 
     try {
-      // Write track data
-      const { bytesWritten } = await fileHandle.write(buffer, 0, length, offset);
+      // Log write attempt for debugging
+      console.log(`Writing track - Drive ${drive}, Track ${track}, Length ${length}, Offset ${offset}, FD ${fileHandle.fd}, File: ${driveState.filename}`);
 
-      if (bytesWritten !== length) {
-        this.fdcErrno = FdcError.WRITE_ERR;
-        throw new Error(
-          `Wrote ${bytesWritten} bytes, expected ${length}`
-        );
+      let lastError: any = null;
+      let bytesWritten = 0;
+
+      // Retry loop for transient errors
+      for (let attempt = 0; attempt < this.MAX_RETRIES; attempt++) {
+        try {
+          // Write track data
+          const result = await fileHandle.write(buffer, 0, length, offset);
+          bytesWritten = result.bytesWritten;
+
+          if (bytesWritten !== length) {
+            throw new Error(
+              `Wrote ${bytesWritten} bytes, expected ${length}`
+            );
+          }
+
+          // Sync to disk for data integrity
+          await fileHandle.sync();
+
+          // Success - exit retry loop
+          if (attempt > 0) {
+            console.log(`Write succeeded on attempt ${attempt + 1}`);
+          }
+          this.fdcErrno = FdcError.OK;
+          return bytesWritten;
+
+        } catch (error) {
+          lastError = error;
+
+          // Only retry on transient errors
+          if (this.isTransientError(error) && attempt < this.MAX_RETRIES - 1) {
+            const delay = this.RETRY_DELAY_MS * Math.pow(2, attempt);
+            console.warn(`Write failed (attempt ${attempt + 1}/${this.MAX_RETRIES}), retrying in ${delay}ms:`,
+              error instanceof Error ? error.message : error);
+            await this.sleep(delay);
+          } else {
+            // Non-transient error or final attempt - rethrow
+            throw error;
+          }
+        }
       }
 
-      // Sync to disk for data integrity
-      await fileHandle.sync();
-
-      this.fdcErrno = FdcError.OK;
-      return bytesWritten;
+      // Should never reach here, but just in case
+      throw lastError || new Error('Write failed after retries');
     } catch (error) {
-      console.error(`Failed to write track - Drive ${drive}, Track ${track}, Length ${length}:`, error);
+      const errDetails = error instanceof Error
+        ? { message: error.message, code: (error as any).code, stack: error.stack }
+        : error;
+      console.error(`Failed to write track - Drive ${drive}, Track ${track}, Length ${length}:`, errDetails);
       this.fdcErrno = FdcError.WRITE_ERR;
       throw error;
     }

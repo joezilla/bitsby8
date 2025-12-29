@@ -333,8 +333,11 @@ export class FdcServer {
       cmd.cmd = 'WSTA';
       await this.sendWriteResponse(cmd, FdcError.OK);
     } catch (error) {
-      // Send error response
-      console.error(`Write track error - Drive ${drive}, Track ${track}, Length ${length}:`, error);
+      // Send error response with detailed error information
+      const errDetails = error instanceof Error
+        ? { message: error.message, code: (error as any).code, stack: error.stack }
+        : error;
+      console.error(`Write track error - Drive ${drive}, Track ${track}, Length ${length}:`, errDetails);
       this.displayManager.displayError(
         'Write track error',
         error as NodeJS.ErrnoException
