@@ -3010,11 +3010,17 @@
                     option.textContent = configuredPort;
                     portSelect.appendChild(option);
                 }
-                portSelect.value = configuredPort;
+                // Only update value if user is not actively selecting (avoid interrupting user input)
+                if (document.activeElement !== portSelect) {
+                    portSelect.value = configuredPort;
+                }
             }
 
             if (baudSelect && configuredBaud) {
-                baudSelect.value = configuredBaud.toString();
+                // Only update value if user is not actively selecting (avoid interrupting user input)
+                if (document.activeElement !== baudSelect) {
+                    baudSelect.value = configuredBaud.toString();
+                }
             }
         }
 
