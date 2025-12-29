@@ -886,6 +886,64 @@
             cursor: pointer;
         }
 
+        /* Toggle container and switch styles */
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .toggle-switch input[type="checkbox"] {
+            opacity: 0;
+            width: 0;
+            height: 0;
+            position: absolute;
+        }
+
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 26px;
+        }
+
+        .toggle-switch .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: 0.3s;
+            border-radius: 26px;
+        }
+
+        .toggle-switch .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+        }
+
+        .toggle-switch input:checked + .toggle-slider {
+            background-color: #10b981;
+        }
+
+        .toggle-switch input:checked + .toggle-slider:before {
+            transform: translateX(24px);
+        }
+
+        .toggle-switch input:disabled + .toggle-slider {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         .readonly-label {
             display: flex;
             align-items: center;
@@ -1737,7 +1795,7 @@
             <ul>
                 <li><a href="#terminal" onclick="navigateTo('terminal'); return false;"><span class="material-symbols-outlined">terminal</span> Terminal</a></li>
                 <li><a href="#disks" onclick="navigateTo('disks'); return false;"><span class="material-symbols-outlined">save</span> Disks</a></li>
-                <li><a href="#cassettes" onclick="navigateTo('cassettes'); return false;"><span class="material-symbols-outlined">tape</span> Cassettes</a></li>
+                <li><a href="#cassettes" onclick="navigateTo('cassettes'); return false;"><span class="material-symbols-outlined">play_arrow</span> Cassettes</a></li>
                 <li><a href="#roms" onclick="navigateTo('roms'); return false;"><span class="material-symbols-outlined">memory</span> ROMs</a></li>
                 <li><a href="#scripts" onclick="navigateTo('scripts'); return false;"><span class="material-symbols-outlined">description</span> Scripts</a></li>
                 <li><a href="#notes" onclick="navigateTo('notes'); return false;"><span class="material-symbols-outlined">note</span> Notes</a></li>
@@ -1857,7 +1915,7 @@
             <!-- Cassette Manager -->
             <div class="disk-manager">
                 <div class="disk-manager-header">
-                    <div class="disk-manager-title"><span class="material-symbols-outlined">tape</span> Cassette Library</div>
+                    <div class="disk-manager-title"><span class="material-symbols-outlined">play_arrow</span> Cassette Library</div>
                     <div class="upload-form">
                         <div class="file-input-wrapper">
                             <input type="file" id="cassetteFile" accept=".wav" onchange="handleCassetteFileSelect(event)">
@@ -1943,6 +2001,32 @@
                     </div>
                 </div>
                 <div class="config-help" id="primaryConfigMessage">Select the serial port and baud rate for your FDC+ controller connection.</div>
+            </div>
+
+            <div class="config-card" id="diskServingCard">
+                <div class="config-header">
+                    <div>
+                        <div class="config-title"><span class="material-symbols-outlined">storage</span> Disk Serving Mode</div>
+                        <div class="config-subtitle">Enable or disable FDC+ disk serving functionality. When disabled, the serial port is released.</div>
+                    </div>
+                    <div class="config-status">
+                        <span class="status-dot disconnected" id="diskServingStatusDot"></span>
+                        <span id="diskServingStatusLabel">Disabled</span>
+                    </div>
+                </div>
+                <div class="config-grid">
+                    <div class="config-field">
+                        <label for="diskServingToggle">Disk Serving</label>
+                        <div class="toggle-container">
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="diskServingToggle" onchange="toggleDiskServing()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                            <span id="diskServingToggleLabel">Disabled</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="config-help" id="diskServingMessage">Enable disk serving to allow FDC+ to access disk images. Disable to free the serial port for other uses.</div>
             </div>
 
             <div class="config-card">
@@ -2321,6 +2405,7 @@
         function updateStatus(status) {
             latestStatus = status;
             updatePrimaryConfigUI(status.serial);
+            updateDiskServingUI(status.diskServing);
             updateTerminalStatusUI();
             // Update drives
             updateDrives(status.drives);
@@ -2816,6 +2901,79 @@
                 showNotification(`Failed to update serial config: ${error.message}`, 'error');
             } finally {
                 setPrimaryCardLoading(false);
+            }
+        }
+
+        async function toggleDiskServing() {
+            const toggle = document.getElementById('diskServingToggle');
+            const label = document.getElementById('diskServingToggleLabel');
+            const statusDot = document.getElementById('diskServingStatusDot');
+            const statusLabel = document.getElementById('diskServingStatusLabel');
+            const message = document.getElementById('diskServingMessage');
+
+            const enabled = toggle.checked;
+
+            // Disable toggle while processing
+            toggle.disabled = true;
+            message.textContent = enabled ? 'Enabling disk serving...' : 'Disabling disk serving...';
+
+            try {
+                const endpoint = enabled ? '/api/disk-serving/enable' : '/api/disk-serving/disable';
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    label.textContent = enabled ? 'Enabled' : 'Disabled';
+                    statusDot.className = `status-dot ${enabled ? 'connected' : 'disconnected'}`;
+                    statusLabel.textContent = enabled ? 'Active' : 'Disabled';
+                    message.textContent = enabled
+                        ? 'Disk serving is active. FDC+ can access disk images through the serial port.'
+                        : 'Disk serving is disabled. Serial port is released and available for other uses.';
+                    showNotification(result.message, 'success');
+                } else {
+                    // Revert toggle on error
+                    toggle.checked = !enabled;
+                    showNotification(result.error || 'Failed to toggle disk serving', 'error');
+                }
+            } catch (error) {
+                // Revert toggle on error
+                toggle.checked = !enabled;
+                showNotification(`Failed to toggle disk serving: ${error.message}`, 'error');
+            } finally {
+                toggle.disabled = false;
+            }
+        }
+
+        function updateDiskServingUI(diskServing) {
+            if (!diskServing) return;
+
+            const toggle = document.getElementById('diskServingToggle');
+            const label = document.getElementById('diskServingToggleLabel');
+            const statusDot = document.getElementById('diskServingStatusDot');
+            const statusLabel = document.getElementById('diskServingStatusLabel');
+            const message = document.getElementById('diskServingMessage');
+
+            if (toggle) {
+                toggle.checked = diskServing.enabled;
+            }
+
+            if (label) {
+                label.textContent = diskServing.enabled ? 'Enabled' : 'Disabled';
+            }
+
+            if (statusDot && statusLabel) {
+                statusDot.className = `status-dot ${diskServing.enabled ? 'connected' : 'disconnected'}`;
+                statusLabel.textContent = diskServing.enabled ? 'Active' : 'Disabled';
+            }
+
+            if (message) {
+                message.textContent = diskServing.enabled
+                    ? 'Disk serving is active. FDC+ can access disk images through the serial port.'
+                    : 'Disk serving is disabled. Serial port is released and available for other uses.';
             }
         }
 
@@ -3452,7 +3610,7 @@
                     wrapper.innerHTML = `
                         <div class="disk-item">
                             <div class="disk-item-info">
-                                <div class="disk-item-icon"><span class="material-symbols-outlined">tape</span></div>
+                                <div class="disk-item-icon"><span class="material-symbols-outlined">play_arrow</span></div>
                                 <div class="disk-item-details">
                                     <div class="disk-item-name">${cassette.name}</div>
                                     <div class="disk-item-size">${sizeInfo}${durationInfo}</div>
