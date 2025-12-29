@@ -322,7 +322,7 @@ describe('Configuration Module', () => {
       expect(example.terminalBaud).toBe(9600);
       expect(example.verbose).toBe(false);
       expect(example.debug).toBe(false);
-      expect(example.headless).toBe(false);
+      expect(example.headless).toBe(true); // Headless is true by default (useful for systemd service)
       expect(Array.isArray(example.readonly)).toBe(true);
     });
   });
