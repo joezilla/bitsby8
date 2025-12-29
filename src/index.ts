@@ -46,7 +46,8 @@ function printHelp(): void {
   console.log('  -r, --readonly <n>     Make drive 0-3 read only (can be used multiple times)');
   console.log('  -v, --verbose          Verbose display');
   console.log('  -d, --debug            Debug mode');
-  console.log('  --headless             Disable text-based status display (for systemd/background)');
+  console.log('  --headless             Disable text-based status display (default: enabled)');
+  console.log('  --no-headless          Enable text-based status display');
   console.log('  --log-file <path>      Log file path (enables file-based logging)');
   console.log('  -w, --web              Enable web interface (default: disabled)');
   console.log('  --web-port <port>      Web interface port (default: 3000)');
@@ -87,7 +88,8 @@ async function main(): Promise<void> {
     }, [] as number[])
     .option('-v, --verbose', 'Verbose display')
     .option('-d, --debug', 'Debug mode')
-    .option('--headless', 'Disable text-based status display (for systemd/background)')
+    .option('--headless', 'Disable text-based status display (default: enabled)')
+    .option('--no-headless', 'Enable text-based status display')
     .option('--log-file <path>', 'Log file path (enables file-based logging)')
     .option('-w, --web', 'Enable web interface')
     .option('--web-port <port>', 'Web interface port')
@@ -177,7 +179,7 @@ async function main(): Promise<void> {
   config.baudRate = baudRate as BaudRate;
   config.verbose = mergedOptions.verbose || false;
   config.debug = mergedOptions.debug || false;
-  const headless = mergedOptions.headless || false;
+  const headless = mergedOptions.headless !== undefined ? mergedOptions.headless : true;
 
   // Parse drive mounts (skip empty strings)
   if (mergedOptions.drive0 && mergedOptions.drive0.trim()) config.drives.set(0, mergedOptions.drive0);
@@ -450,12 +452,32 @@ async function main(): Promise<void> {
   process.on('SIGTERM', cleanup);
   process.on('SIGHUP', cleanup);
 
+  // Handle uncaught exceptions and rejections
+  process.on('uncaughtException', async (error) => {
+    console.error('Uncaught exception:', error);
+    await cleanup();
+  });
+
+  process.on('unhandledRejection', async (reason, promise) => {
+    console.error('Unhandled rejection at:', promise, 'reason:', reason);
+    await cleanup();
+  });
+
   // Start server
   await server.start();
 }
 
 // Run main function
-main().catch((error) => {
+main().catch(async (error) => {
   console.error('Fatal error:', error);
+
+  // Attempt cleanup before exiting
+  try {
+    const driveManager = getDriveManager();
+    await driveManager.unmountAll();
+  } catch (cleanupError) {
+    console.error('Cleanup error:', cleanupError);
+  }
+
   process.exit(1);
 });

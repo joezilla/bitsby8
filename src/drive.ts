@@ -110,8 +110,15 @@ export class DriveManager {
     const fileHandle = this.fileHandles.get(drive);
 
     if (driveState.mounted && fileHandle) {
-      await fileHandle.close();
-      this.fileHandles.delete(drive);
+      try {
+        await fileHandle.close();
+        this.fileHandles.delete(drive);
+      } catch (error) {
+        console.error(`Error closing file handle for drive ${drive}:`, error);
+        // Still delete from map to prevent leaks
+        this.fileHandles.delete(drive);
+        throw error;
+      }
     }
 
     // Reset drive state
@@ -130,14 +137,32 @@ export class DriveManager {
    */
   async unmountAll(): Promise<void> {
     const unmountPromises: Promise<void>[] = [];
+    const errors: Error[] = [];
 
     for (let drive = 0; drive < MAX_DRIVES; drive++) {
       if (this.drives.get(drive)?.mounted) {
-        unmountPromises.push(this.unmountDrive(drive));
+        unmountPromises.push(
+          this.unmountDrive(drive).catch((error) => {
+            errors.push(error);
+            console.error(`Failed to unmount drive ${drive}:`, error);
+          })
+        );
       }
     }
 
     await Promise.all(unmountPromises);
+
+    if (errors.length > 0) {
+      throw new Error(`Failed to unmount ${errors.length} drive(s)`);
+    }
+  }
+
+  /**
+   * Explicit cleanup method - ensures all resources are released
+   * Call this before the DriveManager is destroyed
+   */
+  async cleanup(): Promise<void> {
+    await this.unmountAll();
   }
 
   /**
