@@ -504,7 +504,21 @@ async function main(): Promise<void> {
 
   // Start FDC server (only if not in terminal-only mode)
   if (server) {
-    await server.start();
+    if (webServer) {
+      // Web server is enabled - let it manage the server lifecycle
+      await webServer.startServer();
+      console.log('FDC server running under web server management');
+
+      // Keep process alive indefinitely (web server and FDC server both running)
+      await new Promise(() => {
+        // This promise never resolves, keeping the process alive
+        // The process can still exit via SIGINT, SIGTERM, or cleanup handlers
+      });
+    } else {
+      // No web server - run FDC server directly (blocks forever)
+      console.log('Starting FDC server (no web interface)');
+      await server.start();
+    }
   } else {
     // In terminal-only mode, keep the process alive
     console.log('Terminal-only mode: FDC server not started');

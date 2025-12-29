@@ -76,6 +76,7 @@ export class WebServer {
     this.runtimeConfig = options?.runtimeConfig || null;
     // Disk serving is enabled if a server was provided (not in terminal-only mode)
     this.diskServingEnabled = this.server !== null;
+    // Note: serverTask will be set when startServer() is called
 
     // Use provided database or create new one
     if (options?.database) {
@@ -1232,10 +1233,20 @@ export class WebServer {
       );
     }
 
-    // Start the server
-    this.serverTask = this.server.start();
+    // Start the server with error handling
+    console.log('Starting FDC server for disk serving...');
+    this.serverTask = this.server.start().catch((error) => {
+      console.error('FDC server error:', error);
+      this.serverTask = null;
+      this.diskServingEnabled = false;
+      this.broadcastStatus();
+      // Don't rethrow here - just log and update state
+    });
+
     this.diskServingEnabled = true;
 
+    // Give it a moment to start
+    await new Promise(resolve => setTimeout(resolve, 100));
     console.log('Disk serving enabled');
     this.broadcastStatus();
   }
@@ -1453,6 +1464,36 @@ export class WebServer {
         reject(error);
       }
     });
+  }
+
+  /**
+   * Start the FDC server (if one was provided in constructor)
+   * Must be called after start() to begin disk serving
+   */
+  async startServer(): Promise<void> {
+    if (!this.server) {
+      throw new Error('No FDC server configured');
+    }
+
+    if (this.serverTask) {
+      console.warn('FDC server is already running');
+      return;
+    }
+
+    console.log('Starting FDC server...');
+    this.serverTask = this.server.start().catch((error) => {
+      console.error('FDC server error:', error);
+      this.serverTask = null;
+      this.diskServingEnabled = false;
+      this.broadcastStatus();
+      // Rethrow to propagate error
+      throw error;
+    });
+
+    // Give it a moment to start
+    await new Promise(resolve => setTimeout(resolve, 100));
+    console.log('FDC server started');
+    this.broadcastStatus();
   }
 
   /**
