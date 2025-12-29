@@ -2357,16 +2357,16 @@
                     </div>
                     <div class="drive-controls-row">
                         <md-filled-button class="btn-compact" onclick="mountDrive(${drive.id})" style="flex: 1;">Mount</md-filled-button>
-                        <md-filled-button class="error-button btn-compact" onclick="unmountDrive(${drive.id})" ${!drive.mounted ? 'disabled' : ''} style="flex: 1;">Unmount</md-filled-button>
+                        <md-filled-button class="error-button btn-compact" id="unmount-btn-${drive.id}" onclick="unmountDrive(${drive.id})" ${!drive.mounted ? 'disabled' : ''} style="flex: 1;">Unmount</md-filled-button>
                         <label class="readonly-label">
-                            <md-checkbox id="ro-${drive.id}" ${drive.readonly ? 'checked' : ''} onchange="toggleReadOnly(${drive.id}, this.checked)"></md-checkbox>
+                            <md-checkbox id="ro-${drive.id}"></md-checkbox>
                             <span>R/O</span>
                         </label>
                     </div>
                 </div>
             `;
 
-            // Populate select options
+            // Populate select options and setup checkbox
             setTimeout(() => {
                 const select = document.getElementById(`select-${drive.id}`);
                 availableImages.forEach(img => {
@@ -2378,6 +2378,15 @@
                     }
                     select.appendChild(option);
                 });
+
+                // Setup readonly checkbox
+                const checkbox = document.getElementById(`ro-${drive.id}`);
+                if (checkbox) {
+                    checkbox.checked = drive.readonly;
+                    checkbox.addEventListener('change', (e) => {
+                        toggleReadOnly(drive.id, e.target.checked);
+                    });
+                }
             }, 100);
 
             return card;
@@ -2392,8 +2401,10 @@
             const values = card.querySelectorAll('.info-value');
             values[0].textContent = drive.filename || 'None';
 
-            const unmountBtn = card.querySelector('.btn-danger');
-            unmountBtn.disabled = !drive.mounted;
+            const unmountBtn = document.getElementById(`unmount-btn-${drive.id}`);
+            if (unmountBtn) {
+                unmountBtn.disabled = !drive.mounted;
+            }
 
             const checkbox = document.getElementById(`ro-${drive.id}`);
             if (checkbox) {
