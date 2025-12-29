@@ -871,6 +871,15 @@
             background: #4b5563;
         }
 
+        .btn-warning {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .btn-warning:hover:not(:disabled) {
+            background: #fde68a;
+        }
+
         input[type="checkbox"] {
             width: 16px;
             height: 16px;
@@ -1008,6 +1017,34 @@
             background: #059669;
         }
 
+        .btn-play {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-play:hover:not(:disabled) {
+            background: #059669;
+        }
+
+        .btn-edit {
+            background: #6b5778;
+            color: white;
+        }
+
+        .btn-edit:hover:not(:disabled) {
+            background: #523f5f;
+        }
+
+        .btn-text {
+            background: transparent;
+            color: var(--text-primary);
+            padding: 8px 12px;
+        }
+
+        .btn-text:hover:not(:disabled) {
+            background: var(--hover-bg);
+        }
+
         .btn-warning {
             background: #f59e0b;
             color: white;
@@ -1107,6 +1144,14 @@
             --md-filled-button-container-height: 36px;
             --md-outlined-button-container-height: 36px;
             --md-tonal-button-container-height: 36px;
+        }
+
+        /* ===== Material Design 3 Checkbox Styles ===== */
+        md-checkbox {
+            --md-checkbox-container-size: 18px;
+            --md-checkbox-icon-size: 18px;
+            display: inline-flex;
+            vertical-align: middle;
         }
 
         .config-group {
@@ -1762,17 +1807,17 @@
                             <option value="software">Software</option>
                         </select>
                     </div>
-                    <md-filled-button class="success-button" id="terminalConnect" onclick="connectTerminal()">Connect</md-filled-button>
-                    <md-filled-button class="error-button" id="terminalDisconnect" onclick="disconnectTerminal()" disabled>Disconnect</md-filled-button>
-                    <md-tonal-button class="warning-button" onclick="clearTerminal()">Clear</md-tonal-button>
+                    <button class="btn-success" id="terminalConnect" onclick="connectTerminal()">Connect</button>
+                    <button class="btn-danger" id="terminalDisconnect" onclick="disconnectTerminal()" disabled>Disconnect</button>
+                    <button class="btn-warning" onclick="clearTerminal()">Clear</button>
                     <div class="config-group" style="margin-left: 20px;">
                         <span class="config-label">Script:</span>
                         <select id="scriptSelect" class="md-select" style="min-width: 150px;">
                             <option value="">Select script...</option>
                         </select>
                     </div>
-                    <md-filled-button class="btn-compact" onclick="replayScript()" id="replayBtn" disabled><span class="material-symbols-outlined">play_arrow</span> Replay</md-filled-button>
-                    <md-filled-button class="error-button btn-compact" onclick="toggleRecording()" id="recordBtn" disabled><span class="material-symbols-outlined">fiber_manual_record</span> Record</md-filled-button>
+                    <button class="btn-primary btn-compact" onclick="replayScript()" id="replayBtn" disabled><span class="material-symbols-outlined">play_arrow</span> Replay</button>
+                    <button class="btn-danger btn-compact" onclick="toggleRecording()" id="recordBtn" disabled><span class="material-symbols-outlined">fiber_manual_record</span> Record</button>
                 </div>
                 <div class="terminal-container">
                     <div id="terminal"></div>
@@ -1843,7 +1888,7 @@
             <div class="disk-manager">
                 <div class="disk-manager-header">
                     <div class="disk-manager-title"><span class="material-symbols-outlined">description</span> Script Library</div>
-                    <md-filled-button onclick="showNewScriptModal()">New Script</md-filled-button>
+                    <button class="btn-primary" onclick="showNewScriptModal()">New Script</button>
                 </div>
                 <div class="disk-list" id="scriptList">
                     <!-- Scripts will be inserted here -->
@@ -1893,8 +1938,8 @@
                         </select>
                     </div>
                     <div class="config-actions">
-                        <md-outlined-button onclick="refreshPrimaryPorts()">Refresh Ports</md-outlined-button>
-                        <md-filled-button onclick="applyPrimaryConfig()">Apply &amp; Connect</md-filled-button>
+                        <button class="btn-secondary" onclick="refreshPrimaryPorts()">Refresh Ports</button>
+                        <button class="btn-primary" onclick="applyPrimaryConfig()">Apply &amp; Connect</button>
                     </div>
                 </div>
                 <div class="config-help" id="primaryConfigMessage">Select the serial port and baud rate for your FDC+ controller connection.</div>
@@ -1910,13 +1955,15 @@
                 <div class="config-grid">
                     <div class="config-field">
                         <label for="configWebEnabled">Enable Web Interface</label>
-                        <md-checkbox id="configWebEnabled"></md-checkbox>
+                        <input type="checkbox" id="configWebEnabled">
                     </div>
                     <div class="config-field">
-                        <md-outlined-text-field id="configWebPort" label="Web Port" type="number" value="3000" min="1" max="65535"></md-outlined-text-field>
+                        <label for="configWebPort">Web Port</label>
+                        <input type="number" id="configWebPort" value="3000" min="1" max="65535">
                     </div>
                     <div class="config-field">
-                        <md-outlined-text-field id="configWebHost" label="Web Host" value="localhost"></md-outlined-text-field>
+                        <label for="configWebHost">Web Host</label>
+                        <input type="text" id="configWebHost" value="localhost">
                     </div>
                 </div>
             </div>
@@ -1956,10 +2003,10 @@
                     </div>
                     <div class="config-field">
                         <label for="configTerminalAutoconnect">Auto-connect Terminal</label>
-                        <md-checkbox id="configTerminalAutoconnect"></md-checkbox>
+                        <input type="checkbox" id="configTerminalAutoconnect">
                     </div>
                     <div class="config-actions">
-                        <md-outlined-button onclick="refreshTerminalPorts()">Refresh Ports</md-outlined-button>
+                        <button class="btn-secondary" onclick="refreshTerminalPorts()">Refresh Ports</button>
                     </div>
                 </div>
             </div>
@@ -1974,18 +2021,19 @@
                 <div class="config-grid">
                     <div class="config-field">
                         <label for="configVerbose">Verbose Mode</label>
-                        <md-checkbox id="configVerbose"></md-checkbox>
+                        <input type="checkbox" id="configVerbose">
                     </div>
                     <div class="config-field">
                         <label for="configDebug">Debug Mode</label>
-                        <md-checkbox id="configDebug"></md-checkbox>
+                        <input type="checkbox" id="configDebug">
                     </div>
                     <div class="config-field">
                         <label for="configHeadless">Headless Mode</label>
-                        <md-checkbox id="configHeadless" checked></md-checkbox>
+                        <input type="checkbox" id="configHeadless" checked>
                     </div>
                     <div class="config-field">
-                        <md-outlined-text-field id="configLogFile" label="Log File Path" value="/var/log/fdcsds.log"></md-outlined-text-field>
+                        <label for="configLogFile">Log File Path</label>
+                        <input type="text" id="configLogFile" value="/var/log/fdcsds.log">
                     </div>
                 </div>
             </div>
@@ -2000,20 +2048,23 @@
                 <div class="config-grid">
                     <div class="config-field">
                         <label for="configGpioEnabled">Enable GPIO LEDs</label>
-                        <md-checkbox id="configGpioEnabled"></md-checkbox>
+                        <input type="checkbox" id="configGpioEnabled">
                     </div>
                     <div class="config-field">
                         <label for="configGpioActiveLow">Active Low</label>
-                        <md-checkbox id="configGpioActiveLow"></md-checkbox>
+                        <input type="checkbox" id="configGpioActiveLow">
                     </div>
                     <div class="config-field">
-                        <md-outlined-text-field id="configGpioBlinkDuration" label="Blink Duration (ms)" type="number" value="100" min="10" max="1000"></md-outlined-text-field>
+                        <label for="configGpioBlinkDuration">Blink Duration (ms)</label>
+                        <input type="number" id="configGpioBlinkDuration" value="100" min="10" max="1000">
                     </div>
                     <div class="config-field">
-                        <md-outlined-text-field id="configGpioActivityBlinkDuration" label="Activity Blink (ms)" type="number" value="50" min="10" max="1000"></md-outlined-text-field>
+                        <label for="configGpioActivityBlinkDuration">Activity Blink (ms)</label>
+                        <input type="number" id="configGpioActivityBlinkDuration" value="50" min="10" max="1000">
                     </div>
                     <div class="config-field">
-                        <md-outlined-text-field id="configGpioActivityLed" label="Activity LED Pin" type="number" value="4" min="0" max="27"></md-outlined-text-field>
+                        <label for="configGpioActivityLed">Activity LED Pin</label>
+                        <input type="number" id="configGpioActivityLed" value="4" min="0" max="27">
                     </div>
                 </div>
                 <div class="config-help" style="margin-top: 1rem; font-size: 0.85em; opacity: 0.8;">
@@ -2022,8 +2073,8 @@
             </div>
 
             <div style="margin-top: 1.5rem; text-align: center;">
-                <md-filled-button onclick="loadConfiguration()" style="margin-right: 10px;">Reload Config</md-filled-button>
-                <md-outlined-button onclick="saveConfiguration()">Save Changes</md-outlined-button>
+                <button class="btn-primary" onclick="loadConfiguration()" style="margin-right: 10px;">Reload Config</button>
+                <button class="btn-secondary" onclick="saveConfiguration()">Save Changes</button>
             </div>
 
             <div class="config-help" style="margin-top: 1rem; text-align: center;">
@@ -2073,7 +2124,8 @@
             </div>
             <div class="modal-body">
                 <div class="form-group">
-                    <md-outlined-text-field id="scriptName" label="Script Name" placeholder="my-script.txt" style="width: 100%;"></md-outlined-text-field>
+                    <label for="scriptName">Script Name</label>
+                    <input type="text" id="scriptName" placeholder="my-script.txt" style="width: 100%;">
                 </div>
                 <div class="form-group">
                     <label for="scriptContent">Script Content (commands sent to serial terminal)</label>
@@ -2081,8 +2133,8 @@
                 </div>
             </div>
             <div class="modal-actions">
-                <md-text-button onclick="closeScriptModal()">Cancel</md-text-button>
-                <md-filled-button id="saveScriptBtn" onclick="saveScript()">Save</md-filled-button>
+                <button class="btn-secondary" onclick="closeScriptModal()">Cancel</button>
+                <button class="btn-primary" id="saveScriptBtn" onclick="saveScript()">Save</button>
             </div>
         </div>
     </div>
@@ -2356,10 +2408,10 @@
                         </select>
                     </div>
                     <div class="drive-controls-row">
-                        <md-filled-button class="btn-compact" onclick="mountDrive(${drive.id})" style="flex: 1;">Mount</md-filled-button>
-                        <md-filled-button class="error-button btn-compact" id="unmount-btn-${drive.id}" onclick="unmountDrive(${drive.id})" ${!drive.mounted ? 'disabled' : ''} style="flex: 1;">Unmount</md-filled-button>
+                        <button class="btn-primary btn-compact" onclick="mountDrive(${drive.id})" style="flex: 1;">Mount</button>
+                        <button class="btn-danger btn-compact" id="unmount-btn-${drive.id}" onclick="unmountDrive(${drive.id})" ${!drive.mounted ? 'disabled' : ''} style="flex: 1;">Unmount</button>
                         <label class="readonly-label">
-                            <md-checkbox id="ro-${drive.id}"></md-checkbox>
+                            <input type="checkbox" id="ro-${drive.id}">
                             <span>R/O</span>
                         </label>
                     </div>
@@ -3409,15 +3461,15 @@
                             </div>
                             <div class="disk-item-actions">
                                 <div class="play-btn-group">
-                                    <md-filled-button class="play-button btn-small" onclick="togglePlayDropdown(${index})">Play</md-filled-button>
+                                    <button class="btn-play btn-small" onclick="togglePlayDropdown(${index})">Play</button>
                                     <div class="play-dropdown" id="playDropdown${index}">
-                                        <md-text-button onclick="playClientSide('${escapedName}', ${index})"><span class="material-symbols-outlined">computer</span> Play in Browser</md-text-button>
-                                        <md-text-button onclick="playServerSide('${escapedName}')"><span class="material-symbols-outlined">volume_up</span> Play on Server</md-text-button>
-                                        <md-text-button class="stop-button" onclick="stopServerSide()"><span class="material-symbols-outlined">stop</span> Stop Server Playback</md-text-button>
+                                        <button class="btn-text" onclick="playClientSide('${escapedName}', ${index})"><span class="material-symbols-outlined">computer</span> Play in Browser</button>
+                                        <button class="btn-text" onclick="playServerSide('${escapedName}')"><span class="material-symbols-outlined">volume_up</span> Play on Server</button>
+                                        <button class="btn-text" onclick="stopServerSide()"><span class="material-symbols-outlined">stop</span> Stop Server Playback</button>
                                     </div>
                                 </div>
-                                <md-filled-button class="edit-button btn-small" onclick="editCassetteNotes('${escapedName}', '${escapeHtml(description)}', '${escapeHtml(notes)}')">Edit</md-filled-button>
-                                <md-filled-button class="error-button btn-small" onclick="deleteCassette('${escapedName}')">Delete</md-filled-button>
+                                <button class="btn-edit btn-small" onclick="editCassetteNotes('${escapedName}', '${escapeHtml(description)}', '${escapeHtml(notes)}')">Edit</button>
+                                <button class="btn-danger btn-small" onclick="deleteCassette('${escapedName}')">Delete</button>
                             </div>
                         </div>
                         <div class="audio-player" id="audioPlayer${index}">
@@ -3678,8 +3730,8 @@
                                 </div>
                             </div>
                             <div class="disk-item-actions">
-                                <md-filled-button class="edit-button btn-small" onclick="editScript('${script}')">Edit</md-filled-button>
-                                <md-filled-button class="error-button btn-small" onclick="deleteScript('${script}')">Delete</md-filled-button>
+                                <button class="btn-edit btn-small" onclick="editScript('${script}')">Edit</button>
+                                <button class="btn-danger btn-small" onclick="deleteScript('${script}')">Delete</button>
                             </div>
                         `;
                         scriptList.appendChild(item);
