@@ -93,6 +93,7 @@ export class FdcServer {
           await new Promise(resolve => setTimeout(resolve, 10));
         } else {
           // Log other errors
+          console.error('Command receive error:', error);
           this.displayManager.displayError(
             'Command receive error',
             error as NodeJS.ErrnoException
@@ -273,6 +274,7 @@ export class FdcServer {
       // Send track data
       await this.serialManager.sendBuffer(trackData, TIMEOUT_BUFFER);
     } catch (error) {
+      console.error(`Read track error - Drive ${drive}, Track ${track}:`, error);
       this.displayManager.displayError(
         'Read track error',
         error as NodeJS.ErrnoException
@@ -309,7 +311,16 @@ export class FdcServer {
       driveState.track = track;
     }
 
-    // Send initial OK response
+    // Validate drive is writable before committing to receive data
+    // This prevents EBADF errors after we've already told the FDC we're ready
+    const canWrite = await this.driveManager.canWrite(drive);
+    if (!canWrite) {
+      console.warn(`WRIT command rejected - Drive ${drive} not writable (readonly=${driveState?.readonly}, mounted=${driveState?.mounted})`);
+      await this.sendWriteResponse(cmd, FdcError.NOT_READY);
+      return;
+    }
+
+    // Send initial OK response - we're ready to receive track data
     await this.sendWriteResponse(cmd, FdcError.OK);
 
     try {
@@ -331,7 +342,11 @@ export class FdcServer {
       cmd.cmd = 'WSTA';
       await this.sendWriteResponse(cmd, FdcError.OK);
     } catch (error) {
-      // Send error response
+      // Send error response with detailed error information
+      const errDetails = error instanceof Error
+        ? { message: error.message, code: (error as any).code, stack: error.stack }
+        : error;
+      console.error(`Write track error - Drive ${drive}, Track ${track}, Length ${length}:`, errDetails);
       this.displayManager.displayError(
         'Write track error',
         error as NodeJS.ErrnoException

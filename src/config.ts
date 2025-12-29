@@ -304,7 +304,7 @@ export function getExampleConfig(): string {
     // Display options
     verbose: false,
     debug: false,
-    headless: false, // Disable text-based status display (useful when running as systemd service)
+    headless: true, // Disable text-based status display (useful when running as systemd service)
     logFile: null,   // Optional: log file path (e.g., "/var/log/fdcsds.log" or "fdcsds.log")
 
     // Web interface

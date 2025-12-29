@@ -103,7 +103,7 @@ describe('DriveManager', () => {
     });
 
     test('should open read-only drives with O_RDONLY', async () => {
-      driveManager.writeProtect(0, true);
+      await driveManager.writeProtect(0, true);
       await driveManager.mountDrive(0, 'test.dsk');
 
       expect(fs.open).toHaveBeenCalledWith('test.dsk', fsSync.constants.O_RDONLY);
@@ -194,23 +194,72 @@ describe('DriveManager', () => {
   });
 
   describe('writeProtect', () => {
-    test('should set write protection', () => {
-      driveManager.writeProtect(0, true);
+    test('should set write protection', async () => {
+      await driveManager.writeProtect(0, true);
       const state = driveManager.getDriveState(0);
       expect(state?.readonly).toBe(true);
     });
 
-    test('should clear write protection', () => {
-      driveManager.writeProtect(0, true);
-      driveManager.writeProtect(0, false);
+    test('should clear write protection', async () => {
+      await driveManager.writeProtect(0, true);
+      await driveManager.writeProtect(0, false);
       const state = driveManager.getDriveState(0);
       expect(state?.readonly).toBe(false);
     });
 
-    test('should throw error for invalid drive number', () => {
-      expect(() => driveManager.writeProtect(MAX_DRIVES, true)).toThrow(
+    test('should throw error for invalid drive number', async () => {
+      await expect(driveManager.writeProtect(MAX_DRIVES, true)).rejects.toThrow(
         'Invalid drive number'
       );
+    });
+
+    test('should remount file when changing readonly on mounted drive', async () => {
+      (fs.access as jest.Mock).mockResolvedValue(undefined);
+      (fs.open as jest.Mock).mockResolvedValue(mockFileHandle);
+      mockFileHandle.close.mockResolvedValue(undefined);
+
+      // Mount as RW
+      await driveManager.mountDrive(0, 'test.dsk');
+      expect(fs.open).toHaveBeenCalledWith('test.dsk', fsSync.constants.O_RDWR);
+
+      // Clear mock and change to RO - should remount
+      (fs.open as jest.Mock).mockClear();
+      const newMockHandle = { ...mockFileHandle, fd: 4 };
+      (fs.open as jest.Mock).mockResolvedValue(newMockHandle);
+
+      await driveManager.writeProtect(0, true);
+
+      expect(mockFileHandle.close).toHaveBeenCalled();
+      expect(fs.open).toHaveBeenCalledWith('test.dsk', fsSync.constants.O_RDONLY);
+
+      const state = driveManager.getDriveState(0);
+      expect(state?.readonly).toBe(true);
+      expect(state?.mounted).toBe(true);
+    });
+
+    test('should not remount if readonly flag unchanged', async () => {
+      (fs.access as jest.Mock).mockResolvedValue(undefined);
+      (fs.open as jest.Mock).mockResolvedValue(mockFileHandle);
+      mockFileHandle.close.mockResolvedValue(undefined);
+
+      await driveManager.mountDrive(0, 'test.dsk');
+      (fs.open as jest.Mock).mockClear();
+      mockFileHandle.close.mockClear();
+
+      // Set to same value - should not remount
+      await driveManager.writeProtect(0, false);
+
+      expect(mockFileHandle.close).not.toHaveBeenCalled();
+      expect(fs.open).not.toHaveBeenCalled();
+    });
+
+    test('should not remount if drive not mounted', async () => {
+      // Change readonly on unmounted drive
+      await driveManager.writeProtect(0, true);
+
+      const state = driveManager.getDriveState(0);
+      expect(state?.readonly).toBe(true);
+      expect(state?.mounted).toBe(false);
     });
   });
 
@@ -308,7 +357,7 @@ describe('DriveManager', () => {
     });
 
     test('should throw error for read-only drive', async () => {
-      driveManager.writeProtect(0, true);
+      await driveManager.writeProtect(0, true);
       await driveManager.mountDrive(0, 'test.dsk');
 
       const trackData = Buffer.alloc(4384);
@@ -372,8 +421,8 @@ describe('DriveManager', () => {
   });
 
   describe('isReadOnly', () => {
-    test('should return true for read-only drive', () => {
-      driveManager.writeProtect(0, true);
+    test('should return true for read-only drive', async () => {
+      await driveManager.writeProtect(0, true);
       expect(driveManager.isReadOnly(0)).toBe(true);
     });
 
@@ -392,6 +441,136 @@ describe('DriveManager', () => {
       const buffer = driveManager.getTrackBuffer();
       expect(buffer).toBeInstanceOf(Buffer);
       expect(buffer.length).toBe(4384);
+    });
+  });
+
+  describe('canWrite', () => {
+    beforeEach(async () => {
+      (fs.access as jest.Mock).mockResolvedValue(undefined);
+      (fs.open as jest.Mock).mockResolvedValue(mockFileHandle);
+      mockFileHandle.datasync = jest.fn().mockResolvedValue(undefined);
+    });
+
+    test('should return true for writable mounted drive', async () => {
+      await driveManager.mountDrive(0, 'test.dsk');
+      const canWrite = await driveManager.canWrite(0);
+      expect(canWrite).toBe(true);
+      expect(mockFileHandle.datasync).toHaveBeenCalled();
+    });
+
+    test('should return false for readonly drive', async () => {
+      await driveManager.writeProtect(0, true);
+      await driveManager.mountDrive(0, 'test.dsk');
+      const canWrite = await driveManager.canWrite(0);
+      expect(canWrite).toBe(false);
+    });
+
+    test('should return false for unmounted drive', async () => {
+      const canWrite = await driveManager.canWrite(0);
+      expect(canWrite).toBe(false);
+    });
+
+    test('should return false for invalid drive', async () => {
+      const canWrite = await driveManager.canWrite(MAX_DRIVES);
+      expect(canWrite).toBe(false);
+    });
+
+    test('should return false if datasync fails with EBADF', async () => {
+      await driveManager.mountDrive(0, 'test.dsk');
+      mockFileHandle.datasync.mockRejectedValue({ code: 'EBADF' });
+      const canWrite = await driveManager.canWrite(0);
+      expect(canWrite).toBe(false);
+    });
+
+    test('should return false if datasync fails with EACCES', async () => {
+      await driveManager.mountDrive(0, 'test.dsk');
+      mockFileHandle.datasync.mockRejectedValue({ code: 'EACCES' });
+      const canWrite = await driveManager.canWrite(0);
+      expect(canWrite).toBe(false);
+    });
+
+    test('should return true for other datasync errors', async () => {
+      await driveManager.mountDrive(0, 'test.dsk');
+      mockFileHandle.datasync.mockRejectedValue({ code: 'EIO' });
+      const canWrite = await driveManager.canWrite(0);
+      // Non-EBADF/EACCES errors assume writable
+      expect(canWrite).toBe(true);
+    });
+  });
+
+  describe('EBADF prevention', () => {
+    beforeEach(async () => {
+      (fs.access as jest.Mock).mockResolvedValue(undefined);
+      (fs.open as jest.Mock).mockResolvedValue(mockFileHandle);
+      mockFileHandle.write.mockResolvedValue({ bytesWritten: 4384 });
+      mockFileHandle.sync.mockResolvedValue(undefined);
+      mockFileHandle.datasync = jest.fn().mockResolvedValue(undefined);
+      mockFileHandle.close.mockResolvedValue(undefined);
+    });
+
+    test('should detect file mode mismatch before write', async () => {
+      // Simulate file opened as RO but flag changed
+      await driveManager.writeProtect(0, true);
+      await driveManager.mountDrive(0, 'test.dsk');
+
+      // Change flag without remount (simulating old bug)
+      const state = driveManager.getDriveState(0);
+      state!.readonly = false; // Direct manipulation to simulate bug
+
+      // Datasync should fail with EBADF
+      mockFileHandle.datasync.mockRejectedValueOnce({ code: 'EBADF' });
+
+      const trackData = Buffer.alloc(4384);
+      await expect(
+        driveManager.writeTrack(0, 0, 4384, trackData)
+      ).rejects.toThrow('file not open for writing');
+
+      expect(driveManager.fdcErrno).toBe(FdcError.WRITE_ERR);
+    });
+
+    test('should prevent write after readonly toggle', async () => {
+      // Mount as RW
+      await driveManager.mountDrive(0, 'test.dsk');
+
+      // Change to RO (should remount)
+      await driveManager.writeProtect(0, true);
+
+      // Attempt write should fail
+      const trackData = Buffer.alloc(4384);
+      await expect(
+        driveManager.writeTrack(0, 0, 4384, trackData)
+      ).rejects.toThrow('read-only');
+
+      expect(driveManager.fdcErrno).toBe(FdcError.WRITE_ERR);
+    });
+
+    test('should allow write after RO to RW toggle', async () => {
+      // Mount as RO
+      await driveManager.writeProtect(0, true);
+      await driveManager.mountDrive(0, 'test.dsk');
+
+      // Clear mocks
+      (fs.open as jest.Mock).mockClear();
+      mockFileHandle.close.mockClear();
+
+      // Change to RW (should remount with O_RDWR)
+      const newHandle = { ...mockFileHandle, fd: 5 };
+      (fs.open as jest.Mock).mockResolvedValue(newHandle);
+      newHandle.datasync = jest.fn().mockResolvedValue(undefined);
+      newHandle.write = jest.fn().mockResolvedValue({ bytesWritten: 4384 });
+      newHandle.sync = jest.fn().mockResolvedValue(undefined);
+
+      await driveManager.writeProtect(0, false);
+
+      // Verify remount happened
+      expect(mockFileHandle.close).toHaveBeenCalled();
+      expect(fs.open).toHaveBeenCalledWith('test.dsk', fsSync.constants.O_RDWR);
+
+      // Write should succeed
+      const trackData = Buffer.alloc(4384);
+      const result = await driveManager.writeTrack(0, 0, 4384, trackData);
+      expect(result).toBe(4384);
+      expect(driveManager.fdcErrno).toBe(FdcError.OK);
     });
   });
 });

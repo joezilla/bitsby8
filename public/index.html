@@ -8,45 +8,298 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+
+    <!-- Material Design 3 - Material Web Components -->
+    <script type="importmap">
+    {
+      "imports": {
+        "@material/web/": "https://esm.run/@material/web/"
+      }
+    }
+    </script>
+
+    <script type="module">
+      // Material Design 3 - Web Components
+      // Buttons
+      import '@material/web/button/filled-button.js';
+      import '@material/web/button/outlined-button.js';
+      import '@material/web/button/text-button.js';
+      import '@material/web/button/tonal-button.js';
+
+      // Icon buttons
+      import '@material/web/iconbutton/icon-button.js';
+      import '@material/web/iconbutton/filled-icon-button.js';
+
+      // Form fields
+      import '@material/web/textfield/filled-text-field.js';
+      import '@material/web/textfield/outlined-text-field.js';
+      import '@material/web/select/filled-select.js';
+      import '@material/web/select/outlined-select.js';
+      import '@material/web/select/select-option.js';
+      import '@material/web/checkbox/checkbox.js';
+
+      // Navigation
+      import '@material/web/labs/navigationdrawer/navigation-drawer.js';
+      import '@material/web/list/list.js';
+      import '@material/web/list/list-item.js';
+
+      // Dialogs & feedback
+      import '@material/web/dialog/dialog.js';
+      import '@material/web/progress/linear-progress.js';
+      import '@material/web/progress/circular-progress.js';
+
+      // Chips
+      import '@material/web/chips/chip-set.js';
+      import '@material/web/chips/filter-chip.js';
+      import '@material/web/chips/assist-chip.js';
+
+      // Ripple effects
+      import '@material/web/ripple/ripple.js';
+    </script>
+
+    <!-- Material Symbols Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+
     <style>
+        /* Material Symbols styling */
+        .material-symbols-outlined {
+            font-family: 'Material Symbols Outlined';
+            font-weight: normal;
+            font-style: normal;
+            font-size: 24px;
+            line-height: 1;
+            letter-spacing: normal;
+            text-transform: none;
+            display: inline-block;
+            white-space: nowrap;
+            word-wrap: normal;
+            direction: ltr;
+            vertical-align: middle;
+            margin-right: 6px;
+        }
+
+        /* Icon sizing adjustments */
+        .terminal-title .material-symbols-outlined,
+        .disk-manager-title .material-symbols-outlined,
+        .config-title .material-symbols-outlined,
+        h2 .material-symbols-outlined {
+            font-size: 28px;
+            margin-right: 8px;
+        }
+
+        .disk-item-icon .material-symbols-outlined {
+            font-size: 48px;
+            margin-right: 0;
+        }
+
+        md-filled-button .material-symbols-outlined,
+        md-outlined-button .material-symbols-outlined,
+        md-text-button .material-symbols-outlined,
+        md-tonal-button .material-symbols-outlined {
+            font-size: 18px;
+            margin-right: 4px;
+        }
+
+        .nav-menu a .material-symbols-outlined {
+            font-size: 20px;
+            margin-right: 8px;
+        }
+
+        /* ===== Material Design 3 Theme System ===== */
         :root {
-            /* Light mode colors */
-            --bg-primary: #f5f5f5;
-            --bg-secondary: #ffffff;
-            --bg-tertiary: #f9fafb;
-            --text-primary: #1f2937;
-            --text-secondary: #6b7280;
-            --text-tertiary: #9ca3af;
-            --border-color: #e5e7eb;
-            --border-color-hover: #d1d5db;
-            --shadow: rgba(0, 0, 0, 0.1);
-            --panel-border: #4a9eff;
-            --panel-label: #4a9eff;
-            --hamburger-color: #4a9eff;
-            --card-bg: #ffffff;
-            --input-bg: #ffffff;
-            --input-border: #e5e7eb;
-            --hover-bg: #f3f4f6;
+            /* MD3 Primary Color (Blue #4a9eff) */
+            --md-sys-color-primary: #4a9eff;
+            --md-sys-color-on-primary: #ffffff;
+            --md-sys-color-primary-container: #d4e7ff;
+            --md-sys-color-on-primary-container: #001d35;
+
+            /* MD3 Secondary */
+            --md-sys-color-secondary: #535f70;
+            --md-sys-color-on-secondary: #ffffff;
+            --md-sys-color-secondary-container: #d7e3f7;
+            --md-sys-color-on-secondary-container: #101c2b;
+
+            /* MD3 Tertiary */
+            --md-sys-color-tertiary: #6b5778;
+            --md-sys-color-on-tertiary: #ffffff;
+            --md-sys-color-tertiary-container: #f2daff;
+            --md-sys-color-on-tertiary-container: #251431;
+
+            /* MD3 Error */
+            --md-sys-color-error: #ba1a1a;
+            --md-sys-color-on-error: #ffffff;
+            --md-sys-color-error-container: #ffdad6;
+            --md-sys-color-on-error-container: #410002;
+
+            /* MD3 Surface & Background */
+            --md-sys-color-surface: #fdfcff;
+            --md-sys-color-on-surface: #1a1c1e;
+            --md-sys-color-surface-variant: #dfe2eb;
+            --md-sys-color-on-surface-variant: #43474e;
+            --md-sys-color-surface-container-lowest: #ffffff;
+            --md-sys-color-surface-container-low: #f7f9ff;
+            --md-sys-color-surface-container: #ebecf4;
+            --md-sys-color-surface-container-high: #e5e7ef;
+            --md-sys-color-surface-container-highest: #e0e2ea;
+
+            /* MD3 Outline */
+            --md-sys-color-outline: #73777f;
+            --md-sys-color-outline-variant: #c3c7cf;
+
+            /* MD3 Inverse */
+            --md-sys-color-inverse-surface: #2f3033;
+            --md-sys-color-inverse-on-surface: #f1f0f4;
+            --md-sys-color-inverse-primary: #a8c9ff;
+
+            /* MD3 Elevation Shadows */
+            --md-sys-elevation-level0: none;
+            --md-sys-elevation-level1: 0px 1px 2px rgba(0,0,0,0.3), 0px 1px 3px 1px rgba(0,0,0,0.15);
+            --md-sys-elevation-level2: 0px 1px 2px rgba(0,0,0,0.3), 0px 2px 6px 2px rgba(0,0,0,0.15);
+            --md-sys-elevation-level3: 0px 1px 3px rgba(0,0,0,0.3), 0px 4px 8px 3px rgba(0,0,0,0.15);
+            --md-sys-elevation-level4: 0px 2px 3px rgba(0,0,0,0.3), 0px 6px 10px 4px rgba(0,0,0,0.15);
+            --md-sys-elevation-level5: 0px 4px 4px rgba(0,0,0,0.3), 0px 8px 12px 6px rgba(0,0,0,0.15);
+
+            /* MD3 Typography Scale */
+            --md-sys-typescale-display-large-font: 'Segoe UI', system-ui, sans-serif;
+            --md-sys-typescale-display-large-size: 57px;
+            --md-sys-typescale-display-large-weight: 400;
+
+            --md-sys-typescale-headline-large-font: 'Segoe UI', system-ui, sans-serif;
+            --md-sys-typescale-headline-large-size: 32px;
+            --md-sys-typescale-headline-large-weight: 400;
+
+            --md-sys-typescale-headline-medium-font: 'Segoe UI', system-ui, sans-serif;
+            --md-sys-typescale-headline-medium-size: 28px;
+            --md-sys-typescale-headline-medium-weight: 400;
+
+            --md-sys-typescale-headline-small-font: 'Segoe UI', system-ui, sans-serif;
+            --md-sys-typescale-headline-small-size: 24px;
+            --md-sys-typescale-headline-small-weight: 400;
+
+            --md-sys-typescale-title-large-font: 'Segoe UI', system-ui, sans-serif;
+            --md-sys-typescale-title-large-size: 22px;
+            --md-sys-typescale-title-large-weight: 500;
+
+            --md-sys-typescale-title-medium-font: 'Segoe UI', system-ui, sans-serif;
+            --md-sys-typescale-title-medium-size: 16px;
+            --md-sys-typescale-title-medium-weight: 500;
+
+            --md-sys-typescale-body-large-font: 'Segoe UI', system-ui, sans-serif;
+            --md-sys-typescale-body-large-size: 16px;
+            --md-sys-typescale-body-large-weight: 400;
+
+            --md-sys-typescale-body-medium-font: 'Segoe UI', system-ui, sans-serif;
+            --md-sys-typescale-body-medium-size: 14px;
+            --md-sys-typescale-body-medium-weight: 400;
+
+            --md-sys-typescale-label-large-font: 'Segoe UI', system-ui, sans-serif;
+            --md-sys-typescale-label-large-size: 14px;
+            --md-sys-typescale-label-large-weight: 500;
+
+            --md-sys-typescale-label-medium-font: 'Segoe UI', system-ui, sans-serif;
+            --md-sys-typescale-label-medium-size: 12px;
+            --md-sys-typescale-label-medium-weight: 500;
+
+            --md-sys-typescale-label-small-font: 'Segoe UI', system-ui, sans-serif;
+            --md-sys-typescale-label-small-size: 11px;
+            --md-sys-typescale-label-small-weight: 500;
+
+            /* MD3 Motion Tokens */
+            --md-sys-motion-duration-short1: 50ms;
+            --md-sys-motion-duration-short2: 100ms;
+            --md-sys-motion-duration-short3: 150ms;
+            --md-sys-motion-duration-short4: 200ms;
+            --md-sys-motion-duration-medium1: 250ms;
+            --md-sys-motion-duration-medium2: 300ms;
+            --md-sys-motion-duration-medium3: 350ms;
+            --md-sys-motion-duration-medium4: 400ms;
+
+            --md-sys-motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+            --md-sys-motion-easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
+            --md-sys-motion-easing-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
+            --md-sys-motion-easing-emphasized-accelerate: cubic-bezier(0.3, 0, 0.8, 0.15);
+
+            /* Backward Compatibility Mappings */
+            --bg-primary: var(--md-sys-color-surface-container-low);
+            --bg-secondary: var(--md-sys-color-surface);
+            --bg-tertiary: var(--md-sys-color-surface-container);
+            --text-primary: var(--md-sys-color-on-surface);
+            --text-secondary: var(--md-sys-color-on-surface-variant);
+            --text-tertiary: var(--md-sys-color-on-surface-variant);
+            --border-color: var(--md-sys-color-outline-variant);
+            --border-color-hover: var(--md-sys-color-outline);
+            --shadow: var(--md-sys-elevation-level2);
+            --panel-border: var(--md-sys-color-primary);
+            --panel-label: var(--md-sys-color-primary);
+            --hamburger-color: var(--md-sys-color-primary);
+            --card-bg: var(--md-sys-color-surface-container);
+            --input-bg: var(--md-sys-color-surface);
+            --input-border: var(--md-sys-color-outline-variant);
+            --hover-bg: var(--md-sys-color-surface-container-high);
         }
 
         body.dark-mode {
-            /* Dark mode colors */
-            --bg-primary: #111827;
-            --bg-secondary: #1f2937;
-            --bg-tertiary: #374151;
-            --text-primary: #f9fafb;
-            --text-secondary: #d1d5db;
-            --text-tertiary: #9ca3af;
-            --border-color: #374151;
-            --border-color-hover: #4b5563;
-            --shadow: rgba(0, 0, 0, 0.3);
-            --panel-border: #4a9eff;
-            --panel-label: #4a9eff;
-            --hamburger-color: #4a9eff;
-            --card-bg: #1f2937;
-            --input-bg: #374151;
-            --input-border: #4b5563;
-            --hover-bg: #374151;
+            /* MD3 Primary Color (Dark Mode) */
+            --md-sys-color-primary: #a8c9ff;
+            --md-sys-color-on-primary: #00325a;
+            --md-sys-color-primary-container: #00497f;
+            --md-sys-color-on-primary-container: #d4e7ff;
+
+            /* MD3 Secondary (Dark Mode) */
+            --md-sys-color-secondary: #bbc7db;
+            --md-sys-color-on-secondary: #253140;
+            --md-sys-color-secondary-container: #3c4858;
+            --md-sys-color-on-secondary-container: #d7e3f7;
+
+            /* MD3 Tertiary (Dark Mode) */
+            --md-sys-color-tertiary: #d6bee4;
+            --md-sys-color-on-tertiary: #3b2948;
+            --md-sys-color-tertiary-container: #523f5f;
+            --md-sys-color-on-tertiary-container: #f2daff;
+
+            /* MD3 Error (Dark Mode) */
+            --md-sys-color-error: #ffb4ab;
+            --md-sys-color-on-error: #690005;
+            --md-sys-color-error-container: #93000a;
+            --md-sys-color-on-error-container: #ffdad6;
+
+            /* MD3 Surface & Background (Dark Mode) */
+            --md-sys-color-surface: #1a1c1e;
+            --md-sys-color-on-surface: #e3e2e6;
+            --md-sys-color-surface-variant: #43474e;
+            --md-sys-color-on-surface-variant: #c3c7cf;
+            --md-sys-color-surface-container-lowest: #0f1113;
+            --md-sys-color-surface-container-low: #1a1c1e;
+            --md-sys-color-surface-container: #1e2022;
+            --md-sys-color-surface-container-high: #282a2c;
+            --md-sys-color-surface-container-highest: #333537;
+
+            /* MD3 Outline (Dark Mode) */
+            --md-sys-color-outline: #8d9199;
+            --md-sys-color-outline-variant: #43474e;
+
+            /* MD3 Inverse (Dark Mode) */
+            --md-sys-color-inverse-surface: #e3e2e6;
+            --md-sys-color-inverse-on-surface: #1a1c1e;
+            --md-sys-color-inverse-primary: #0061a4;
+
+            /* Backward Compatibility Mappings (Dark Mode) */
+            --bg-primary: var(--md-sys-color-surface);
+            --bg-secondary: var(--md-sys-color-surface-container-low);
+            --bg-tertiary: var(--md-sys-color-surface-container);
+            --text-primary: var(--md-sys-color-on-surface);
+            --text-secondary: var(--md-sys-color-on-surface-variant);
+            --text-tertiary: var(--md-sys-color-on-surface-variant);
+            --border-color: var(--md-sys-color-outline-variant);
+            --border-color-hover: var(--md-sys-color-outline);
+            --shadow: var(--md-sys-elevation-level2);
+            --panel-border: var(--md-sys-color-primary);
+            --panel-label: var(--md-sys-color-primary);
+            --hamburger-color: var(--md-sys-color-primary);
+            --card-bg: var(--md-sys-color-surface-container);
+            --input-bg: var(--md-sys-color-surface-container);
+            --input-border: var(--md-sys-color-outline-variant);
+            --hover-bg: var(--md-sys-color-surface-container-high);
         }
 
         * {
@@ -56,11 +309,15 @@
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: var(--md-sys-typescale-body-large-font);
+            font-size: var(--md-sys-typescale-body-large-size);
+            font-weight: var(--md-sys-typescale-body-large-weight);
             background: var(--bg-primary);
+            color: var(--text-primary);
             min-height: 100vh;
             padding: 20px;
-            transition: background-color 0.3s ease;
+            transition: background-color var(--md-sys-motion-duration-medium2) ease,
+                        color var(--md-sys-motion-duration-medium2) ease;
         }
 
         .container {
@@ -248,9 +505,10 @@
             right: -300px;
             width: 280px;
             height: 100vh;
-            background: var(--card-bg);
-            box-shadow: -4px 0 20px var(--shadow);
-            transition: right 0.3s ease;
+            background: var(--md-sys-color-surface-container);
+            box-shadow: var(--md-sys-elevation-level2);
+            border-left: 1px solid var(--md-sys-color-outline-variant);
+            transition: right var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized);
             z-index: 1000;
             padding: 80px 0 20px 0;
             overflow-y: auto;
@@ -269,7 +527,7 @@
             background: rgba(0, 0, 0, 0.5);
             opacity: 0;
             visibility: hidden;
-            transition: all 0.3s;
+            transition: all var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard);
             z-index: 999;
         }
 
@@ -345,10 +603,11 @@
         }
 
         .config-card {
-            background: var(--card-bg);
-            border-radius: 10px;
+            background: var(--md-sys-color-surface-container-high);
+            border-radius: 16px;
             padding: 20px;
-            box-shadow: 0 4px 6px var(--shadow);
+            box-shadow: var(--md-sys-elevation-level1);
+            border: 1px solid var(--md-sys-color-outline-variant);
             margin-bottom: 20px;
         }
 
@@ -421,11 +680,11 @@
         }
 
         .drive-card {
-            background: var(--card-bg);
-            border-radius: 8px;
-            padding: 15px;
-            box-shadow: 0 2px 4px var(--shadow);
-            border: 1px solid var(--border-color);
+            background: var(--md-sys-color-surface-container);
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: var(--md-sys-elevation-level1);
+            border: 1px solid var(--md-sys-color-outline-variant);
         }
 
         .drive-header {
@@ -441,21 +700,27 @@
             color: var(--text-primary);
         }
 
-        .drive-badge {
-            padding: 3px 10px;
-            border-radius: 12px;
-            font-size: 0.75em;
-            font-weight: 600;
+        /* MD3 Chip variants for drive status */
+        md-assist-chip.mounted-chip {
+            --md-assist-chip-container-color: #d1fae5;
+            --md-assist-chip-label-text-color: #065f46;
+            --md-assist-chip-outline-color: #10b981;
         }
 
-        .drive-badge.mounted {
-            background: #d1fae5;
-            color: #065f46;
+        md-assist-chip.unmounted-chip {
+            --md-assist-chip-container-color: #fee2e2;
+            --md-assist-chip-label-text-color: #991b1b;
+            --md-assist-chip-outline-color: #ef4444;
         }
 
-        .drive-badge.unmounted {
-            background: #fee2e2;
-            color: #991b1b;
+        body.dark-mode md-assist-chip.mounted-chip {
+            --md-assist-chip-container-color: #064e3b;
+            --md-assist-chip-label-text-color: #6ee7b7;
+        }
+
+        body.dark-mode md-assist-chip.unmounted-chip {
+            --md-assist-chip-container-color: #7f1d1d;
+            --md-assist-chip-label-text-color: #fca5a5;
         }
 
         .drive-info {
@@ -500,6 +765,58 @@
             font-size: 0.9em;
             background: var(--input-bg);
             color: var(--text-primary);
+        }
+
+        /* Material Design-inspired Select Styling */
+        select.md-select {
+            flex: 1;
+            min-width: 120px;
+            padding: 12px 36px 12px 12px;
+            border: 1px solid var(--input-border);
+            border-radius: 4px;
+            font-size: 0.95em;
+            font-family: inherit;
+            background: var(--input-bg);
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23999'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 6px center;
+            background-size: 24px;
+        }
+
+        select.md-select:hover {
+            border-color: var(--accent);
+            background-color: var(--card-bg);
+        }
+
+        select.md-select:focus {
+            outline: none;
+            border-color: var(--accent);
+            border-width: 2px;
+            padding: 11px 35px 11px 11px;
+            box-shadow: 0 0 0 3px rgba(147, 112, 219, 0.1);
+        }
+
+        select.md-select option {
+            background: var(--card-bg);
+            color: var(--text-primary);
+            padding: 8px 12px;
+        }
+
+        .config-field select.md-select {
+            width: 100%;
+        }
+
+        .terminal-controls select.md-select {
+            flex: none;
+            min-width: 150px;
+        }
+
+        .config-group select.md-select {
+            min-width: 100px;
         }
 
         button {
@@ -552,6 +869,15 @@
 
         .btn-secondary:hover:not(:disabled) {
             background: #4b5563;
+        }
+
+        .btn-warning {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .btn-warning:hover:not(:disabled) {
+            background: #fde68a;
         }
 
         input[type="checkbox"] {
@@ -621,10 +947,11 @@
 
         /* Terminal Styles */
         .terminal-section {
-            background: var(--card-bg);
-            border-radius: 10px;
+            background: var(--md-sys-color-surface-container-high);
+            border-radius: 16px;
             padding: 20px;
-            box-shadow: 0 4px 6px var(--shadow);
+            box-shadow: var(--md-sys-elevation-level1);
+            border: 1px solid var(--md-sys-color-outline-variant);
             margin-bottom: 20px;
         }
 
@@ -690,6 +1017,34 @@
             background: #059669;
         }
 
+        .btn-play {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-play:hover:not(:disabled) {
+            background: #059669;
+        }
+
+        .btn-edit {
+            background: #6b5778;
+            color: white;
+        }
+
+        .btn-edit:hover:not(:disabled) {
+            background: #523f5f;
+        }
+
+        .btn-text {
+            background: transparent;
+            color: var(--text-primary);
+            padding: 8px 12px;
+        }
+
+        .btn-text:hover:not(:disabled) {
+            background: var(--hover-bg);
+        }
+
         .btn-warning {
             background: #f59e0b;
             color: white;
@@ -697,6 +1052,106 @@
 
         .btn-warning:hover:not(:disabled) {
             background: #d97706;
+        }
+
+        /* ===== Material Design 3 Button Styles ===== */
+
+        /* Success button variant (green) */
+        md-filled-button.success-button {
+            --md-filled-button-container-color: #10b981;
+            --md-filled-button-label-text-color: #ffffff;
+            --md-filled-button-hover-state-layer-color: #059669;
+            --md-filled-button-hover-state-layer-opacity: 0.08;
+            --md-filled-button-pressed-state-layer-color: #047857;
+            --md-filled-button-pressed-state-layer-opacity: 0.12;
+        }
+
+        /* Error/Danger button variant (red) */
+        md-filled-button.error-button {
+            --md-filled-button-container-color: var(--md-sys-color-error);
+            --md-filled-button-label-text-color: var(--md-sys-color-on-error);
+            --md-filled-button-hover-state-layer-color: #93000a;
+            --md-filled-button-hover-state-layer-opacity: 0.08;
+        }
+
+        /* Warning button variant (orange/tonal) */
+        md-tonal-button.warning-button {
+            --md-tonal-button-container-color: #fef3c7;
+            --md-tonal-button-label-text-color: #92400e;
+            --md-tonal-button-hover-state-layer-color: #f59e0b;
+            --md-tonal-button-hover-state-layer-opacity: 0.08;
+        }
+
+        /* Edit button (tertiary/purple) */
+        md-filled-button.edit-button {
+            --md-filled-button-container-color: var(--md-sys-color-tertiary);
+            --md-filled-button-label-text-color: var(--md-sys-color-on-tertiary);
+        }
+
+        /* Clone button (teal/tonal) */
+        md-tonal-button.clone-button {
+            --md-tonal-button-container-color: #d1fae5;
+            --md-tonal-button-label-text-color: #065f46;
+            --md-tonal-button-hover-state-layer-color: #10b981;
+            --md-tonal-button-hover-state-layer-opacity: 0.08;
+        }
+
+        /* Stop button (orange/tonal) */
+        md-tonal-button.stop-button {
+            --md-tonal-button-container-color: #fed7aa;
+            --md-tonal-button-label-text-color: #92400e;
+            --md-tonal-button-hover-state-layer-color: #f59e0b;
+            --md-tonal-button-hover-state-layer-opacity: 0.08;
+        }
+
+        /* Play button (green) */
+        md-filled-button.play-button {
+            --md-filled-button-container-color: #10b981;
+            --md-filled-button-label-text-color: #ffffff;
+        }
+
+        /* General Material button configuration */
+        md-filled-button,
+        md-outlined-button,
+        md-text-button,
+        md-tonal-button {
+            --md-filled-button-container-shape: 20px;
+            --md-outlined-button-container-shape: 20px;
+            --md-text-button-container-shape: 20px;
+            --md-tonal-button-container-shape: 20px;
+            --md-filled-button-container-height: 40px;
+            --md-outlined-button-container-height: 40px;
+            --md-text-button-container-height: 40px;
+            --md-tonal-button-container-height: 40px;
+        }
+
+        /* Compact button variant */
+        md-filled-button.btn-compact,
+        md-outlined-button.btn-compact,
+        md-tonal-button.btn-compact {
+            --md-filled-button-container-height: 32px;
+            --md-outlined-button-container-height: 32px;
+            --md-tonal-button-container-height: 32px;
+            --md-filled-button-label-text-size: 0.85em;
+            --md-outlined-button-label-text-size: 0.85em;
+            --md-tonal-button-label-text-size: 0.85em;
+        }
+
+        /* Small button variant */
+        md-filled-button.btn-small,
+        md-outlined-button.btn-small,
+        md-tonal-button.btn-small {
+            --md-filled-button-container-height: 36px;
+            --md-outlined-button-container-height: 36px;
+            --md-tonal-button-container-height: 36px;
+        }
+
+        /* ===== Material Design 3 Checkbox Styles ===== */
+        md-checkbox {
+            --md-checkbox-container-size: 18px;
+            --md-checkbox-icon-size: 18px;
+            display: inline-flex;
+            vertical-align: middle;
         }
 
         .config-group {
@@ -733,10 +1188,11 @@
 
         /* Disk Image Manager */
         .disk-manager {
-            background: var(--card-bg);
-            border-radius: 10px;
+            background: var(--md-sys-color-surface-container-high);
+            border-radius: 16px;
             padding: 20px;
-            box-shadow: 0 4px 6px var(--shadow);
+            box-shadow: var(--md-sys-elevation-level1);
+            border: 1px solid var(--md-sys-color-outline-variant);
             margin-bottom: 20px;
         }
 
@@ -811,16 +1267,17 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 15px;
-            background: var(--bg-tertiary);
-            border-radius: 8px;
-            border: 1px solid var(--border-color);
-            transition: all 0.2s;
+            padding: 16px;
+            background: var(--md-sys-color-surface-container);
+            border-radius: 12px;
+            border: 1px solid var(--md-sys-color-outline-variant);
+            transition: all var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
         }
 
         .disk-item:hover {
-            background: var(--hover-bg);
-            border-color: var(--border-color-hover);
+            background: var(--md-sys-color-surface-container-highest);
+            border-color: var(--md-sys-color-outline);
+            box-shadow: var(--md-sys-elevation-level1);
         }
 
         .disk-item-info {
@@ -864,25 +1321,7 @@
             padding: 8px 12px;
         }
 
-        .progress-bar {
-            width: 100%;
-            height: 4px;
-            background: #e5e7eb;
-            border-radius: 2px;
-            overflow: hidden;
-            margin-top: 10px;
-            display: none;
-        }
-
-        .progress-bar.active {
-            display: block;
-        }
-
-        .progress-bar-fill {
-            height: 100%;
-            background: #3b82f6;
-            transition: width 0.3s;
-        }
+        /* Progress bars now using md-linear-progress */
 
         /* Modal */
         .modal-overlay {
@@ -903,14 +1342,15 @@
         }
 
         .modal {
-            background: var(--card-bg);
-            border-radius: 10px;
-            padding: 30px;
+            background: var(--md-sys-color-surface-container-highest);
+            border-radius: 28px;
+            padding: 24px;
             max-width: 600px;
             width: 90%;
             max-height: 80vh;
             overflow-y: auto;
-            box-shadow: 0 10px 40px var(--shadow);
+            box-shadow: var(--md-sys-elevation-level3);
+            border: 1px solid var(--md-sys-color-outline-variant);
         }
 
         .modal-header {
@@ -1295,13 +1735,13 @@
         <nav class="nav-menu" id="navMenu">
             <button class="close-btn" onclick="closeMenu()">&times;</button>
             <ul>
-                <li><a href="#terminal" onclick="navigateTo('terminal'); return false;">📟 Terminal</a></li>
-                <li><a href="#disks" onclick="navigateTo('disks'); return false;">💾 Disks</a></li>
-                <li><a href="#cassettes" onclick="navigateTo('cassettes'); return false;">📼 Cassettes</a></li>
-                <li><a href="#roms" onclick="navigateTo('roms'); return false;">🔧 ROMs</a></li>
-                <li><a href="#scripts" onclick="navigateTo('scripts'); return false;">📜 Scripts</a></li>
-                <li><a href="#notes" onclick="navigateTo('notes'); return false;">📝 Notes</a></li>
-                <li><a href="#configuration" onclick="navigateTo('configuration'); return false;">⚙️ Configuration</a></li>
+                <li><a href="#terminal" onclick="navigateTo('terminal'); return false;"><span class="material-symbols-outlined">terminal</span> Terminal</a></li>
+                <li><a href="#disks" onclick="navigateTo('disks'); return false;"><span class="material-symbols-outlined">save</span> Disks</a></li>
+                <li><a href="#cassettes" onclick="navigateTo('cassettes'); return false;"><span class="material-symbols-outlined">tape</span> Cassettes</a></li>
+                <li><a href="#roms" onclick="navigateTo('roms'); return false;"><span class="material-symbols-outlined">memory</span> ROMs</a></li>
+                <li><a href="#scripts" onclick="navigateTo('scripts'); return false;"><span class="material-symbols-outlined">description</span> Scripts</a></li>
+                <li><a href="#notes" onclick="navigateTo('notes'); return false;"><span class="material-symbols-outlined">note</span> Notes</a></li>
+                <li><a href="#configuration" onclick="navigateTo('configuration'); return false;"><span class="material-symbols-outlined">settings</span> Configuration</a></li>
             </ul>
         </nav>
 
@@ -1310,7 +1750,7 @@
             <!-- Terminal Section -->
             <div class="terminal-section">
                 <div class="terminal-header">
-                    <div class="terminal-title">📟 Serial Terminal (VT102)</div>
+                    <div class="terminal-title"><span class="material-symbols-outlined">terminal</span> Serial Terminal (VT102)</div>
                     <div class="terminal-status">
                         <span class="status-dot" id="terminalStatus"></span>
                         <span id="terminalDevice">Not Connected</span>
@@ -1319,13 +1759,13 @@
                 <div class="terminal-controls">
                     <div class="config-group">
                         <span class="config-label">Port:</span>
-                        <select id="terminalPortSelect">
+                        <select id="terminalPortSelect" class="md-select">
                             <option value="">Select port...</option>
                         </select>
                     </div>
                     <div class="config-group">
                         <span class="config-label">Baud:</span>
-                        <select id="terminalBaudRate">
+                        <select id="terminalBaudRate" class="md-select">
                             <option value="9600">9600</option>
                             <option value="19200">19200</option>
                             <option value="38400">38400</option>
@@ -1335,7 +1775,7 @@
                     </div>
                     <div class="config-group">
                         <span class="config-label">Data:</span>
-                        <select id="terminalDataBits">
+                        <select id="terminalDataBits" class="md-select">
                             <option value="5">5</option>
                             <option value="6">6</option>
                             <option value="7">7</option>
@@ -1344,14 +1784,14 @@
                     </div>
                     <div class="config-group">
                         <span class="config-label">Stop:</span>
-                        <select id="terminalStopBits">
+                        <select id="terminalStopBits" class="md-select">
                             <option value="1" selected>1</option>
                             <option value="2">2</option>
                         </select>
                     </div>
                     <div class="config-group">
                         <span class="config-label">Parity:</span>
-                        <select id="terminalParity">
+                        <select id="terminalParity" class="md-select">
                             <option value="none" selected>None</option>
                             <option value="even">Even</option>
                             <option value="odd">Odd</option>
@@ -1361,7 +1801,7 @@
                     </div>
                     <div class="config-group">
                         <span class="config-label">Flow:</span>
-                        <select id="terminalFlowControl">
+                        <select id="terminalFlowControl" class="md-select">
                             <option value="none" selected>None</option>
                             <option value="hardware">Hardware</option>
                             <option value="software">Software</option>
@@ -1372,12 +1812,12 @@
                     <button class="btn-warning" onclick="clearTerminal()">Clear</button>
                     <div class="config-group" style="margin-left: 20px;">
                         <span class="config-label">Script:</span>
-                        <select id="scriptSelect" style="min-width: 150px;">
+                        <select id="scriptSelect" class="md-select" style="min-width: 150px;">
                             <option value="">Select script...</option>
                         </select>
                     </div>
-                    <button class="btn-primary btn-compact" onclick="replayScript()" id="replayBtn" disabled>▶ Replay</button>
-                    <button class="btn-danger btn-compact" onclick="toggleRecording()" id="recordBtn" disabled>⏺ Record</button>
+                    <button class="btn-primary btn-compact" onclick="replayScript()" id="replayBtn" disabled><span class="material-symbols-outlined">play_arrow</span> Replay</button>
+                    <button class="btn-danger btn-compact" onclick="toggleRecording()" id="recordBtn" disabled><span class="material-symbols-outlined">fiber_manual_record</span> Record</button>
                 </div>
                 <div class="terminal-container">
                     <div id="terminal"></div>
@@ -1395,19 +1835,17 @@
             <!-- Disk Image Manager -->
             <div class="disk-manager">
                 <div class="disk-manager-header">
-                    <div class="disk-manager-title">💾 Disk Image Library</div>
+                    <div class="disk-manager-title"><span class="material-symbols-outlined">save</span> Disk Image Library</div>
                     <div class="upload-form">
                         <div class="file-input-wrapper">
                             <input type="file" id="diskImageFile" accept=".dsk,.img,.ima" onchange="handleFileSelect(event)">
                             <label for="diskImageFile" class="file-input-label">Choose File</label>
                         </div>
                         <span class="file-name-display" id="fileNameDisplay">No file selected</span>
-                        <button class="btn-primary" id="uploadBtn" onclick="uploadDiskImage()" disabled>Upload</button>
+                        <md-filled-button id="uploadBtn" onclick="uploadDiskImage()" disabled>Upload</md-filled-button>
                     </div>
                 </div>
-                <div class="progress-bar" id="uploadProgress">
-                    <div class="progress-bar-fill" id="uploadProgressFill"></div>
-                </div>
+                <md-linear-progress id="uploadProgress" value="0" style="display: none; margin-top: 10px;"></md-linear-progress>
                 <div class="disk-list" id="diskImageList">
                     <!-- Disk images will be inserted here -->
                 </div>
@@ -1419,19 +1857,17 @@
             <!-- Cassette Manager -->
             <div class="disk-manager">
                 <div class="disk-manager-header">
-                    <div class="disk-manager-title">📼 Cassette Library</div>
+                    <div class="disk-manager-title"><span class="material-symbols-outlined">tape</span> Cassette Library</div>
                     <div class="upload-form">
                         <div class="file-input-wrapper">
                             <input type="file" id="cassetteFile" accept=".wav" onchange="handleCassetteFileSelect(event)">
                             <label for="cassetteFile" class="file-input-label">Choose File</label>
                         </div>
                         <span class="file-name-display" id="cassetteFileNameDisplay">No file selected</span>
-                        <button class="btn-primary" id="cassetteUploadBtn" onclick="uploadCassette()" disabled>Upload</button>
+                        <md-filled-button id="cassetteUploadBtn" onclick="uploadCassette()" disabled>Upload</md-filled-button>
                     </div>
                 </div>
-                <div class="progress-bar" id="cassetteUploadProgress">
-                    <div class="progress-bar-fill" id="cassetteUploadProgressFill"></div>
-                </div>
+                <md-linear-progress id="cassetteUploadProgress" value="0" style="display: none; margin-top: 10px;"></md-linear-progress>
                 <div class="disk-list" id="cassetteList">
                     <!-- Cassettes will be inserted here -->
                 </div>
@@ -1441,7 +1877,7 @@
         <!-- ROMs Page -->
         <div id="page-roms" class="page">
             <div class="empty-state">
-                <h2>🔧 ROMs</h2>
+                <h2><span class="material-symbols-outlined">memory</span> ROMs</h2>
                 <p>ROM management coming soon</p>
             </div>
         </div>
@@ -1451,7 +1887,7 @@
             <!-- Script Manager -->
             <div class="disk-manager">
                 <div class="disk-manager-header">
-                    <div class="disk-manager-title">📜 Script Library</div>
+                    <div class="disk-manager-title"><span class="material-symbols-outlined">description</span> Script Library</div>
                     <button class="btn-primary" onclick="showNewScriptModal()">New Script</button>
                 </div>
                 <div class="disk-list" id="scriptList">
@@ -1463,7 +1899,7 @@
         <!-- Notes Page -->
         <div id="page-notes" class="page">
             <div class="empty-state">
-                <h2>📝 Notes</h2>
+                <h2><span class="material-symbols-outlined">note</span> Notes</h2>
                 <p>Notes coming soon</p>
             </div>
         </div>
@@ -1473,7 +1909,7 @@
             <div class="config-card" id="primaryConfigCard">
                 <div class="config-header">
                     <div>
-                        <div class="config-title">🔧 Primary Serial Configuration</div>
+                        <div class="config-title"><span class="material-symbols-outlined">cable</span> Primary Serial Configuration</div>
                         <div class="config-subtitle">Set the main FDC+ link from here. This configures the serial port that connects to your FDC+ controller.</div>
                     </div>
                     <div class="config-status">
@@ -1484,13 +1920,13 @@
                 <div class="config-grid">
                     <div class="config-field">
                         <label for="primaryPortSelect">Port</label>
-                        <select id="primaryPortSelect">
+                        <select id="primaryPortSelect" class="md-select">
                             <option value="">Select port...</option>
                         </select>
                     </div>
                     <div class="config-field">
                         <label for="primaryBaudRate">Baud Rate</label>
-                        <select id="primaryBaudRate">
+                        <select id="primaryBaudRate" class="md-select">
                             <option value="9600">9600</option>
                             <option value="19200">19200</option>
                             <option value="38400">38400</option>
@@ -1507,6 +1943,142 @@
                     </div>
                 </div>
                 <div class="config-help" id="primaryConfigMessage">Select the serial port and baud rate for your FDC+ controller connection.</div>
+            </div>
+
+            <div class="config-card">
+                <div class="config-header">
+                    <div>
+                        <div class="config-title">🌐 Web Interface Configuration</div>
+                        <div class="config-subtitle">Configure web server settings. Changes require restart.</div>
+                    </div>
+                </div>
+                <div class="config-grid">
+                    <div class="config-field">
+                        <label for="configWebEnabled">Enable Web Interface</label>
+                        <input type="checkbox" id="configWebEnabled">
+                    </div>
+                    <div class="config-field">
+                        <label for="configWebPort">Web Port</label>
+                        <input type="number" id="configWebPort" value="3000" min="1" max="65535">
+                    </div>
+                    <div class="config-field">
+                        <label for="configWebHost">Web Host</label>
+                        <input type="text" id="configWebHost" value="localhost">
+                    </div>
+                </div>
+            </div>
+
+            <div class="config-card">
+                <div class="config-header">
+                    <div>
+                        <div class="config-title"><span class="material-symbols-outlined">terminal</span> Terminal Serial Configuration</div>
+                        <div class="config-subtitle">Optional second serial port for VT102 terminal connection. Changes require restart.</div>
+                    </div>
+                    <div class="config-status">
+                        <span class="status-dot disconnected" id="terminalStatusDot"></span>
+                        <span id="terminalStatusLabel">Not Connected</span>
+                    </div>
+                </div>
+                <div class="config-grid">
+                    <div class="config-field">
+                        <label for="configTerminalPort">Terminal Port</label>
+                        <select id="configTerminalPort" class="md-select">
+                            <option value="">Select port...</option>
+                        </select>
+                    </div>
+                    <div class="config-field">
+                        <label for="configTerminalBaud">Terminal Baud</label>
+                        <select id="configTerminalBaud" class="md-select">
+                            <option value="">Not set</option>
+                            <option value="300">300</option>
+                            <option value="1200">1200</option>
+                            <option value="2400">2400</option>
+                            <option value="4800">4800</option>
+                            <option value="9600">9600</option>
+                            <option value="19200">19200</option>
+                            <option value="38400">38400</option>
+                            <option value="57600">57600</option>
+                            <option value="115200">115200</option>
+                        </select>
+                    </div>
+                    <div class="config-field">
+                        <label for="configTerminalAutoconnect">Auto-connect Terminal</label>
+                        <input type="checkbox" id="configTerminalAutoconnect">
+                    </div>
+                    <div class="config-actions">
+                        <button class="btn-secondary" onclick="refreshTerminalPorts()">Refresh Ports</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="config-card">
+                <div class="config-header">
+                    <div>
+                        <div class="config-title"><span class="material-symbols-outlined">display_settings</span> Display Options</div>
+                        <div class="config-subtitle">Configure logging and display behavior.</div>
+                    </div>
+                </div>
+                <div class="config-grid">
+                    <div class="config-field">
+                        <label for="configVerbose">Verbose Mode</label>
+                        <input type="checkbox" id="configVerbose">
+                    </div>
+                    <div class="config-field">
+                        <label for="configDebug">Debug Mode</label>
+                        <input type="checkbox" id="configDebug">
+                    </div>
+                    <div class="config-field">
+                        <label for="configHeadless">Headless Mode</label>
+                        <input type="checkbox" id="configHeadless" checked>
+                    </div>
+                    <div class="config-field">
+                        <label for="configLogFile">Log File Path</label>
+                        <input type="text" id="configLogFile" value="/var/log/fdcsds.log">
+                    </div>
+                </div>
+            </div>
+
+            <div class="config-card">
+                <div class="config-header">
+                    <div>
+                        <div class="config-title">💡 GPIO LED Configuration</div>
+                        <div class="config-subtitle">Raspberry Pi GPIO LED status indicators. Changes require restart.</div>
+                    </div>
+                </div>
+                <div class="config-grid">
+                    <div class="config-field">
+                        <label for="configGpioEnabled">Enable GPIO LEDs</label>
+                        <input type="checkbox" id="configGpioEnabled">
+                    </div>
+                    <div class="config-field">
+                        <label for="configGpioActiveLow">Active Low</label>
+                        <input type="checkbox" id="configGpioActiveLow">
+                    </div>
+                    <div class="config-field">
+                        <label for="configGpioBlinkDuration">Blink Duration (ms)</label>
+                        <input type="number" id="configGpioBlinkDuration" value="100" min="10" max="1000">
+                    </div>
+                    <div class="config-field">
+                        <label for="configGpioActivityBlinkDuration">Activity Blink (ms)</label>
+                        <input type="number" id="configGpioActivityBlinkDuration" value="50" min="10" max="1000">
+                    </div>
+                    <div class="config-field">
+                        <label for="configGpioActivityLed">Activity LED Pin</label>
+                        <input type="number" id="configGpioActivityLed" value="4" min="0" max="27">
+                    </div>
+                </div>
+                <div class="config-help" style="margin-top: 1rem; font-size: 0.85em; opacity: 0.8;">
+                    Note: Individual drive GPIO pin assignments can be configured in the config file.
+                </div>
+            </div>
+
+            <div style="margin-top: 1.5rem; text-align: center;">
+                <button class="btn-primary" onclick="loadConfiguration()" style="margin-right: 10px;">Reload Config</button>
+                <button class="btn-secondary" onclick="saveConfiguration()">Save Changes</button>
+            </div>
+
+            <div class="config-help" style="margin-top: 1rem; text-align: center;">
+                Most configuration changes require an application restart to take effect.
             </div>
         </div>
 
@@ -1529,8 +2101,7 @@
             </div>
             <div class="modal-body">
                 <div class="form-group">
-                    <label for="itemDescription">Description (short summary)</label>
-                    <input type="text" id="itemDescription" placeholder="e.g., CP/M 2.2 System Disk">
+                    <md-outlined-text-field id="itemDescription" label="Description (short summary)" placeholder="e.g., CP/M 2.2 System Disk" style="width: 100%;"></md-outlined-text-field>
                 </div>
                 <div class="form-group">
                     <label for="itemNotes">Notes</label>
@@ -1538,8 +2109,8 @@
                 </div>
             </div>
             <div class="modal-actions">
-                <button class="btn-secondary" onclick="closeNotesModal()">Cancel</button>
-                <button class="btn-primary" id="saveNotesBtn" onclick="saveNotes()">Save</button>
+                <md-text-button onclick="closeNotesModal()">Cancel</md-text-button>
+                <md-filled-button id="saveNotesBtn" onclick="saveNotes()">Save</md-filled-button>
             </div>
         </div>
     </div>
@@ -1554,7 +2125,7 @@
             <div class="modal-body">
                 <div class="form-group">
                     <label for="scriptName">Script Name</label>
-                    <input type="text" id="scriptName" placeholder="my-script.txt">
+                    <input type="text" id="scriptName" placeholder="my-script.txt" style="width: 100%;">
                 </div>
                 <div class="form-group">
                     <label for="scriptContent">Script Content (commands sent to serial terminal)</label>
@@ -1654,6 +2225,8 @@
             // Load page-specific data
             if (page === 'scripts') {
                 loadScripts();
+            } else if (page === 'configuration') {
+                loadConfiguration();
             }
 
             // Update URL hash without scrolling
@@ -1748,6 +2321,7 @@
         function updateStatus(status) {
             latestStatus = status;
             updatePrimaryConfigUI(status.serial);
+            updateTerminalStatusUI();
             // Update drives
             updateDrives(status.drives);
             // Update LED panel
@@ -1818,9 +2392,8 @@
             card.innerHTML = `
                 <div class="drive-header">
                     <div class="drive-title">Drive ${driveLetter}</div>
-                    <div class="drive-badge ${drive.mounted ? 'mounted' : 'unmounted'}">
-                        ${drive.mounted ? '●' : '○'} ${drive.mounted ? 'Mounted' : 'Empty'}
-                    </div>
+                    <md-assist-chip class="${drive.mounted ? 'mounted-chip' : 'unmounted-chip'}" label="${drive.mounted ? 'Mounted' : 'Empty'}">
+                    </md-assist-chip>
                 </div>
                 <div class="drive-info">
                     <div class="info-row">
@@ -1830,22 +2403,22 @@
                 </div>
                 <div class="drive-controls">
                     <div class="drive-controls-row">
-                        <select id="select-${drive.id}">
+                        <select id="select-${drive.id}" class="md-select" style="width: 100%;">
                             <option value="">Select image...</option>
                         </select>
                     </div>
                     <div class="drive-controls-row">
                         <button class="btn-primary btn-compact" onclick="mountDrive(${drive.id})" style="flex: 1;">Mount</button>
-                        <button class="btn-danger btn-compact" onclick="unmountDrive(${drive.id})" ${!drive.mounted ? 'disabled' : ''} style="flex: 1;">Unmount</button>
+                        <button class="btn-danger btn-compact" id="unmount-btn-${drive.id}" onclick="unmountDrive(${drive.id})" ${!drive.mounted ? 'disabled' : ''} style="flex: 1;">Unmount</button>
                         <label class="readonly-label">
-                            <input type="checkbox" id="ro-${drive.id}" ${drive.readonly ? 'checked' : ''} onchange="toggleReadOnly(${drive.id}, this.checked)">
+                            <input type="checkbox" id="ro-${drive.id}">
                             <span>R/O</span>
                         </label>
                     </div>
                 </div>
             `;
 
-            // Populate select options
+            // Populate select options and setup checkbox
             setTimeout(() => {
                 const select = document.getElementById(`select-${drive.id}`);
                 availableImages.forEach(img => {
@@ -1857,6 +2430,15 @@
                     }
                     select.appendChild(option);
                 });
+
+                // Setup readonly checkbox
+                const checkbox = document.getElementById(`ro-${drive.id}`);
+                if (checkbox) {
+                    checkbox.checked = drive.readonly;
+                    checkbox.addEventListener('change', (e) => {
+                        toggleReadOnly(drive.id, e.target.checked);
+                    });
+                }
             }, 100);
 
             return card;
@@ -1864,15 +2446,17 @@
 
         // Update drive card
         function updateDriveCard(card, drive) {
-            const badge = card.querySelector('.drive-badge');
-            badge.className = `drive-badge ${drive.mounted ? 'mounted' : 'unmounted'}`;
-            badge.innerHTML = `${drive.mounted ? '●' : '○'} ${drive.mounted ? 'Mounted' : 'Empty'}`;
+            const chip = card.querySelector('md-assist-chip');
+            chip.className = drive.mounted ? 'mounted-chip' : 'unmounted-chip';
+            chip.setAttribute('label', drive.mounted ? 'Mounted' : 'Empty');
 
             const values = card.querySelectorAll('.info-value');
             values[0].textContent = drive.filename || 'None';
 
-            const unmountBtn = card.querySelector('.btn-danger');
-            unmountBtn.disabled = !drive.mounted;
+            const unmountBtn = document.getElementById(`unmount-btn-${drive.id}`);
+            if (unmountBtn) {
+                unmountBtn.disabled = !drive.mounted;
+            }
 
             const checkbox = document.getElementById(`ro-${drive.id}`);
             if (checkbox) {
@@ -2001,6 +2585,202 @@
 
         function refreshPrimaryPorts() {
             return loadPrimaryPorts();
+        }
+
+        // ===== Terminal Serial Port Management =====
+        let terminalPorts = [];
+
+        async function loadTerminalPorts() {
+            try {
+                const response = await fetch('/api/terminal/ports');
+                const data = await response.json();
+                terminalPorts = data.ports || [];
+
+                const select = document.getElementById('configTerminalPort');
+                if (select) {
+                    const currentValue = select.value;
+                    select.innerHTML = '<option value="">Select port...</option>';
+                    terminalPorts.forEach(port => {
+                        const option = document.createElement('option');
+                        option.value = port.path;
+                        option.textContent = `${port.path}${port.manufacturer ? ' - ' + port.manufacturer : ''}`;
+                        select.appendChild(option);
+                    });
+                    // Restore previous selection if it still exists
+                    if (currentValue && terminalPorts.some(p => p.path === currentValue)) {
+                        select.value = currentValue;
+                    }
+                }
+
+                // Update terminal status indicator
+                updateTerminalStatusUI();
+            } catch (error) {
+                console.error('Failed to load terminal ports:', error);
+                showNotification(`Could not load terminal ports: ${error.message}`, 'error');
+            }
+        }
+
+        function refreshTerminalPorts() {
+            return loadTerminalPorts();
+        }
+
+        function updateTerminalStatusUI() {
+            if (!latestStatus || !latestStatus.terminal) return;
+
+            const statusDot = document.getElementById('terminalStatusDot');
+            const statusLabel = document.getElementById('terminalStatusLabel');
+
+            if (statusDot && statusLabel) {
+                statusDot.className = `status-dot ${latestStatus.terminal.connected ? 'connected' : 'disconnected'}`;
+                statusLabel.textContent = latestStatus.terminal.connected
+                    ? (latestStatus.terminal.device || 'Connected')
+                    : 'Not Connected';
+            }
+        }
+
+        // ===== Full Configuration Management =====
+        async function loadConfiguration() {
+            try {
+                // Load terminal ports first to populate dropdown
+                await loadTerminalPorts();
+
+                const response = await fetch('/api/config');
+                const config = await response.json();
+
+                // Web Interface
+                if (document.getElementById('configWebEnabled')) {
+                    document.getElementById('configWebEnabled').checked = config.web !== false;
+                }
+                if (document.getElementById('configWebPort')) {
+                    document.getElementById('configWebPort').value = config.webPort || 3000;
+                }
+                if (document.getElementById('configWebHost')) {
+                    document.getElementById('configWebHost').value = config.webHost || 'localhost';
+                }
+
+                // Terminal Options - set after ports are loaded
+                if (document.getElementById('configTerminalPort')) {
+                    const terminalPortSelect = document.getElementById('configTerminalPort');
+                    if (config.terminalPort) {
+                        terminalPortSelect.value = config.terminalPort;
+                        // If the configured port isn't in the list, add it
+                        if (terminalPortSelect.value !== config.terminalPort) {
+                            const option = document.createElement('option');
+                            option.value = config.terminalPort;
+                            option.textContent = config.terminalPort;
+                            terminalPortSelect.appendChild(option);
+                            terminalPortSelect.value = config.terminalPort;
+                        }
+                    }
+                }
+                if (document.getElementById('configTerminalBaud')) {
+                    document.getElementById('configTerminalBaud').value = config.terminalBaud || '';
+                }
+                if (document.getElementById('configTerminalAutoconnect')) {
+                    document.getElementById('configTerminalAutoconnect').checked = config.terminalAutoconnect === true;
+                }
+
+                // Display Options
+                if (document.getElementById('configVerbose')) {
+                    document.getElementById('configVerbose').checked = config.verbose === true;
+                }
+                if (document.getElementById('configDebug')) {
+                    document.getElementById('configDebug').checked = config.debug === true;
+                }
+                if (document.getElementById('configHeadless')) {
+                    document.getElementById('configHeadless').checked = config.headless === true;
+                }
+                if (document.getElementById('configLogFile')) {
+                    document.getElementById('configLogFile').value = config.logFile || '';
+                }
+
+                // GPIO LED Options
+                if (config.gpioLeds) {
+                    if (document.getElementById('configGpioEnabled')) {
+                        document.getElementById('configGpioEnabled').checked = config.gpioLeds.enabled === true;
+                    }
+                    if (document.getElementById('configGpioActiveLow')) {
+                        document.getElementById('configGpioActiveLow').checked = config.gpioLeds.activeLow === true;
+                    }
+                    if (document.getElementById('configGpioBlinkDuration')) {
+                        document.getElementById('configGpioBlinkDuration').value = config.gpioLeds.blinkDuration || 100;
+                    }
+                    if (document.getElementById('configGpioActivityBlinkDuration')) {
+                        document.getElementById('configGpioActivityBlinkDuration').value = config.gpioLeds.activityBlinkDuration || 50;
+                    }
+                    if (document.getElementById('configGpioActivityLed')) {
+                        document.getElementById('configGpioActivityLed').value = config.gpioLeds.activityLed || 4;
+                    }
+                } else {
+                    // Set defaults if no GPIO config exists
+                    if (document.getElementById('configGpioEnabled')) {
+                        document.getElementById('configGpioEnabled').checked = false;
+                    }
+                    if (document.getElementById('configGpioActiveLow')) {
+                        document.getElementById('configGpioActiveLow').checked = false;
+                    }
+                    if (document.getElementById('configGpioBlinkDuration')) {
+                        document.getElementById('configGpioBlinkDuration').value = 100;
+                    }
+                    if (document.getElementById('configGpioActivityBlinkDuration')) {
+                        document.getElementById('configGpioActivityBlinkDuration').value = 50;
+                    }
+                    if (document.getElementById('configGpioActivityLed')) {
+                        document.getElementById('configGpioActivityLed').value = 4;
+                    }
+                }
+
+                showNotification('Configuration loaded', 'success');
+            } catch (error) {
+                showNotification(`Failed to load configuration: ${error.message}`, 'error');
+            }
+        }
+
+        async function saveConfiguration() {
+            try {
+                const config = {
+                    // Web Interface
+                    web: document.getElementById('configWebEnabled')?.checked,
+                    webPort: parseInt(document.getElementById('configWebPort')?.value) || 3000,
+                    webHost: document.getElementById('configWebHost')?.value || 'localhost',
+
+                    // Terminal Options
+                    terminalPort: document.getElementById('configTerminalPort')?.value || undefined,
+                    terminalBaud: parseInt(document.getElementById('configTerminalBaud')?.value) || undefined,
+                    terminalAutoconnect: document.getElementById('configTerminalAutoconnect')?.checked,
+
+                    // Display Options
+                    verbose: document.getElementById('configVerbose')?.checked,
+                    debug: document.getElementById('configDebug')?.checked,
+                    headless: document.getElementById('configHeadless')?.checked,
+                    logFile: document.getElementById('configLogFile')?.value || undefined,
+
+                    // GPIO LED Options
+                    gpioLeds: {
+                        enabled: document.getElementById('configGpioEnabled')?.checked,
+                        activeLow: document.getElementById('configGpioActiveLow')?.checked,
+                        blinkDuration: parseInt(document.getElementById('configGpioBlinkDuration')?.value) || 100,
+                        activityBlinkDuration: parseInt(document.getElementById('configGpioActivityBlinkDuration')?.value) || 50,
+                        activityLed: parseInt(document.getElementById('configGpioActivityLed')?.value) || 4,
+                    }
+                };
+
+                const response = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showNotification(data.message || 'Configuration saved', 'success');
+                } else {
+                    showNotification(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Failed to save configuration: ${error.message}`, 'error');
+            }
         }
 
         async function applyPrimaryConfig() {
@@ -2295,10 +3075,11 @@
             if (preferredTerminalSettings.port) {
                 const portSelect = document.getElementById('terminalPortSelect');
                 console.log('Attempting to pre-select port:', preferredTerminalSettings.port);
-                console.log('Available options:', Array.from(portSelect.options).map(o => o.value));
+                const options = Array.from(portSelect.options);
+                console.log('Available options:', options.map(o => o.value));
 
                 let found = false;
-                for (let option of portSelect.options) {
+                for (let option of options) {
                     // Exact match
                     if (option.value === preferredTerminalSettings.port) {
                         portSelect.value = preferredTerminalSettings.port;
@@ -2361,21 +3142,19 @@
             formData.append('diskImage', selectedFile);
 
             const progressBar = document.getElementById('uploadProgress');
-            const progressFill = document.getElementById('uploadProgressFill');
             const uploadBtn = document.getElementById('uploadBtn');
 
             try {
                 uploadBtn.disabled = true;
-                progressBar.classList.add('active');
-                progressFill.style.width = '0%';
+                progressBar.style.display = 'block';
+                progressBar.value = 0;
 
                 const xhr = new XMLHttpRequest();
 
                 // Track upload progress
                 xhr.upload.addEventListener('progress', (e) => {
                     if (e.lengthComputable) {
-                        const percentComplete = (e.loaded / e.total) * 100;
-                        progressFill.style.width = percentComplete + '%';
+                        progressBar.value = e.loaded / e.total;
                     }
                 });
 
@@ -2394,14 +3173,14 @@
                         const response = JSON.parse(xhr.responseText);
                         showNotification(`Upload failed: ${response.error}`, 'error');
                     }
-                    progressBar.classList.remove('active');
+                    progressBar.style.display = 'none';
                     uploadBtn.disabled = false;
                 });
 
                 // Handle errors
                 xhr.addEventListener('error', () => {
                     showNotification('Upload failed: Network error', 'error');
-                    progressBar.classList.remove('active');
+                    progressBar.style.display = 'none';
                     uploadBtn.disabled = false;
                 });
 
@@ -2410,7 +3189,7 @@
 
             } catch (error) {
                 showNotification(`Upload failed: ${error.message}`, 'error');
-                progressBar.classList.remove('active');
+                progressBar.style.display = 'none';
                 uploadBtn.disabled = false;
             }
         }
@@ -2495,7 +3274,7 @@
 
                     item.innerHTML = `
                         <div class="disk-item-info">
-                            <div class="disk-item-icon">💾</div>
+                            <div class="disk-item-icon"><span class="material-symbols-outlined">save</span></div>
                             <div class="disk-item-details">
                                 <div class="disk-item-name">${image.name}</div>
                                 <div class="disk-item-size">${formatFileSize(image.size)}</div>
@@ -2503,9 +3282,9 @@
                             </div>
                         </div>
                         <div class="disk-item-actions">
-                            <button class="btn-clone btn-small" onclick="cloneDiskImage('${escapedName}')">Clone</button>
-                            <button class="btn-edit btn-small" onclick="editDiskNotes('${escapedName}', '${escapeHtml(description)}', '${escapeHtml(notes)}')">Edit</button>
-                            <button class="btn-danger btn-small" onclick="deleteDiskImage('${escapedName}')">Delete</button>
+                            <md-filled-button class="clone-button btn-small" onclick="cloneDiskImage('${escapedName}')">Clone</md-filled-button>
+                            <md-filled-button class="edit-button btn-small" onclick="editDiskNotes('${escapedName}', '${escapeHtml(description)}', '${escapeHtml(notes)}')">Edit</md-filled-button>
+                            <md-filled-button class="error-button btn-small" onclick="deleteDiskImage('${escapedName}')">Delete</md-filled-button>
                         </div>
                     `;
                     listContainer.appendChild(item);
@@ -2563,21 +3342,19 @@
             formData.append('cassette', selectedCassetteFile);
 
             const progressBar = document.getElementById('cassetteUploadProgress');
-            const progressFill = document.getElementById('cassetteUploadProgressFill');
             const uploadBtn = document.getElementById('cassetteUploadBtn');
 
             try {
                 uploadBtn.disabled = true;
-                progressBar.classList.add('active');
-                progressFill.style.width = '0%';
+                progressBar.style.display = 'block';
+                progressBar.value = 0;
 
                 const xhr = new XMLHttpRequest();
 
                 // Track upload progress
                 xhr.upload.addEventListener('progress', (e) => {
                     if (e.lengthComputable) {
-                        const percentComplete = (e.loaded / e.total) * 100;
-                        progressFill.style.width = percentComplete + '%';
+                        progressBar.value = e.loaded / e.total;
                     }
                 });
 
@@ -2595,14 +3372,14 @@
                         const response = JSON.parse(xhr.responseText);
                         showNotification(`Upload failed: ${response.error}`, 'error');
                     }
-                    progressBar.classList.remove('active');
+                    progressBar.style.display = 'none';
                     uploadBtn.disabled = false;
                 });
 
                 // Handle errors
                 xhr.addEventListener('error', () => {
                     showNotification('Upload failed: Network error', 'error');
-                    progressBar.classList.remove('active');
+                    progressBar.style.display = 'none';
                     uploadBtn.disabled = false;
                 });
 
@@ -2611,7 +3388,7 @@
 
             } catch (error) {
                 showNotification(`Upload failed: ${error.message}`, 'error');
-                progressBar.classList.remove('active');
+                progressBar.style.display = 'none';
                 uploadBtn.disabled = false;
             }
         }
@@ -2675,7 +3452,7 @@
                     wrapper.innerHTML = `
                         <div class="disk-item">
                             <div class="disk-item-info">
-                                <div class="disk-item-icon">📼</div>
+                                <div class="disk-item-icon"><span class="material-symbols-outlined">tape</span></div>
                                 <div class="disk-item-details">
                                     <div class="disk-item-name">${cassette.name}</div>
                                     <div class="disk-item-size">${sizeInfo}${durationInfo}</div>
@@ -2686,9 +3463,9 @@
                                 <div class="play-btn-group">
                                     <button class="btn-play btn-small" onclick="togglePlayDropdown(${index})">Play</button>
                                     <div class="play-dropdown" id="playDropdown${index}">
-                                        <button onclick="playClientSide('${escapedName}', ${index})">🖥️ Play in Browser</button>
-                                        <button onclick="playServerSide('${escapedName}')">🔊 Play on Server</button>
-                                        <button onclick="stopServerSide()">⏹️ Stop Server Playback</button>
+                                        <button class="btn-text" onclick="playClientSide('${escapedName}', ${index})"><span class="material-symbols-outlined">computer</span> Play in Browser</button>
+                                        <button class="btn-text" onclick="playServerSide('${escapedName}')"><span class="material-symbols-outlined">volume_up</span> Play on Server</button>
+                                        <button class="btn-text" onclick="stopServerSide()"><span class="material-symbols-outlined">stop</span> Stop Server Playback</button>
                                     </div>
                                 </div>
                                 <button class="btn-edit btn-small" onclick="editCassetteNotes('${escapedName}', '${escapeHtml(description)}', '${escapeHtml(notes)}')">Edit</button>
@@ -2696,7 +3473,7 @@
                             </div>
                         </div>
                         <div class="audio-player" id="audioPlayer${index}">
-                            <div class="audio-player-label">🖥️ Playing in browser:</div>
+                            <div class="audio-player-label"><span class="material-symbols-outlined">computer</span> Playing in browser:</div>
                             <audio controls id="audio${index}">
                                 <source src="/api/cassettes/${encodeURIComponent(cassette.name)}/stream" type="audio/wav">
                                 Your browser does not support the audio element.
@@ -2928,6 +3705,10 @@
         let recordedCommands = [];
         let isReplaying = false;
 
+        // Script replay timing parameters (Phase 1: Character-by-Character Transmission)
+        const SCRIPT_CHAR_DELAY_MS = 10;   // Delay between individual characters (prevents buffer overflow)
+        const SCRIPT_CMD_DELAY_MS = 500;    // Delay between complete commands (allows command execution)
+
         // Load scripts list
         async function loadScripts() {
             try {
@@ -2947,7 +3728,7 @@
                         item.className = 'disk-item';
                         item.innerHTML = `
                             <div class="disk-item-info">
-                                <div class="disk-item-icon">📜</div>
+                                <div class="disk-item-icon"><span class="material-symbols-outlined">description</span></div>
                                 <div class="disk-item-details">
                                     <div class="disk-item-name">${script}</div>
                                 </div>
@@ -3099,10 +3880,10 @@
             recordBtn.disabled = !terminalConnected || isReplaying;
 
             if (isRecording) {
-                recordBtn.textContent = '⏹ Stop Recording';
+                recordBtn.innerHTML = '<span class="material-symbols-outlined">stop</span> Stop Recording';
                 recordBtn.className = 'btn-warning btn-compact';
             } else {
-                recordBtn.textContent = '⏺ Record';
+                recordBtn.innerHTML = '<span class="material-symbols-outlined">fiber_manual_record</span> Record';
                 recordBtn.className = 'btn-danger btn-compact';
             }
         }
@@ -3195,15 +3976,22 @@
 
                 showNotification(`Replaying ${scriptName}...`, 'success');
 
-                // Send commands one at a time with delay
+                // Send commands character-by-character to prevent serial buffer overflow
+                // This is critical for devices with small input buffers (typically 16-128 bytes)
                 for (let i = 0; i < commands.length; i++) {
                     const command = commands[i];
 
-                    // Send command followed by Enter (use terminal:write like keyboard input)
-                    socket.emit('terminal:write', command + '\r');
+                    // Send each character individually with delay
+                    for (let j = 0; j < command.length; j++) {
+                        socket.emit('terminal:write', command[j]);
+                        await new Promise(resolve => setTimeout(resolve, SCRIPT_CHAR_DELAY_MS));
+                    }
 
-                    // Wait a bit before sending next command
-                    await new Promise(resolve => setTimeout(resolve, 500));
+                    // Send carriage return to execute the command
+                    socket.emit('terminal:write', '\r');
+
+                    // Wait for command to execute before sending next one
+                    await new Promise(resolve => setTimeout(resolve, SCRIPT_CMD_DELAY_MS));
                 }
 
                 isReplaying = false;

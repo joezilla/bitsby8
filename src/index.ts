@@ -46,7 +46,8 @@ function printHelp(): void {
   console.log('  -r, --readonly <n>     Make drive 0-3 read only (can be used multiple times)');
   console.log('  -v, --verbose          Verbose display');
   console.log('  -d, --debug            Debug mode');
-  console.log('  --headless             Disable text-based status display (for systemd/background)');
+  console.log('  --headless             Disable text-based status display (default: enabled)');
+  console.log('  --no-headless          Enable text-based status display');
   console.log('  --log-file <path>      Log file path (enables file-based logging)');
   console.log('  -w, --web              Enable web interface (default: disabled)');
   console.log('  --web-port <port>      Web interface port (default: 3000)');
@@ -54,6 +55,7 @@ function printHelp(): void {
   console.log('  --terminal-port <device>  Second serial port for terminal emulation');
   console.log('  --terminal-baud <rate>    Terminal port baud rate (default: 9600)');
   console.log('  --terminal-autoconnect    Auto-connect terminal port on startup');
+  console.log('  --terminal-only           Disable FDC drive serving (terminal mode only)');
   console.log('  --gpio-leds               Enable GPIO LED status indicators (Raspberry Pi)');
   console.log('  --no-gpio-leds            Disable GPIO LED status indicators');
   console.log('  --gpio-active-low         Use active-low logic for LEDs');
@@ -87,7 +89,8 @@ async function main(): Promise<void> {
     }, [] as number[])
     .option('-v, --verbose', 'Verbose display')
     .option('-d, --debug', 'Debug mode')
-    .option('--headless', 'Disable text-based status display (for systemd/background)')
+    .option('--headless', 'Disable text-based status display (default: enabled)')
+    .option('--no-headless', 'Enable text-based status display')
     .option('--log-file <path>', 'Log file path (enables file-based logging)')
     .option('-w, --web', 'Enable web interface')
     .option('--web-port <port>', 'Web interface port')
@@ -95,6 +98,7 @@ async function main(): Promise<void> {
     .option('--terminal-port <device>', 'Second serial port for terminal emulation')
     .option('--terminal-baud <rate>', 'Terminal port baud rate')
     .option('--terminal-autoconnect', 'Auto-connect terminal port on startup')
+    .option('--terminal-only', 'Disable FDC drive serving (terminal mode only)')
     .option('--gpio-leds', 'Enable GPIO LED status indicators (Raspberry Pi)')
     .option('--no-gpio-leds', 'Disable GPIO LED status indicators')
     .option('--gpio-active-low', 'Use active-low logic for LEDs')
@@ -148,12 +152,23 @@ async function main(): Promise<void> {
   console.log(`  TerminalPort: ${mergedOptions.terminalPort || '(not set)'}`);
   console.log(`  TerminalBaud: ${mergedOptions.terminalBaud || '(not set)'}`);
   console.log(`  TerminalAutoconnect: ${mergedOptions.terminalAutoconnect}`);
+  console.log(`  TerminalOnly: ${mergedOptions.terminalOnly || false}`);
 
-  // Validate port is specified
-  if (!mergedOptions.port) {
+  // Validate port is specified (unless in terminal-only mode)
+  if (!mergedOptions.port && !mergedOptions.terminalOnly) {
     printHelp();
     console.error('Error: You must specify a serial port with \'-p\' option or in config file.\n');
+    console.error('       (or use --terminal-only mode if you only need terminal functionality)\n');
     process.exit(1);
+  }
+
+  // In terminal-only mode, ensure we have at least web or terminal port
+  if (mergedOptions.terminalOnly) {
+    if (!mergedOptions.web && !mergedOptions.terminalPort) {
+      console.error('Error: Terminal-only mode requires either --web or --terminal-port to be specified.\n');
+      process.exit(1);
+    }
+    console.log('Running in TERMINAL-ONLY mode (FDC drive serving disabled)');
   }
 
   // Parse baud rate (handle both string and number from config)
@@ -177,7 +192,7 @@ async function main(): Promise<void> {
   config.baudRate = baudRate as BaudRate;
   config.verbose = mergedOptions.verbose || false;
   config.debug = mergedOptions.debug || false;
-  const headless = mergedOptions.headless || false;
+  const headless = mergedOptions.headless !== undefined ? mergedOptions.headless : true;
 
   // Parse drive mounts (skip empty strings)
   if (mergedOptions.drive0 && mergedOptions.drive0.trim()) config.drives.set(0, mergedOptions.drive0);
@@ -259,38 +274,41 @@ async function main(): Promise<void> {
     }
   }
 
-  // Set write protection for read-only drives
-  for (const drive of config.readonlyDrives) {
-    driveManager.writeProtect(drive, true);
-    displayManager.displayRO(drive, true);
-  }
+  // Only setup FDC drives and serial port if not in terminal-only mode
+  if (!mergedOptions.terminalOnly) {
+    // Set write protection for read-only drives
+    for (const drive of config.readonlyDrives) {
+      await driveManager.writeProtect(drive, true);
+      displayManager.displayRO(drive, true);
+    }
 
-  // Mount drives
-  for (const [driveNum, filename] of config.drives.entries()) {
+    // Mount drives
+    for (const [driveNum, filename] of config.drives.entries()) {
+      try {
+        await driveManager.mountDrive(driveNum, filename);
+        displayManager.displayMount(driveNum, filename);
+      } catch (error) {
+        displayManager.displayMount(driveNum, '--ERROR--');
+        displayManager.displayError(
+          `Failed to mount drive ${driveNum}`,
+          error as NodeJS.ErrnoException
+        );
+      }
+    }
+
+    // Attempt to open serial port, but continue running if it fails
     try {
-      await driveManager.mountDrive(driveNum, filename);
-      displayManager.displayMount(driveNum, filename);
+      if (!config.port) {
+        throw new Error('No primary serial port configured');
+      }
+      await serialManager.openPort(config.port, config.baudRate);
+      displayManager.displayPort(config.port);
+      displayManager.displayBaud(config.baudRate);
     } catch (error) {
-      displayManager.displayMount(driveNum, '--ERROR--');
-      displayManager.displayError(
-        `Failed to mount drive ${driveNum}`,
-        error as NodeJS.ErrnoException
-      );
+      console.error('Primary serial port unavailable; continuing without connection:', error);
+      displayManager.displayError('Primary serial unavailable - configure via web UI');
+      displayManager.displayDebug('Open the web interface to set port/baud and reconnect.');
     }
-  }
-
-  // Attempt to open serial port, but continue running if it fails
-  try {
-    if (!config.port) {
-      throw new Error('No primary serial port configured');
-    }
-    await serialManager.openPort(config.port, config.baudRate);
-    displayManager.displayPort(config.port);
-    displayManager.displayBaud(config.baudRate);
-  } catch (error) {
-    console.error('Primary serial port unavailable; continuing without connection:', error);
-    displayManager.displayError('Primary serial unavailable - configure via web UI');
-    displayManager.displayDebug('Open the web interface to set port/baud and reconnect.');
   }
 
   // Auto-connect terminal if requested
@@ -339,7 +357,7 @@ async function main(): Promise<void> {
 
             // Set readonly status
             if (assignment.readonly) {
-              driveManager.writeProtect(assignment.drive_id, true);
+              await driveManager.writeProtect(assignment.drive_id, true);
             }
 
             console.log(`Restored drive ${assignment.drive_id}: ${assignment.filename} (${assignment.readonly ? 'RO' : 'RW'})`);
@@ -362,13 +380,16 @@ async function main(): Promise<void> {
     console.log('Continuing without database support');
   }
 
-  // Create server
-  const server = new FdcServer(
-    driveManager,
-    serialManager,
-    displayManager,
-    config
-  );
+  // Create FDC server (only if not in terminal-only mode)
+  let server: FdcServer | null = null;
+  if (!mergedOptions.terminalOnly) {
+    server = new FdcServer(
+      driveManager,
+      serialManager,
+      displayManager,
+      config
+    );
+  }
 
   // Create web server if enabled
   let webServer: WebServer | null = null;
@@ -393,50 +414,103 @@ async function main(): Promise<void> {
       serialManager,
       terminalManager,
       preferredTerminalSettings,
-      { server, displayManager, runtimeConfig: config, database }
+      { server: server || undefined, displayManager, runtimeConfig: mergedOptions, database }
     );
     await webServer.start();
   }
 
   // Setup signal handlers
   const cleanup = async () => {
-    server.stop();
-    if (webServer) {
-      await webServer.stop();
-    }
-    await serialManager.closePort();
-    await terminalManager.closePort();
-    await driveManager.unmountAll();
+    console.log('\nShutting down gracefully...');
 
-    // Cleanup GPIO LEDs
-    if (gpioController.isInitialized()) {
-      await gpioController.shutdown();
-    }
+    // Create a timeout promise to prevent hanging
+    const timeoutPromise = new Promise<void>((_, reject) => {
+      setTimeout(() => reject(new Error('Cleanup timeout after 5 seconds')), 5000);
+    });
 
-    // Close database
-    if (database && database.isInitialized()) {
-      await database.close();
-    }
+    // Perform cleanup operations
+    const cleanupPromise = async () => {
+      if (server) {
+        server.stop();
+      }
+      if (webServer) {
+        await webServer.stop();
+      }
+      await serialManager.closePort();
+      await terminalManager.closePort();
+      await driveManager.unmountAll();
 
-    // Close logger
-    if (logger.isInitialized()) {
-      await logger.close();
-    }
+      // Cleanup GPIO LEDs
+      if (gpioController.isInitialized()) {
+        await gpioController.shutdown();
+      }
 
-    displayManager.reset();
-    process.exit(0);
+      // Close database
+      if (database && database.isInitialized()) {
+        await database.close();
+      }
+
+      // Close logger
+      if (logger.isInitialized()) {
+        await logger.close();
+      }
+
+      displayManager.reset();
+    };
+
+    try {
+      // Race cleanup against timeout
+      await Promise.race([cleanupPromise(), timeoutPromise]);
+      console.log('Cleanup complete');
+    } catch (error) {
+      console.error('Cleanup error or timeout:', error);
+    } finally {
+      process.exit(0);
+    }
   };
 
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
   process.on('SIGHUP', cleanup);
 
-  // Start server
-  await server.start();
+  // Handle uncaught exceptions and rejections
+  process.on('uncaughtException', async (error) => {
+    console.error('Uncaught exception:', error);
+    await cleanup();
+  });
+
+  process.on('unhandledRejection', async (reason, promise) => {
+    console.error('Unhandled rejection at:', promise, 'reason:', reason);
+    await cleanup();
+  });
+
+  // Start FDC server (only if not in terminal-only mode)
+  if (server) {
+    await server.start();
+  } else {
+    // In terminal-only mode, keep the process alive
+    console.log('Terminal-only mode: FDC server not started');
+    console.log('Process will remain running for web interface and/or terminal access');
+
+    // Keep process alive with an infinite loop that yields to event loop
+    await new Promise(() => {
+      // This promise never resolves, keeping the process alive
+      // The process can still exit via SIGINT, SIGTERM, or cleanup handlers
+    });
+  }
 }
 
 // Run main function
-main().catch((error) => {
+main().catch(async (error) => {
   console.error('Fatal error:', error);
+
+  // Attempt cleanup before exiting
+  try {
+    const driveManager = getDriveManager();
+    await driveManager.unmountAll();
+  } catch (cleanupError) {
+    console.error('Cleanup error:', cleanupError);
+  }
+
   process.exit(1);
 });

@@ -14,7 +14,8 @@ import { existsSync, createReadStream } from 'fs';
 import { DriveManager } from './drive';
 import { SerialPortManager } from './serial';
 import { TerminalSerialManager } from './terminal-serial';
-import { BaudRate, Config, MAX_DRIVES } from './protocol';
+import { BaudRate, MAX_DRIVES } from './protocol';
+import { ConfigFile } from './config';
 import { FdcServer } from './server';
 import { DisplayManager } from './ui/display';
 import { Database } from './database';
@@ -44,10 +45,10 @@ export class WebServer {
   private preferredTerminalSettings: PreferredTerminalSettings;
   private server: FdcServer | null;
   private displayManager: DisplayManager | null;
-  private runtimeConfig: Config | null;
+  private runtimeConfig: ConfigFile | null;
   private statusInterval: NodeJS.Timeout | null = null;
   private database: Database;
-  private audioPlayer: any;
+  private audioPlayer: any = null;
   private currentAudioProcess: any = null;
 
   constructor(
@@ -59,7 +60,7 @@ export class WebServer {
     options?: {
       server?: FdcServer;
       displayManager?: DisplayManager;
-      runtimeConfig?: Config;
+      runtimeConfig?: ConfigFile;
       database?: Database;
     }
   ) {
@@ -80,8 +81,8 @@ export class WebServer {
       this.database = new Database(dbPath);
     }
 
-    // Initialize audio player
-    this.audioPlayer = playSound({});
+    // Audio player will be lazy-loaded when first needed
+    // (prevents ERR_INVALID_STATE errors on systems without audio)
 
     // Create Express app
     this.app = express();
@@ -134,6 +135,61 @@ export class WebServer {
       res.json(this.getStatus());
     });
 
+    // Get current configuration
+    this.app.get('/api/config', (_req: Request, res: Response) => {
+      // Return current runtime configuration
+      const config: any = {
+        // Serial options - use empty string as default
+        port: this.runtimeConfig?.port || '',
+        baud: this.runtimeConfig?.baud,
+
+        // Web interface
+        web: this.runtimeConfig?.web,
+        webPort: this.runtimeConfig?.webPort,
+        webHost: this.runtimeConfig?.webHost,
+
+        // Terminal options
+        terminalPort: this.runtimeConfig?.terminalPort,
+        terminalBaud: this.runtimeConfig?.terminalBaud,
+        terminalAutoconnect: this.runtimeConfig?.terminalAutoconnect,
+
+        // Display options
+        verbose: this.runtimeConfig?.verbose,
+        debug: this.runtimeConfig?.debug,
+        headless: this.runtimeConfig?.headless,
+        logFile: this.runtimeConfig?.logFile,
+
+        // GPIO LED options
+        gpioLeds: this.runtimeConfig?.gpioLeds,
+      };
+      res.json(config);
+    });
+
+    // Update configuration
+    this.app.post('/api/config', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const updates = req.body;
+
+        // Update runtime config if available
+        if (this.runtimeConfig) {
+          // Update web options (these can take effect without restart)
+          if (updates.verbose !== undefined) {
+            this.runtimeConfig.verbose = updates.verbose;
+            if (this.server) {
+              this.server.toggleVerbose();
+            }
+          }
+
+          // Other options require restart, just notify the user
+          // In a real implementation, we'd save to config file here
+        }
+
+        res.json({ success: true, message: 'Configuration updated. Some changes may require restart.' });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
     // List available serial ports for the primary connection
     this.app.get('/api/serial/ports', async (_req: Request, res: Response): Promise<void> => {
       try {
@@ -183,7 +239,7 @@ export class WebServer {
 
         if (this.runtimeConfig) {
           this.runtimeConfig.port = device;
-          this.runtimeConfig.baudRate = parsedBaud as BaudRate;
+          this.runtimeConfig.baud = parsedBaud;
         }
 
         this.broadcastStatus();
@@ -290,7 +346,8 @@ export class WebServer {
           return;
         }
 
-        this.driveManager.writeProtect(driveId, readonly);
+        // Update write protection (may remount file with correct mode)
+        await this.driveManager.writeProtect(driveId, readonly);
 
         // Update database if drive is mounted
         try {
@@ -722,8 +779,11 @@ export class WebServer {
           this.currentAudioProcess = null;
         }
 
+        // Get audio player (lazy-loaded on first use)
+        const audioPlayer = this.getAudioPlayer();
+
         // Play the audio file
-        this.currentAudioProcess = this.audioPlayer.play(filePath, (err: any) => {
+        this.currentAudioProcess = audioPlayer.play(filePath, (err: any) => {
           if (err && !err.killed) {
             console.error('Audio playback error:', err);
           }
@@ -1043,7 +1103,7 @@ export class WebServer {
         device: this.serialManager.getDevice(),
         baudRate: this.serialManager.getBaudRate(),
         configuredPort: this.runtimeConfig?.port || this.serialManager.getDevice(),
-        configuredBaudRate: this.runtimeConfig?.baudRate || this.serialManager.getBaudRate(),
+        configuredBaudRate: this.runtimeConfig?.baud || this.serialManager.getBaudRate(),
       },
       drives: this.getDrivesStatus(),
       timestamp: new Date().toISOString(),
@@ -1085,6 +1145,28 @@ export class WebServer {
       config: this.terminalManager.getConfig(),
       preferred: this.preferredTerminalSettings,
     };
+  }
+
+  /**
+   * Lazy-load audio player (only initialized when first needed)
+   * Prevents ERR_INVALID_STATE errors on systems without audio support
+   */
+  private getAudioPlayer(): any {
+    if (!this.audioPlayer) {
+      try {
+        this.audioPlayer = playSound({});
+      } catch (error) {
+        console.error('Failed to initialize audio player:', error);
+        console.error('Server-side audio playback will not be available');
+        // Return a dummy player that does nothing
+        this.audioPlayer = {
+          play: () => {
+            throw new Error('Audio player initialization failed - playback not available');
+          }
+        };
+      }
+    }
+    return this.audioPlayer;
   }
 
   /**
@@ -1262,10 +1344,17 @@ export class WebServer {
       this.statusInterval = null;
     }
 
+    // Disconnect all Socket.IO clients
+    this.io.disconnectSockets(true);
+
     return new Promise((resolve) => {
+      // Close HTTP server first
       this.httpServer.close(() => {
-        console.log('Web server stopped');
-        resolve();
+        // Then close Socket.IO
+        this.io.close(() => {
+          console.log('Web server stopped');
+          resolve();
+        });
       });
     });
   }
