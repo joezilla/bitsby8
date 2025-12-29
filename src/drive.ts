@@ -92,6 +92,7 @@ export class DriveManager {
 
       return fileHandle.fd;
     } catch (error) {
+      console.error(`Failed to mount drive ${drive} (${filename}):`, error);
       driveState.mounted = false;
       driveState.filename = '--ERROR--';
       throw error;
@@ -222,6 +223,7 @@ export class DriveManager {
       this.fdcErrno = FdcError.OK;
       return buffer;
     } catch (error) {
+      console.error(`Failed to read track - Drive ${drive}, Track ${track}, Length ${length}:`, error);
       this.fdcErrno = FdcError.NOT_READY;
       throw error;
     }
@@ -278,6 +280,7 @@ export class DriveManager {
       this.fdcErrno = FdcError.OK;
       return bytesWritten;
     } catch (error) {
+      console.error(`Failed to write track - Drive ${drive}, Track ${track}, Length ${length}:`, error);
       this.fdcErrno = FdcError.WRITE_ERR;
       throw error;
     }

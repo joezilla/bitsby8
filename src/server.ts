@@ -93,6 +93,7 @@ export class FdcServer {
           await new Promise(resolve => setTimeout(resolve, 10));
         } else {
           // Log other errors
+          console.error('Command receive error:', error);
           this.displayManager.displayError(
             'Command receive error',
             error as NodeJS.ErrnoException
@@ -273,6 +274,7 @@ export class FdcServer {
       // Send track data
       await this.serialManager.sendBuffer(trackData, TIMEOUT_BUFFER);
     } catch (error) {
+      console.error(`Read track error - Drive ${drive}, Track ${track}:`, error);
       this.displayManager.displayError(
         'Read track error',
         error as NodeJS.ErrnoException
@@ -332,6 +334,7 @@ export class FdcServer {
       await this.sendWriteResponse(cmd, FdcError.OK);
     } catch (error) {
       // Send error response
+      console.error(`Write track error - Drive ${drive}, Track ${track}, Length ${length}:`, error);
       this.displayManager.displayError(
         'Write track error',
         error as NodeJS.ErrnoException
