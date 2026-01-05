@@ -1024,6 +1024,35 @@
             gap: 15px;
         }
 
+        .terminal-header-actions {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+            margin-left: auto;
+        }
+
+        .terminal-header-actions button {
+            background: transparent;
+            border: none;
+            padding: 8px;
+            cursor: pointer;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--md-sys-color-on-surface-variant);
+            transition: background-color 0.2s ease;
+        }
+
+        .terminal-header-actions button:hover {
+            background-color: var(--md-sys-color-surface-container-highest);
+            color: var(--md-sys-color-primary);
+        }
+
+        .terminal-header-actions button:active {
+            background-color: var(--md-sys-color-primary-container);
+        }
+
         .terminal-title {
             font-size: 1.5em;
             font-weight: bold;
@@ -1036,6 +1065,21 @@
             align-items: center;
             flex-wrap: wrap;
             margin-bottom: 10px;
+        }
+
+        /* Controls visibility toggle */
+        .terminal-controls.collapsed {
+            max-height: 0;
+            opacity: 0;
+            margin-bottom: 0;
+            overflow: hidden;
+            transition: max-height 400ms ease, opacity 200ms ease, margin-bottom 400ms ease;
+        }
+
+        .terminal-controls:not(.collapsed) {
+            max-height: 500px;
+            opacity: 1;
+            transition: max-height 400ms ease, opacity 200ms ease, margin-bottom 400ms ease;
         }
 
         .terminal-controls select {
@@ -1064,6 +1108,59 @@
 
         #terminal {
             height: 100%;
+        }
+
+        /* Fullscreen mode adjustments */
+        .terminal-section:fullscreen,
+        .terminal-section:-webkit-full-screen,
+        .terminal-section:-moz-full-screen,
+        .terminal-section:-ms-fullscreen {
+            padding: 0;
+            background: #1e1e1e;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        /* Compact header in fullscreen - shows status LEDs */
+        .terminal-section:fullscreen .terminal-header,
+        .terminal-section:-webkit-full-screen .terminal-header,
+        .terminal-section:-moz-full-screen .terminal-header,
+        .terminal-section:-ms-fullscreen .terminal-header {
+            background: rgba(30, 30, 30, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 8px 16px;
+            margin: 0;
+            border-radius: 0;
+            flex-shrink: 0;
+            min-height: 40px;
+        }
+
+        .terminal-section:fullscreen .terminal-title,
+        .terminal-section:-webkit-full-screen .terminal-title,
+        .terminal-section:-moz-full-screen .terminal-title,
+        .terminal-section:-ms-fullscreen .terminal-title {
+            font-size: 14px;
+        }
+
+        /* Hide controls in fullscreen */
+        .terminal-section:fullscreen .terminal-controls,
+        .terminal-section:-webkit-full-screen .terminal-controls,
+        .terminal-section:-moz-full-screen .terminal-controls,
+        .terminal-section:-ms-fullscreen .terminal-controls {
+            display: none !important;
+        }
+
+        /* Terminal takes remaining space */
+        .terminal-section:fullscreen .terminal-container,
+        .terminal-section:-webkit-full-screen .terminal-container,
+        .terminal-section:-moz-full-screen .terminal-container,
+        .terminal-section:-ms-fullscreen .terminal-container {
+            flex: 1;
+            height: auto;
+            margin: 0;
+            border-radius: 0;
+            padding: 10px;
         }
 
         .btn-success {
@@ -1806,15 +1903,29 @@
         <!-- Terminal Page (Homepage) -->
         <div id="page-terminal" class="page active">
             <!-- Terminal Section -->
-            <div class="terminal-section">
+            <div class="terminal-section" id="terminalSection">
                 <div class="terminal-header">
                     <div class="terminal-title"><span class="material-symbols-outlined">terminal</span> Serial Terminal (VT102)</div>
                     <div class="terminal-status">
                         <span class="status-dot" id="terminalStatus"></span>
                         <span id="terminalDevice">Not Connected</span>
                     </div>
+                    <div class="terminal-header-actions">
+                        <button class="btn-icon btn-text"
+                                id="toggleControlsBtn"
+                                onclick="toggleTerminalControls()"
+                                title="Toggle Controls (Ctrl+Shift+H)">
+                            <span class="material-symbols-outlined" id="toggleControlsIcon">expand_less</span>
+                        </button>
+                        <button class="btn-icon btn-text"
+                                id="fullscreenBtn"
+                                onclick="toggleTerminalFullscreen()"
+                                title="Toggle Fullscreen (Ctrl+Shift+F)">
+                            <span class="material-symbols-outlined" id="fullscreenIcon">fullscreen</span>
+                        </button>
+                    </div>
                 </div>
-                <div class="terminal-controls">
+                <div class="terminal-controls" id="terminalControls">
                     <div class="config-group">
                         <span class="config-label">Port:</span>
                         <select id="terminalPortSelect" class="md-select">
@@ -2333,6 +2444,82 @@
             }
         });
 
+        // Global keyboard shortcuts for page navigation
+        document.addEventListener('keydown', function(e) {
+            // Only handle shortcuts when not typing in an input field
+            if (e.target.tagName === 'INPUT' ||
+                e.target.tagName === 'TEXTAREA' ||
+                e.target.tagName === 'SELECT' ||
+                e.target.isContentEditable) {
+                return;
+            }
+
+            // Don't interfere with terminal input when connected
+            if (terminalConnected && currentPage === 'terminal') {
+                return;
+            }
+
+            // Alt + Number shortcuts for page navigation
+            if (e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+                switch(e.key) {
+                    case '1':
+                        e.preventDefault();
+                        navigateTo('terminal');
+                        break;
+                    case '2':
+                        e.preventDefault();
+                        navigateTo('disks');
+                        break;
+                    case '3':
+                        e.preventDefault();
+                        navigateTo('cassettes');
+                        break;
+                    case '4':
+                        e.preventDefault();
+                        navigateTo('roms');
+                        break;
+                    case '5':
+                        e.preventDefault();
+                        navigateTo('scripts');
+                        break;
+                    case '6':
+                        e.preventDefault();
+                        navigateTo('notes');
+                        break;
+                    case '7':
+                        e.preventDefault();
+                        navigateTo('configuration');
+                        break;
+                }
+            }
+
+            // Alt + Arrow keys for sequential navigation
+            if (e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+                const pages = ['terminal', 'disks', 'cassettes', 'roms', 'scripts', 'notes', 'configuration'];
+                const currentIndex = pages.indexOf(currentPage);
+
+                if (e.key === 'ArrowRight' && currentIndex < pages.length - 1) {
+                    e.preventDefault();
+                    navigateTo(pages[currentIndex + 1]);
+                } else if (e.key === 'ArrowLeft' && currentIndex > 0) {
+                    e.preventDefault();
+                    navigateTo(pages[currentIndex - 1]);
+                }
+            }
+
+            // Ctrl+Shift+F for terminal fullscreen toggle
+            if (e.ctrlKey && e.shiftKey && e.key === 'F' && currentPage === 'terminal') {
+                e.preventDefault();
+                toggleTerminalFullscreen();
+            }
+
+            // Ctrl+Shift+H for terminal controls toggle
+            if (e.ctrlKey && e.shiftKey && e.key === 'H' && currentPage === 'terminal') {
+                e.preventDefault();
+                toggleTerminalControls();
+            }
+        });
+
         // ===== WebSocket & Data =====
         const socket = io();
 
@@ -2344,6 +2531,8 @@
         let terminalConnected = false;
         let preferredTerminalSettings = {};
         let currentCommand = '';
+        let terminalControlsVisible = true;
+        let terminalIsFullscreen = false;
 
         // Socket event handlers
         socket.on('connect', () => {
@@ -3093,10 +3282,130 @@
                 }
             });
 
+            // Handle fullscreen changes (ESC key or browser controls)
+            document.addEventListener('fullscreenchange', handleFullscreenChange);
+            document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+            document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+            document.addEventListener('msfullscreenchange', handleFullscreenChange);
+
+            // Restore controls visibility preference
+            const savedControlsVisible = localStorage.getItem('terminalControlsVisible');
+            if (savedControlsVisible !== null) {
+                terminalControlsVisible = savedControlsVisible === 'true';
+                const controls = document.getElementById('terminalControls');
+                const icon = document.getElementById('toggleControlsIcon');
+
+                if (!terminalControlsVisible) {
+                    controls.classList.add('collapsed');
+                    icon.textContent = 'expand_more';
+                }
+            }
+
             // Welcome message
             term.writeln('\x1b[1;32m=== FDC+ Serial Terminal (VT102) ===\x1b[0m');
             term.writeln('\x1b[36mSelect a serial port and click Connect to begin.\x1b[0m');
             term.writeln('');
+        }
+
+        // Toggle terminal controls visibility
+        function toggleTerminalControls() {
+            const controls = document.getElementById('terminalControls');
+            const icon = document.getElementById('toggleControlsIcon');
+
+            terminalControlsVisible = !terminalControlsVisible;
+
+            if (terminalControlsVisible) {
+                controls.classList.remove('collapsed');
+                icon.textContent = 'expand_less';
+            } else {
+                controls.classList.add('collapsed');
+                icon.textContent = 'expand_more';
+            }
+
+            // Save preference to localStorage
+            localStorage.setItem('terminalControlsVisible', terminalControlsVisible);
+
+            // Refit terminal after animation completes
+            setTimeout(() => {
+                if (fitAddon) {
+                    fitAddon.fit();
+                }
+            }, 400); // Match CSS transition duration
+        }
+
+        // Toggle terminal fullscreen mode
+        async function toggleTerminalFullscreen() {
+            const section = document.getElementById('terminalSection');
+            const icon = document.getElementById('fullscreenIcon');
+
+            try {
+                if (!document.fullscreenElement &&
+                    !document.webkitFullscreenElement &&
+                    !document.mozFullScreenElement &&
+                    !document.msFullscreenElement) {
+                    // Enter fullscreen
+                    if (section.requestFullscreen) {
+                        await section.requestFullscreen();
+                    } else if (section.webkitRequestFullscreen) {
+                        await section.webkitRequestFullscreen(); // Safari
+                    } else if (section.mozRequestFullScreen) {
+                        await section.mozRequestFullScreen(); // Firefox
+                    } else if (section.msRequestFullscreen) {
+                        await section.msRequestFullscreen(); // IE11
+                    }
+
+                    terminalIsFullscreen = true;
+                    icon.textContent = 'fullscreen_exit';
+                } else {
+                    // Exit fullscreen
+                    if (document.exitFullscreen) {
+                        await document.exitFullscreen();
+                    } else if (document.webkitExitFullscreen) {
+                        await document.webkitExitFullscreen();
+                    } else if (document.mozCancelFullScreen) {
+                        await document.mozCancelFullScreen();
+                    } else if (document.msExitFullscreen) {
+                        await document.msExitFullscreen();
+                    }
+
+                    terminalIsFullscreen = false;
+                    icon.textContent = 'fullscreen';
+                }
+
+                // Refit terminal after fullscreen transition
+                setTimeout(() => {
+                    if (fitAddon) {
+                        fitAddon.fit();
+                    }
+                }, 100);
+
+            } catch (error) {
+                console.error('Fullscreen toggle failed:', error);
+                showNotification('Fullscreen mode not supported or blocked', 'error');
+            }
+        }
+
+        // Handle fullscreen change events
+        function handleFullscreenChange() {
+            const icon = document.getElementById('fullscreenIcon');
+
+            if (document.fullscreenElement ||
+                document.webkitFullscreenElement ||
+                document.mozFullScreenElement ||
+                document.msFullscreenElement) {
+                terminalIsFullscreen = true;
+                icon.textContent = 'fullscreen_exit';
+            } else {
+                terminalIsFullscreen = false;
+                icon.textContent = 'fullscreen';
+            }
+
+            // Refit terminal when fullscreen state changes
+            setTimeout(() => {
+                if (fitAddon) {
+                    fitAddon.fit();
+                }
+            }, 100);
         }
 
         // Load available serial ports
