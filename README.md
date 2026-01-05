@@ -96,6 +96,11 @@ See [DEBIAN-PACKAGE.md](DEBIAN-PACKAGE.md) for complete Debian package documenta
 npm install
 ```
 
+**Note for macOS/Windows developers:** If `npm install` fails due to the optional `onoff` GPIO package, use:
+```bash
+npm install --no-optional
+```
+
 This will install:
 - `serialport` - Serial port communication
 - `blessed` - Terminal UI
@@ -103,7 +108,7 @@ This will install:
 - `express` - Web server framework
 - `socket.io` - WebSocket communication
 - `cors` - Cross-origin resource sharing
-- `onoff` - GPIO control for Raspberry Pi
+- `onoff` - GPIO control for Raspberry Pi (optional, Linux only)
 - `typescript` - TypeScript compiler
 
 ### Build
@@ -737,7 +742,9 @@ npx tsc --noEmit
 - `express` ^4.18.0 - Web server
 - `socket.io` ^4.6.0 - WebSocket communication
 - `cors` ^2.8.5 - CORS support
-- `onoff` ^6.0.0 - GPIO control for Raspberry Pi
+
+**Optional (Raspberry Pi only):**
+- `onoff` ^6.0.3 - GPIO control for LED indicators (optional dependency, only needed on Linux/Raspberry Pi)
 
 **Frontend:**
 - `xterm` ^5.3.0 - Terminal emulator (CDN)
@@ -833,6 +840,8 @@ ls -l /dev/ttyUSB0
 
 ### Build Errors
 
+#### General Build Errors
+
 ```bash
 # Clean and rebuild
 npm run clean
@@ -840,6 +849,19 @@ rm -rf node_modules package-lock.json
 npm install
 npm run build
 ```
+
+#### npm install fails on macOS/Windows (Python distutils error)
+
+The `onoff` package is an optional dependency for GPIO LED support on Raspberry Pi. It requires native compilation and may fail on macOS/Windows due to Python compatibility issues.
+
+**Solution:** Install without optional dependencies for development:
+
+```bash
+npm install --no-optional
+npm run build
+```
+
+The application works perfectly without GPIO support. On Raspberry Pi/Linux, `npm install` will compile and include GPIO support automatically.
 
 ### Runtime Errors
 

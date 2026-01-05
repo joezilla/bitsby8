@@ -52,6 +52,10 @@ export class FdcServer {
   async start(): Promise<void> {
     this.running = true;
 
+    if (this.debug) {
+      console.log('[DEBUG] FDC Server started, entering command loop');
+    }
+
     // Main command loop
     while (this.running) {
       if (this.paused) {
@@ -107,6 +111,9 @@ export class FdcServer {
    * Stop the server
    */
   stop(): void {
+    if (this.debug) {
+      console.log('[DEBUG] FDC Server stopping');
+    }
     this.running = false;
   }
 
@@ -115,12 +122,18 @@ export class FdcServer {
    */
   toggleVerbose(): void {
     this.verbose = !this.verbose;
+    if (this.debug) {
+      console.log(`[DEBUG] Verbose mode toggled: ${this.verbose ? 'ON' : 'OFF'}`);
+    }
   }
 
   /**
    * Pause command handling (used during live reconfiguration)
    */
   pause(): void {
+    if (this.debug) {
+      console.log('[DEBUG] FDC Server paused');
+    }
     this.paused = true;
   }
 
@@ -128,6 +141,9 @@ export class FdcServer {
    * Resume command handling
    */
   resume(): void {
+    if (this.debug) {
+      console.log('[DEBUG] FDC Server resumed');
+    }
     this.paused = false;
   }
 
@@ -173,6 +189,10 @@ export class FdcServer {
     const headLoad = ByteUtils.MSB(cmd.param1);
     const track = cmd.param2;
 
+    if (this.debug) {
+      console.log(`[DEBUG] STAT command: drive=${drive}, headLoad=${headLoad}, track=${track}`);
+    }
+
     // Save head load status and track for drive
     if (drive < MAX_DRIVES) {
       const driveState = this.driveManager.getDriveState(drive);
@@ -180,8 +200,9 @@ export class FdcServer {
         driveState.hdld = headLoad !== 0;
         driveState.track = track;
 
-        // Debug logging
-        // console.error(`[DEBUG] STAT: drive=${drive}, hdld=${driveState.hdld}, track=${driveState.track}`);
+        if (this.debug) {
+          console.log(`[DEBUG] STAT: drive=${drive}, hdld=${driveState.hdld}, track=${driveState.track}, mounted=${driveState.mounted}, readonly=${driveState.readonly}`);
+        }
 
         this.displayManager.displayHead(drive, driveState.hdld);
         this.displayManager.displayTrack(drive, driveState.track);
@@ -257,14 +278,19 @@ export class FdcServer {
       if (driveState) {
         driveState.track = track;
 
-        // Debug logging
-        // console.error(`[DEBUG] READ: drive=${drive}, track=${driveState.track}, length=${length}`);
+        if (this.debug) {
+          console.log(`[DEBUG] READ: drive=${drive}, track=${driveState.track}, length=${length}, mounted=${driveState.mounted}, filename=${driveState.filename}`);
+        }
       }
     }
 
     try {
       // Read track data
       const trackData = await this.driveManager.readTrack(drive, track, length);
+
+      if (this.debug) {
+        console.log(`[DEBUG] READ completed: drive=${drive}, track=${track}, bytes read=${trackData.length}`);
+      }
 
       // Display verbose info
       if (this.verbose) {
@@ -297,10 +323,17 @@ export class FdcServer {
     const track = cmd.param1 & 0x0fff;
     const length = cmd.param2;
 
+    if (this.debug) {
+      console.log(`[DEBUG] WRIT command: drive=${drive}, track=${track}, length=${length}`);
+    }
+
     this.displayManager.displayBlock(drive, track, length);
 
     // Check if drive is valid
     if (drive >= MAX_DRIVES) {
+      if (this.debug) {
+        console.log(`[DEBUG] WRIT rejected: invalid drive ${drive} (>= MAX_DRIVES)`);
+      }
       await this.sendWriteResponse(cmd, FdcError.NOT_READY);
       return;
     }
@@ -316,8 +349,15 @@ export class FdcServer {
     const canWrite = await this.driveManager.canWrite(drive);
     if (!canWrite) {
       console.warn(`WRIT command rejected - Drive ${drive} not writable (readonly=${driveState?.readonly}, mounted=${driveState?.mounted})`);
+      if (this.debug) {
+        console.log(`[DEBUG] WRIT rejected: drive ${drive} not writable, readonly=${driveState?.readonly}, mounted=${driveState?.mounted}, filename=${driveState?.filename}`);
+      }
       await this.sendWriteResponse(cmd, FdcError.NOT_READY);
       return;
+    }
+
+    if (this.debug) {
+      console.log(`[DEBUG] WRIT sending OK response, ready to receive ${length} bytes`);
     }
 
     // Send initial OK response - we're ready to receive track data
@@ -330,6 +370,10 @@ export class FdcServer {
         TIMEOUT_BUFFER
       );
 
+      if (this.debug) {
+        console.log(`[DEBUG] WRIT received ${trackData.length} bytes of track data`);
+      }
+
       // Display verbose info
       if (this.verbose) {
         this.displayManager.displayBuffer('', trackData, length);
@@ -337,6 +381,10 @@ export class FdcServer {
 
       // Write track to disk
       await this.driveManager.writeTrack(drive, track, length, trackData);
+
+      if (this.debug) {
+        console.log(`[DEBUG] WRIT completed: drive=${drive}, track=${track}, bytes written=${length}`);
+      }
 
       // Send WSTA (write status) response
       cmd.cmd = 'WSTA';

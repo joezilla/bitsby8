@@ -50,6 +50,8 @@ export class WebServer {
   private database: Database;
   private audioPlayer: any = null;
   private currentAudioProcess: any = null;
+  private diskServingEnabled: boolean = false;
+  private serverTask: Promise<void> | null = null;
 
   constructor(
     config: WebServerConfig,
@@ -72,6 +74,9 @@ export class WebServer {
     this.server = options?.server || null;
     this.displayManager = options?.displayManager || null;
     this.runtimeConfig = options?.runtimeConfig || null;
+    // Disk serving is enabled if a server was provided (not in terminal-only mode)
+    this.diskServingEnabled = this.server !== null;
+    // Note: serverTask will be set when startServer() is called
 
     // Use provided database or create new one
     if (options?.database) {
@@ -258,6 +263,36 @@ export class WebServer {
         if (this.server) {
           this.server.resume();
         }
+      }
+    });
+
+    // Enable disk serving
+    this.app.post('/api/disk-serving/enable', async (_req: Request, res: Response): Promise<void> => {
+      try {
+        if (this.diskServingEnabled) {
+          res.json({ success: true, message: 'Disk serving is already enabled', enabled: true });
+          return;
+        }
+
+        await this.enableDiskServing();
+        res.json({ success: true, message: 'Disk serving enabled', enabled: true });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Disable disk serving
+    this.app.post('/api/disk-serving/disable', async (_req: Request, res: Response): Promise<void> => {
+      try {
+        if (!this.diskServingEnabled) {
+          res.json({ success: true, message: 'Disk serving is already disabled', enabled: false });
+          return;
+        }
+
+        await this.disableDiskServing();
+        res.json({ success: true, message: 'Disk serving disabled', enabled: false });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
       }
     });
 
@@ -1105,6 +1140,10 @@ export class WebServer {
         configuredPort: this.runtimeConfig?.port || this.serialManager.getDevice(),
         configuredBaudRate: this.runtimeConfig?.baud || this.serialManager.getBaudRate(),
       },
+      diskServing: {
+        enabled: this.diskServingEnabled,
+        running: this.server !== null && this.serverTask !== null,
+      },
       drives: this.getDrivesStatus(),
       timestamp: new Date().toISOString(),
     };
@@ -1145,6 +1184,98 @@ export class WebServer {
       config: this.terminalManager.getConfig(),
       preferred: this.preferredTerminalSettings,
     };
+  }
+
+  /**
+   * Enable disk serving - creates and starts FdcServer if needed
+   */
+  private async enableDiskServing(): Promise<void> {
+    if (this.diskServingEnabled) {
+      return; // Already enabled
+    }
+
+    // Ensure we have a port configured
+    if (!this.runtimeConfig?.port && !this.serialManager.getDevice()) {
+      throw new Error('No serial port configured. Please configure a port first.');
+    }
+
+    // Ensure serial port is open
+    if (!this.serialManager.isOpen()) {
+      const port = this.runtimeConfig?.port || this.serialManager.getDevice();
+      const baud = this.runtimeConfig?.baud || this.serialManager.getBaudRate() || 230400;
+
+      if (!port) {
+        throw new Error('No serial port configured');
+      }
+
+      await this.serialManager.openPort(port, baud as any);
+
+      if (this.displayManager) {
+        this.displayManager.displayPort(port);
+        this.displayManager.displayBaud(baud);
+      }
+    }
+
+    // Create FdcServer if it doesn't exist
+    if (!this.server) {
+      const { createDefaultConfig } = await import('./protocol');
+      const config = createDefaultConfig();
+      config.port = this.serialManager.getDevice() || null;
+      config.baudRate = this.serialManager.getBaudRate() || 230400;
+      config.verbose = this.runtimeConfig?.verbose || false;
+      config.debug = this.runtimeConfig?.debug || false;
+
+      this.server = new FdcServer(
+        this.driveManager,
+        this.serialManager,
+        this.displayManager || (await import('./ui/display')).getDisplayManager(),
+        config
+      );
+    }
+
+    // Start the server with error handling
+    console.log('Starting FDC server for disk serving...');
+    this.serverTask = this.server.start().catch((error) => {
+      console.error('FDC server error:', error);
+      this.serverTask = null;
+      this.diskServingEnabled = false;
+      this.broadcastStatus();
+      // Don't rethrow here - just log and update state
+    });
+
+    this.diskServingEnabled = true;
+
+    // Give it a moment to start
+    await new Promise(resolve => setTimeout(resolve, 100));
+    console.log('Disk serving enabled');
+    this.broadcastStatus();
+  }
+
+  /**
+   * Disable disk serving - stops FdcServer and closes serial port
+   */
+  private async disableDiskServing(): Promise<void> {
+    if (!this.diskServingEnabled) {
+      return; // Already disabled
+    }
+
+    // Stop the server
+    if (this.server) {
+      this.server.stop();
+      this.serverTask = null;
+    }
+
+    // Close the serial port
+    await this.serialManager.closePort();
+
+    if (this.displayManager) {
+      this.displayManager.displayPort('(disconnected)');
+    }
+
+    this.diskServingEnabled = false;
+
+    console.log('Disk serving disabled');
+    this.broadcastStatus();
   }
 
   /**
@@ -1333,6 +1464,36 @@ export class WebServer {
         reject(error);
       }
     });
+  }
+
+  /**
+   * Start the FDC server (if one was provided in constructor)
+   * Must be called after start() to begin disk serving
+   */
+  async startServer(): Promise<void> {
+    if (!this.server) {
+      throw new Error('No FDC server configured');
+    }
+
+    if (this.serverTask) {
+      console.warn('FDC server is already running');
+      return;
+    }
+
+    console.log('Starting FDC server...');
+    this.serverTask = this.server.start().catch((error) => {
+      console.error('FDC server error:', error);
+      this.serverTask = null;
+      this.diskServingEnabled = false;
+      this.broadcastStatus();
+      // Rethrow to propagate error
+      throw error;
+    });
+
+    // Give it a moment to start
+    await new Promise(resolve => setTimeout(resolve, 100));
+    console.log('FDC server started');
+    this.broadcastStatus();
   }
 
   /**

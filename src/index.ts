@@ -217,6 +217,12 @@ async function main(): Promise<void> {
   const gpioController = getGpioLedController();
   const logger = getLogger();
 
+  // Enable debug logging if requested
+  if (config.debug) {
+    driveManager.setDebug(true);
+    console.log('Debug mode enabled - all serial drive operations will be logged');
+  }
+
   // Initialize file-based logging if requested
   if (mergedOptions.logFile) {
     try {
@@ -352,18 +358,36 @@ async function main(): Promise<void> {
               continue;
             }
 
-            // Mount the drive
-            await driveManager.mountDrive(assignment.drive_id, fullPath);
+            // Check if drive is already mounted (from config)
+            const driveState = driveManager.getDriveState(assignment.drive_id);
+            const alreadyMounted = driveState && driveState.mounted;
+            console.log(`DEBUG: Drive ${assignment.drive_id} state check: driveState=${JSON.stringify(driveState)}, alreadyMounted=${alreadyMounted}`);
 
-            // Set readonly status
-            if (assignment.readonly) {
-              await driveManager.writeProtect(assignment.drive_id, true);
-            }
+            if (alreadyMounted) {
+              // Drive already mounted from config - only update readonly status if different
+              console.log(`Drive ${assignment.drive_id} already mounted, updating readonly status to ${assignment.readonly ? 'RO' : 'RW'}`);
+              await driveManager.writeProtect(assignment.drive_id, !!assignment.readonly);
 
-            console.log(`Restored drive ${assignment.drive_id}: ${assignment.filename} (${assignment.readonly ? 'RO' : 'RW'})`);
-            displayManager.displayMount(assignment.drive_id, assignment.filename);
-            if (assignment.readonly) {
-              displayManager.displayRO(assignment.drive_id, true);
+              // Update display
+              if (assignment.readonly) {
+                displayManager.displayRO(assignment.drive_id, true);
+              } else {
+                displayManager.displayRO(assignment.drive_id, false);
+              }
+            } else {
+              // Drive not mounted yet - mount it now
+              await driveManager.mountDrive(assignment.drive_id, fullPath);
+
+              // Set readonly status after mounting
+              if (assignment.readonly) {
+                await driveManager.writeProtect(assignment.drive_id, true);
+              }
+
+              console.log(`Restored drive ${assignment.drive_id}: ${assignment.filename} (${assignment.readonly ? 'RO' : 'RW'})`);
+              displayManager.displayMount(assignment.drive_id, assignment.filename);
+              if (assignment.readonly) {
+                displayManager.displayRO(assignment.drive_id, true);
+              }
             }
           } catch (error) {
             console.error(`Failed to restore drive ${assignment.drive_id}:`, error);
@@ -486,7 +510,21 @@ async function main(): Promise<void> {
 
   // Start FDC server (only if not in terminal-only mode)
   if (server) {
-    await server.start();
+    if (webServer) {
+      // Web server is enabled - let it manage the server lifecycle
+      await webServer.startServer();
+      console.log('FDC server running under web server management');
+
+      // Keep process alive indefinitely (web server and FDC server both running)
+      await new Promise(() => {
+        // This promise never resolves, keeping the process alive
+        // The process can still exit via SIGINT, SIGTERM, or cleanup handlers
+      });
+    } else {
+      // No web server - run FDC server directly (blocks forever)
+      console.log('Starting FDC server (no web interface)');
+      await server.start();
+    }
   } else {
     // In terminal-only mode, keep the process alive
     console.log('Terminal-only mode: FDC server not started');
