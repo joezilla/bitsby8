@@ -965,21 +965,21 @@
             gap: 12px;
         }
 
-        .toggle-switch input[type="checkbox"] {
+        .toggle-switch-checkbox input[type="checkbox"] {
             opacity: 0;
             width: 0;
             height: 0;
             position: absolute;
         }
 
-        .toggle-switch {
+        .toggle-switch-checkbox {
             position: relative;
             display: inline-block;
             width: 50px;
             height: 26px;
         }
 
-        .toggle-switch .toggle-slider {
+        .toggle-slider-checkbox {
             position: absolute;
             cursor: pointer;
             top: 0;
@@ -991,7 +991,7 @@
             border-radius: 26px;
         }
 
-        .toggle-switch .toggle-slider:before {
+        .toggle-slider-checkbox:before {
             position: absolute;
             content: "";
             height: 20px;
@@ -1003,15 +1003,71 @@
             border-radius: 50%;
         }
 
-        .toggle-switch input:checked + .toggle-slider {
+        .toggle-switch-checkbox input:checked + .toggle-slider-checkbox {
             background-color: #10b981;
         }
 
-        .toggle-switch input:checked + .toggle-slider:before {
+        .toggle-switch-checkbox input:checked + .toggle-slider-checkbox:before {
             transform: translateX(24px);
         }
 
-        .toggle-switch input:disabled + .toggle-slider {
+        .toggle-switch-checkbox input:disabled + .toggle-slider-checkbox {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Override config-field label styles for toggle switches */
+        .config-field .toggle-switch-checkbox {
+            display: inline-block;
+            margin-bottom: 0;
+        }
+
+        /* Compact Toggle Slider for Drive Controls */
+        .toggle-switch-compact {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            cursor: pointer;
+        }
+
+        .toggle-switch-compact input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+            position: absolute;
+        }
+
+        .toggle-slider-compact {
+            position: relative;
+            display: inline-block;
+            width: 36px;
+            height: 20px;
+            background-color: #ccc;
+            border-radius: 20px;
+            transition: background-color 0.3s;
+        }
+
+        .toggle-slider-compact:before {
+            content: "";
+            position: absolute;
+            height: 16px;
+            width: 16px;
+            left: 2px;
+            bottom: 2px;
+            background-color: white;
+            border-radius: 50%;
+            transition: transform 0.3s;
+        }
+
+        .toggle-switch-compact input:checked + .toggle-slider-compact {
+            background-color: #10b981;
+        }
+
+        .toggle-switch-compact input:checked + .toggle-slider-compact:before {
+            transform: translateX(16px);
+        }
+
+        .toggle-switch-compact input:disabled + .toggle-slider-compact {
             opacity: 0.5;
             cursor: not-allowed;
         }
@@ -2199,9 +2255,9 @@
                 </div>
                 <div class="config-grid">
                     <div class="config-field" style="display: flex; align-items: center; gap: 12px;">
-                        <label class="toggle-switch">
+                        <label class="toggle-switch-checkbox">
                             <input type="checkbox" id="diskServingToggle" onchange="toggleDiskServing()">
-                            <span class="toggle-slider"></span>
+                            <span class="toggle-slider-checkbox"></span>
                         </label>
                         <span id="diskServingToggleLabel" style="font-weight: 500; color: var(--text-primary);">Disabled</span>
                     </div>
@@ -3015,9 +3071,10 @@
                     <div class="drive-controls-row">
                         <button class="btn-primary btn-compact" onclick="mountDrive(${drive.id})" style="flex: 1;">Mount</button>
                         <button class="btn-danger btn-compact" id="unmount-btn-${drive.id}" onclick="unmountDrive(${drive.id})" ${!drive.mounted ? 'disabled' : ''} style="flex: 1;">Unmount</button>
-                        <label class="readonly-label">
+                        <label class="toggle-switch-compact" style="display: flex; align-items: center; gap: 6px;">
                             <input type="checkbox" id="ro-${drive.id}">
-                            <span>R/O</span>
+                            <span class="toggle-slider-compact"></span>
+                            <span style="font-size: 0.85em; color: var(--text-secondary);">R/O</span>
                         </label>
                     </div>
                 </div>
