@@ -166,7 +166,7 @@ export class FdcServer {
     const headLoad = ByteUtils.MSB(cmd.param1);
     const track = cmd.param2;
 
-    if (this.debug) {
+    if (this.verbose) {
       console.log(`[DEBUG] STAT command: drive=${drive}, headLoad=${headLoad}, track=${track}`);
     }
 
@@ -177,7 +177,7 @@ export class FdcServer {
         driveState.hdld = headLoad !== 0;
         driveState.track = track;
 
-        if (this.debug) {
+        if (this.verbose) {
           console.log(`[DEBUG] STAT: drive=${drive}, hdld=${driveState.hdld}, track=${driveState.track}, mounted=${driveState.mounted}, readonly=${driveState.readonly}`);
         }
 
