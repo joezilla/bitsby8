@@ -5,6 +5,7 @@
 
 import { SerialPort } from 'serialport';
 import { getGpioLedController } from './gpio';
+import { resolvePortPath, validatePortPath, listPortsWithPersistent, PortInfo } from './port-resolver';
 
 /**
  * Terminal configuration interface
@@ -35,6 +36,8 @@ export const DEFAULT_TERMINAL_CONFIG: TerminalConfig = {
 export class TerminalSerialManager {
   private port: SerialPort | null;
   private device: string | null;
+  private resolvedDevice: string | null;
+  private persistentPaths: { byId?: string; byPath?: string };
   private config: TerminalConfig;
   private dataCallback: ((data: Buffer) => void) | null;
   private errorCallback: ((error: Error) => void) | null;
@@ -43,6 +46,8 @@ export class TerminalSerialManager {
   constructor() {
     this.port = null;
     this.device = null;
+    this.resolvedDevice = null;
+    this.persistentPaths = {};
     this.config = { ...DEFAULT_TERMINAL_CONFIG };
     this.dataCallback = null;
     this.errorCallback = null;
@@ -61,9 +66,48 @@ export class TerminalSerialManager {
       throw new Error('Port is already open');
     }
 
+    // Resolve and validate port path
+    let portInfo;
+    try {
+      portInfo = await resolvePortPath(device);
+    } catch (error) {
+      throw new Error(`Failed to resolve port path ${device}: ${(error as Error).message}`);
+    }
+
+    // Check if port exists
+    if (!portInfo.exists) {
+      // Provide helpful error message with suggestions
+      const validation = await validatePortPath(device);
+      let errorMsg = `Port ${device} not found. Device may be unplugged or path may have changed.`;
+
+      if (validation.suggestions && validation.suggestions.length > 0) {
+        errorMsg += '\n\nAvailable ports:';
+        const allPorts = await listPortsWithPersistent();
+        for (const port of allPorts) {
+          errorMsg += `\n  - ${port.path}`;
+          if (port.metadata.manufacturer) {
+            errorMsg += ` (${port.metadata.manufacturer})`;
+          }
+          if (port.persistentPaths.byId) {
+            errorMsg += `\n    Persistent: ${port.persistentPaths.byId}`;
+          }
+        }
+        errorMsg += '\n\nRecommendation: Update your config to use a persistent path (see above).';
+      }
+
+      throw new Error(errorMsg);
+    }
+
+    // Store both original and resolved paths
+    this.device = device;
+    this.resolvedDevice = portInfo.resolvedPath;
+    this.persistentPaths = portInfo.persistentPaths;
+
     // Merge with default config
     this.config = { ...DEFAULT_TERMINAL_CONFIG, ...config };
-    this.device = device;
+
+    // Use resolved path for actual device opening
+    const devicePath = portInfo.resolvedPath;
 
     return new Promise((resolve, reject) => {
       // Convert flow control to SerialPort options
@@ -71,7 +115,7 @@ export class TerminalSerialManager {
 
       this.port = new SerialPort(
         {
-          path: device,
+          path: devicePath,
           baudRate: this.config.baudRate,
           dataBits: this.config.dataBits,
           stopBits: this.config.stopBits,
@@ -82,7 +126,16 @@ export class TerminalSerialManager {
         },
         (error) => {
           if (error) {
-            reject(error);
+            // Enhanced error handling
+            if ((error as NodeJS.ErrnoException).code === 'EACCES') {
+              reject(new Error(
+                `Permission denied accessing ${devicePath}.\n` +
+                `Run: sudo usermod -a -G dialout $USER\n` +
+                `Then log out and back in.`
+              ));
+            } else {
+              reject(error);
+            }
           } else {
             // Update GPIO connected status
             getGpioLedController().updateTerminalConnected(true);
@@ -215,10 +268,24 @@ export class TerminalSerialManager {
   }
 
   /**
-   * Get device path
+   * Get device path (original configured path)
    */
   getDevice(): string | null {
     return this.device;
+  }
+
+  /**
+   * Get resolved device path (actual device after symlink resolution)
+   */
+  getResolvedDevice(): string | null {
+    return this.resolvedDevice;
+  }
+
+  /**
+   * Get persistent paths for current device
+   */
+  getPersistentPaths(): { byId?: string; byPath?: string } {
+    return this.persistentPaths;
   }
 
   /**
@@ -229,10 +296,10 @@ export class TerminalSerialManager {
   }
 
   /**
-   * List available serial ports
+   * List available serial ports with persistent path information
    */
-  static async listPorts(): Promise<Array<{ path: string; manufacturer?: string; serialNumber?: string; pnpId?: string }>> {
-    return SerialPort.list();
+  static async listPorts(): Promise<PortInfo[]> {
+    return listPortsWithPersistent();
   }
 
   /**

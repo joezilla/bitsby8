@@ -6,6 +6,7 @@
 import { SerialPort } from 'serialport';
 import { BaudRate, TIMEOUT_BYTE, TIMEOUT_BUFFER } from './protocol';
 import { ByteUtils } from './protocol';
+import { resolvePortPath, validatePortPath, listPortsWithPersistent } from './port-resolver';
 
 /**
  * Serial Port Manager for FDC+ communication
@@ -13,6 +14,8 @@ import { ByteUtils } from './protocol';
 export class SerialPortManager {
   private port: SerialPort | null;
   private device: string | null;
+  private resolvedDevice: string | null;
+  private persistentPaths: { byId?: string; byPath?: string };
   private baudRate: BaudRate;
   private dataBuffer: Buffer;
   private dataResolvers: Array<(value: number) => void>;
@@ -20,6 +23,8 @@ export class SerialPortManager {
   constructor() {
     this.port = null;
     this.device = null;
+    this.resolvedDevice = null;
+    this.persistentPaths = {};
     this.baudRate = BaudRate.B460800;
     this.dataBuffer = Buffer.alloc(0);
     this.dataResolvers = [];
@@ -33,13 +38,51 @@ export class SerialPortManager {
       throw new Error('Device path is required');
     }
 
+    // Resolve and validate port path
+    let portInfo;
+    try {
+      portInfo = await resolvePortPath(device);
+    } catch (error) {
+      throw new Error(`Failed to resolve port path ${device}: ${(error as Error).message}`);
+    }
+
+    // Check if port exists
+    if (!portInfo.exists) {
+      // Provide helpful error message with suggestions
+      const validation = await validatePortPath(device);
+      let errorMsg = `Port ${device} not found. Device may be unplugged or path may have changed.`;
+
+      if (validation.suggestions && validation.suggestions.length > 0) {
+        errorMsg += '\n\nAvailable ports:';
+        const allPorts = await listPortsWithPersistent();
+        for (const port of allPorts) {
+          errorMsg += `\n  - ${port.path}`;
+          if (port.metadata.manufacturer) {
+            errorMsg += ` (${port.metadata.manufacturer})`;
+          }
+          if (port.persistentPaths.byId) {
+            errorMsg += `\n    Persistent: ${port.persistentPaths.byId}`;
+          }
+        }
+        errorMsg += '\n\nRecommendation: Update your config to use a persistent path (see above).';
+      }
+
+      throw new Error(errorMsg);
+    }
+
+    // Store both original and resolved paths
     this.device = device;
+    this.resolvedDevice = portInfo.resolvedPath;
+    this.persistentPaths = portInfo.persistentPaths;
     this.baudRate = baudRate;
+
+    // Use resolved path for actual device opening
+    const devicePath = portInfo.resolvedPath;
 
     return new Promise((resolve, reject) => {
       this.port = new SerialPort(
         {
-          path: device,
+          path: devicePath,
           baudRate: baudRate,
           dataBits: 8,
           stopBits: 1,
@@ -55,7 +98,16 @@ export class SerialPortManager {
         },
         (error) => {
           if (error) {
-            reject(error);
+            // Enhanced error handling
+            if ((error as NodeJS.ErrnoException).code === 'EACCES') {
+              reject(new Error(
+                `Permission denied accessing ${devicePath}.\n` +
+                `Run: sudo usermod -a -G dialout $USER\n` +
+                `Then log out and back in.`
+              ));
+            } else {
+              reject(error);
+            }
           } else {
             // Flush input buffer to match C version's tcflush(fd, TCIFLUSH)
             this.port?.flush((flushErr) => {
@@ -123,10 +175,24 @@ export class SerialPortManager {
   }
 
   /**
-   * Get device path
+   * Get device path (original configured path)
    */
   getDevice(): string | null {
     return this.device;
+  }
+
+  /**
+   * Get resolved device path (actual device after symlink resolution)
+   */
+  getResolvedDevice(): string | null {
+    return this.resolvedDevice;
+  }
+
+  /**
+   * Get persistent paths for current device
+   */
+  getPersistentPaths(): { byId?: string; byPath?: string } {
+    return this.persistentPaths;
   }
 
   /**

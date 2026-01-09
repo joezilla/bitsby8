@@ -14,7 +14,6 @@ import {
 } from './protocol';
 import { DriveManager } from './drive';
 import { SerialPortManager } from './serial';
-import { DisplayManager } from './ui/display';
 import { getGpioLedController } from './gpio';
 
 /**
@@ -23,7 +22,6 @@ import { getGpioLedController } from './gpio';
 export class FdcServer {
   private driveManager: DriveManager;
   private serialManager: SerialPortManager;
-  private displayManager: DisplayManager;
   private running: boolean;
   private verbose: boolean;
   private debug: boolean;
@@ -33,12 +31,10 @@ export class FdcServer {
   constructor(
     driveManager: DriveManager,
     serialManager: SerialPortManager,
-    displayManager: DisplayManager,
     config: Config
   ) {
     this.driveManager = driveManager;
     this.serialManager = serialManager;
-    this.displayManager = displayManager;
     this.running = false;
     this.verbose = config.verbose;
     this.debug = config.debug;
@@ -64,7 +60,6 @@ export class FdcServer {
       }
       if (!this.serialManager.isOpen()) {
         if (!this.serialUnavailableNotified) {
-          this.displayManager.displayError('Serial port not open (waiting for connection)');
           this.serialUnavailableNotified = true;
         }
         await new Promise(resolve => setTimeout(resolve, 200));
@@ -79,29 +74,16 @@ export class FdcServer {
         // Parse command
         const cmd = CommandResponseBlock.fromBuffer(cmdBuffer);
 
-        // Display verbose info
-        if (this.verbose) {
-          this.displayManager.displayBuffer('', cmdBuffer, 8);
-        }
-
         // Process command
         await this.processCommand(cmd);
       } catch (error) {
         // Timeout is expected when no command is received
         if (error instanceof Error && error.message.includes('Timeout')) {
-          // Clear command display
-          this.displayManager.displayCommand('----');
-          this.displayManager.displayBlock(-1, -1, -1);
-
           // Add small delay to prevent busy-wait CPU spinning
           await new Promise(resolve => setTimeout(resolve, 10));
         } else {
           // Log other errors
           console.error('Command receive error:', error);
-          this.displayManager.displayError(
-            'Command receive error',
-            error as NodeJS.ErrnoException
-          );
         }
       }
     }
@@ -167,10 +149,7 @@ export class FdcServer {
         break;
 
       default:
-        this.displayManager.displayError(
-          `Unknown command: ${cmd.cmd}`,
-          undefined
-        );
+        console.error(`Unknown command: ${cmd.cmd}`);
         break;
     }
   }
@@ -180,8 +159,6 @@ export class FdcServer {
    * Reports drive status and mounted disk state
    */
   private async handleStatCommand(cmd: CommandResponseBlock): Promise<void> {
-    this.displayManager.displayCommand('STAT');
-
     // Extract parameters
     // param1: LSB = drive, MSB = head load
     // param2: track number
@@ -189,7 +166,7 @@ export class FdcServer {
     const headLoad = ByteUtils.MSB(cmd.param1);
     const track = cmd.param2;
 
-    if (this.debug) {
+    if (this.verbose) {
       console.log(`[DEBUG] STAT command: drive=${drive}, headLoad=${headLoad}, track=${track}`);
     }
 
@@ -200,13 +177,9 @@ export class FdcServer {
         driveState.hdld = headLoad !== 0;
         driveState.track = track;
 
-        if (this.debug) {
+        if (this.verbose) {
           console.log(`[DEBUG] STAT: drive=${drive}, hdld=${driveState.hdld}, track=${driveState.track}, mounted=${driveState.mounted}, readonly=${driveState.readonly}`);
         }
-
-        this.displayManager.displayHead(drive, driveState.hdld);
-        this.displayManager.displayTrack(drive, driveState.track);
-        this.displayManager.displayBlock(drive, driveState.track, -1);
 
         // Update GPIO LEDs
         getGpioLedController().updateDriveStatus(drive, driveState);
@@ -221,8 +194,6 @@ export class FdcServer {
           getGpioLedController().updateDriveStatus(i, driveState);
         }
       }
-      this.displayManager.displayHead(drive, false);
-      this.displayManager.displayBlock(drive, -1, -1);
     }
 
     // Build status word (bit map of mounted drives)
@@ -236,11 +207,6 @@ export class FdcServer {
     // Update response
     cmd.param2 = statusData;
 
-    // Display verbose info
-    if (this.verbose) {
-      this.displayManager.displayBuffer('', cmd.toBuffer(), 8);
-    }
-
     // Send response
     await this.serialManager.sendBuffer(cmd.toBuffer(), TIMEOUT_BUFFER);
   }
@@ -250,8 +216,6 @@ export class FdcServer {
    * Reads track data from mounted disk image
    */
   private async handleReadCommand(cmd: CommandResponseBlock): Promise<void> {
-    this.displayManager.displayCommand('READ');
-
     // Flash activity LED
     getGpioLedController().updateDriveActivity();
 
@@ -263,14 +227,12 @@ export class FdcServer {
     const length = cmd.param2;
 
     if (this.debug) {
-      this.displayManager.displayDebug(
-        `READ TRACK D:${drive.toString().padStart(2, '0')} ` +
+      console.log(
+        `[DEBUG] READ TRACK D:${drive.toString().padStart(2, '0')} ` +
           `T:${track.toString().padStart(2, '0')} ` +
           `L:${length.toString().padStart(4, '0')}`
       );
     }
-
-    this.displayManager.displayBlock(drive, track, length);
 
     // Update drive track
     if (drive < MAX_DRIVES) {
@@ -292,19 +254,10 @@ export class FdcServer {
         console.log(`[DEBUG] READ completed: drive=${drive}, track=${track}, bytes read=${trackData.length}`);
       }
 
-      // Display verbose info
-      if (this.verbose) {
-        this.displayManager.displayBuffer('', trackData, length);
-      }
-
       // Send track data
       await this.serialManager.sendBuffer(trackData, TIMEOUT_BUFFER);
     } catch (error) {
       console.error(`Read track error - Drive ${drive}, Track ${track}:`, error);
-      this.displayManager.displayError(
-        'Read track error',
-        error as NodeJS.ErrnoException
-      );
     }
   }
 
@@ -313,8 +266,6 @@ export class FdcServer {
    * Writes track data to mounted disk image
    */
   private async handleWriteCommand(cmd: CommandResponseBlock): Promise<void> {
-    this.displayManager.displayCommand('WRIT');
-
     // Flash activity LED
     getGpioLedController().updateDriveActivity();
 
@@ -326,8 +277,6 @@ export class FdcServer {
     if (this.debug) {
       console.log(`[DEBUG] WRIT command: drive=${drive}, track=${track}, length=${length}`);
     }
-
-    this.displayManager.displayBlock(drive, track, length);
 
     // Check if drive is valid
     if (drive >= MAX_DRIVES) {
@@ -374,11 +323,6 @@ export class FdcServer {
         console.log(`[DEBUG] WRIT received ${trackData.length} bytes of track data`);
       }
 
-      // Display verbose info
-      if (this.verbose) {
-        this.displayManager.displayBuffer('', trackData, length);
-      }
-
       // Write track to disk
       await this.driveManager.writeTrack(drive, track, length, trackData);
 
@@ -395,10 +339,6 @@ export class FdcServer {
         ? { message: error.message, code: (error as any).code, stack: error.stack }
         : error;
       console.error(`Write track error - Drive ${drive}, Track ${track}, Length ${length}:`, errDetails);
-      this.displayManager.displayError(
-        'Write track error',
-        error as NodeJS.ErrnoException
-      );
 
       cmd.cmd = 'WSTA';
       await this.sendWriteResponse(cmd, this.driveManager.fdcErrno);
@@ -413,11 +353,6 @@ export class FdcServer {
     response: FdcError
   ): Promise<void> {
     cmd.param1 = response;
-
-    // Display verbose info
-    if (this.verbose) {
-      this.displayManager.displayBuffer('', cmd.toBuffer(), 8);
-    }
 
     // Send response
     await this.serialManager.sendBuffer(cmd.toBuffer(), TIMEOUT_BUFFER);

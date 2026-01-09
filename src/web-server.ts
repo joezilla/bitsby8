@@ -17,7 +17,6 @@ import { TerminalSerialManager } from './terminal-serial';
 import { BaudRate, MAX_DRIVES } from './protocol';
 import { ConfigFile } from './config';
 import { FdcServer } from './server';
-import { DisplayManager } from './ui/display';
 import { Database } from './database';
 import playSound from 'play-sound';
 
@@ -44,7 +43,6 @@ export class WebServer {
   private terminalManager: TerminalSerialManager;
   private preferredTerminalSettings: PreferredTerminalSettings;
   private server: FdcServer | null;
-  private displayManager: DisplayManager | null;
   private runtimeConfig: ConfigFile | null;
   private statusInterval: NodeJS.Timeout | null = null;
   private database: Database;
@@ -61,7 +59,6 @@ export class WebServer {
     preferredTerminalSettings?: PreferredTerminalSettings,
     options?: {
       server?: FdcServer;
-      displayManager?: DisplayManager;
       runtimeConfig?: ConfigFile;
       database?: Database;
     }
@@ -72,7 +69,6 @@ export class WebServer {
     this.terminalManager = terminalManager;
     this.preferredTerminalSettings = preferredTerminalSettings || {};
     this.server = options?.server || null;
-    this.displayManager = options?.displayManager || null;
     this.runtimeConfig = options?.runtimeConfig || null;
     // Disk serving is enabled if a server was provided (not in terminal-only mode)
     this.diskServingEnabled = this.server !== null;
@@ -161,7 +157,6 @@ export class WebServer {
         // Display options
         verbose: this.runtimeConfig?.verbose,
         debug: this.runtimeConfig?.debug,
-        headless: this.runtimeConfig?.headless,
         logFile: this.runtimeConfig?.logFile,
 
         // GPIO LED options
@@ -199,7 +194,22 @@ export class WebServer {
     this.app.get('/api/serial/ports', async (_req: Request, res: Response): Promise<void> => {
       try {
         const ports = await TerminalSerialManager.listPorts();
-        res.json({ ports });
+
+        // Format port information for UI
+        const formattedPorts = ports.map(port => ({
+          path: port.path,
+          resolvedPath: port.resolvedPath,
+          persistentPaths: port.persistentPaths,
+          manufacturer: port.metadata.manufacturer,
+          serialNumber: port.metadata.serialNumber,
+          pnpId: port.metadata.pnpId,
+          vendorId: port.metadata.vendorId,
+          productId: port.metadata.productId,
+          // Recommend persistent path if available
+          recommended: port.persistentPaths.byId || port.persistentPaths.byPath || port.path,
+        }));
+
+        res.json({ ports: formattedPorts });
       } catch (error) {
         res.status(500).json({ error: (error as Error).message });
       }
@@ -234,12 +244,6 @@ export class WebServer {
         if (needsChange) {
           await this.serialManager.closePort().catch(() => {});
           await this.serialManager.openPort(device, parsedBaud as BaudRate);
-        }
-
-        if (this.displayManager) {
-          this.displayManager.displayPort(device);
-          this.displayManager.displayBaud(parsedBaud);
-          this.displayManager.clearError();
         }
 
         if (this.runtimeConfig) {
@@ -857,7 +861,22 @@ export class WebServer {
     this.app.get('/api/terminal/ports', async (_req: Request, res: Response): Promise<void> => {
       try {
         const ports = await TerminalSerialManager.listPorts();
-        res.json({ ports });
+
+        // Format port information for UI
+        const formattedPorts = ports.map(port => ({
+          path: port.path,
+          resolvedPath: port.resolvedPath,
+          persistentPaths: port.persistentPaths,
+          manufacturer: port.metadata.manufacturer,
+          serialNumber: port.metadata.serialNumber,
+          pnpId: port.metadata.pnpId,
+          vendorId: port.metadata.vendorId,
+          productId: port.metadata.productId,
+          // Recommend persistent path if available
+          recommended: port.persistentPaths.byId || port.persistentPaths.byPath || port.path,
+        }));
+
+        res.json({ ports: formattedPorts });
       } catch (error) {
         res.status(500).json({ error: (error as Error).message });
       }
@@ -1209,11 +1228,6 @@ export class WebServer {
       }
 
       await this.serialManager.openPort(port, baud as any);
-
-      if (this.displayManager) {
-        this.displayManager.displayPort(port);
-        this.displayManager.displayBaud(baud);
-      }
     }
 
     // Create FdcServer if it doesn't exist
@@ -1228,7 +1242,6 @@ export class WebServer {
       this.server = new FdcServer(
         this.driveManager,
         this.serialManager,
-        this.displayManager || (await import('./ui/display')).getDisplayManager(),
         config
       );
     }
@@ -1267,10 +1280,6 @@ export class WebServer {
 
     // Close the serial port
     await this.serialManager.closePort();
-
-    if (this.displayManager) {
-      this.displayManager.displayPort('(disconnected)');
-    }
 
     this.diskServingEnabled = false;
 
