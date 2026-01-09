@@ -2837,8 +2837,26 @@
                     select.innerHTML = '<option value="">Select port...</option>';
                     primaryPorts.forEach(port => {
                         const option = document.createElement('option');
-                        option.value = port.path;
-                        option.textContent = `${port.path}${port.manufacturer ? ' - ' + port.manufacturer : ''}`;
+                        // Use recommended path (persistent if available, otherwise volatile)
+                        option.value = port.recommended;
+
+                        // Build display text with clear labeling
+                        let displayText = port.recommended;
+
+                        // Add persistent/volatile label
+                        if (port.persistentPaths.byId || port.persistentPaths.byPath) {
+                            displayText += ' (Persistent - Recommended)';
+                        } else {
+                            displayText += ' (Volatile)';
+                        }
+
+                        // Add manufacturer info if available
+                        if (port.manufacturer) {
+                            displayText += ' - ' + port.manufacturer;
+                        }
+
+                        option.textContent = displayText;
+                        option.title = 'Persistent paths survive reboots and hardware changes';
                         select.appendChild(option);
                     });
                 }
@@ -3422,8 +3440,26 @@
 
                 data.ports.forEach(port => {
                     const option = document.createElement('option');
-                    option.value = port.path;
-                    option.textContent = `${port.path}${port.manufacturer ? ' - ' + port.manufacturer : ''}`;
+                    // Use recommended path (persistent if available, otherwise volatile)
+                    option.value = port.recommended;
+
+                    // Build display text with clear labeling
+                    let displayText = port.recommended;
+
+                    // Add persistent/volatile label
+                    if (port.persistentPaths.byId || port.persistentPaths.byPath) {
+                        displayText += ' (Persistent - Recommended)';
+                    } else {
+                        displayText += ' (Volatile)';
+                    }
+
+                    // Add manufacturer info if available
+                    if (port.manufacturer) {
+                        displayText += ' - ' + port.manufacturer;
+                    }
+
+                    option.textContent = displayText;
+                    option.title = 'Persistent paths survive reboots and hardware changes';
                     select.appendChild(option);
                 });
 
@@ -4179,6 +4215,9 @@
         const SCRIPT_CHAR_DELAY_MS = 10;   // Delay between individual characters (prevents buffer overflow)
         const SCRIPT_CMD_DELAY_MS = 500;    // Delay between complete commands (allows command execution)
 
+        // Track if scripts have been loaded for the dropdown
+        let scriptsLoadedForDropdown = false;
+
         // Load scripts list
         async function loadScripts() {
             try {
@@ -4189,40 +4228,82 @@
                 const scriptSelect = document.getElementById('scriptSelect');
 
                 if (data.scripts && data.scripts.length > 0) {
-                    scriptList.innerHTML = '';
+                    if (scriptList) {
+                        scriptList.innerHTML = '';
+                    }
+
+                    if (scriptSelect) {
+                        scriptSelect.innerHTML = '<option value="">Select script...</option>';
+                    }
+
+                    data.scripts.forEach(script => {
+                        // Add to script list (only if on scripts page)
+                        if (scriptList) {
+                            const item = document.createElement('div');
+                            item.className = 'disk-item';
+                            item.innerHTML = `
+                                <div class="disk-item-info">
+                                    <div class="disk-item-icon"><span class="material-symbols-outlined">description</span></div>
+                                    <div class="disk-item-details">
+                                        <div class="disk-item-name">${script}</div>
+                                    </div>
+                                </div>
+                                <div class="disk-item-actions">
+                                    <button class="btn-edit btn-small" onclick="editScript('${script}')">Edit</button>
+                                    <button class="btn-danger btn-small" onclick="deleteScript('${script}')">Delete</button>
+                                </div>
+                            `;
+                            scriptList.appendChild(item);
+                        }
+
+                        // Add to select dropdown (always update if exists)
+                        if (scriptSelect) {
+                            const option = document.createElement('option');
+                            option.value = script;
+                            option.textContent = script;
+                            scriptSelect.appendChild(option);
+                        }
+                    });
+                } else {
+                    if (scriptList) {
+                        scriptList.innerHTML = '<div class="empty-state"><p>No scripts yet. Create one to get started!</p></div>';
+                    }
+                }
+
+                scriptsLoadedForDropdown = true;
+                updateReplayButton();
+            } catch (error) {
+                console.error('Failed to load scripts:', error);
+            }
+        }
+
+        // Load scripts only for dropdown (lazy loading)
+        async function loadScriptsDropdown() {
+            if (scriptsLoadedForDropdown) {
+                return; // Already loaded
+            }
+
+            try {
+                const response = await fetch('/api/scripts');
+                const data = await response.json();
+
+                const scriptSelect = document.getElementById('scriptSelect');
+
+                if (scriptSelect && data.scripts && data.scripts.length > 0) {
                     scriptSelect.innerHTML = '<option value="">Select script...</option>';
 
                     data.scripts.forEach(script => {
-                        // Add to script list
-                        const item = document.createElement('div');
-                        item.className = 'disk-item';
-                        item.innerHTML = `
-                            <div class="disk-item-info">
-                                <div class="disk-item-icon"><span class="material-symbols-outlined">description</span></div>
-                                <div class="disk-item-details">
-                                    <div class="disk-item-name">${script}</div>
-                                </div>
-                            </div>
-                            <div class="disk-item-actions">
-                                <button class="btn-edit btn-small" onclick="editScript('${script}')">Edit</button>
-                                <button class="btn-danger btn-small" onclick="deleteScript('${script}')">Delete</button>
-                            </div>
-                        `;
-                        scriptList.appendChild(item);
-
-                        // Add to select dropdown
                         const option = document.createElement('option');
                         option.value = script;
                         option.textContent = script;
                         scriptSelect.appendChild(option);
                     });
-                } else {
-                    scriptList.innerHTML = '<div class="empty-state"><p>No scripts yet. Create one to get started!</p></div>';
                 }
 
+                scriptsLoadedForDropdown = true;
                 updateReplayButton();
             } catch (error) {
-                console.error('Failed to load scripts:', error);
+                console.error('Failed to load scripts for dropdown:', error);
             }
         }
 
@@ -4482,6 +4563,21 @@
             const scriptSelect = document.getElementById('scriptSelect');
             if (scriptSelect) {
                 scriptSelect.addEventListener('change', updateReplayButton);
+
+                // Lazy load scripts when dropdown is first opened
+                let hasLoadedOnce = false;
+                const loadOnInteraction = () => {
+                    if (!hasLoadedOnce) {
+                        hasLoadedOnce = true;
+                        loadScriptsDropdown();
+                    }
+                };
+
+                // Load on focus (keyboard navigation)
+                scriptSelect.addEventListener('focus', loadOnInteraction, { once: true });
+
+                // Load on mousedown (mouse click)
+                scriptSelect.addEventListener('mousedown', loadOnInteraction, { once: true });
             }
         });
     </script>

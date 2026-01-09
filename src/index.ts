@@ -17,12 +17,12 @@ import {
 import { getDriveManager } from './drive';
 import { getSerialPortManager } from './serial';
 import { getTerminalSerialManager } from './terminal-serial';
-import { getDisplayManager } from './ui/display';
 import { FdcServer } from './server';
 import { WebServer } from './web-server';
 import { loadConfigFile, mergeConfig, getExampleConfig, DEFAULT_CONFIG_LOCATIONS } from './config';
 import { getGpioLedController, DEFAULT_GPIO_CONFIG } from './gpio';
 import { getLogger } from './logger';
+import { resolvePortPath, listPortsWithPersistent } from './port-resolver';
 import * as path from 'path';
 
 /**
@@ -43,11 +43,10 @@ function printHelp(): void {
   console.log('                         75K Minidisk, and 8MB disk images.');
   console.log('  -b, --baud <rate>      Set serial port speed (default: 230400)');
   console.log('  -p, --port <device>    Serial port (required)');
+  console.log('                         Example: /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_ABC123-if00-port0');
   console.log('  -r, --readonly <n>     Make drive 0-3 read only (can be used multiple times)');
   console.log('  -v, --verbose          Verbose display');
   console.log('  -d, --debug            Debug mode');
-  console.log('  --headless             Disable text-based status display (default: enabled)');
-  console.log('  --no-headless          Enable text-based status display');
   console.log('  --log-file <path>      Log file path (enables file-based logging)');
   console.log('  -w, --web              Enable web interface (default: disabled)');
   console.log('  --web-port <port>      Web interface port (default: 3000)');
@@ -61,6 +60,7 @@ function printHelp(): void {
   console.log('  --gpio-active-low         Use active-low logic for LEDs');
   console.log('  -c, --config <file>       Configuration file path (default: .fdcsds.config)');
   console.log('  --example-config          Print example configuration file and exit');
+  console.log('  --show-persistent-paths   Show persistent path alternatives for configured ports');
   console.log('  -h, --help             Display this help message\n');
   console.log('Supported baud rates: 9600, 19200, 38400, 57600, 76800, 230400, 460800\n');
   console.log('Default config file locations (searched in order):');
@@ -89,8 +89,6 @@ async function main(): Promise<void> {
     }, [] as number[])
     .option('-v, --verbose', 'Verbose display')
     .option('-d, --debug', 'Debug mode')
-    .option('--headless', 'Disable text-based status display (default: enabled)')
-    .option('--no-headless', 'Enable text-based status display')
     .option('--log-file <path>', 'Log file path (enables file-based logging)')
     .option('-w, --web', 'Enable web interface')
     .option('--web-port <port>', 'Web interface port')
@@ -104,6 +102,7 @@ async function main(): Promise<void> {
     .option('--gpio-active-low', 'Use active-low logic for LEDs')
     .option('-c, --config <file>', 'Configuration file path')
     .option('--example-config', 'Print example configuration file and exit')
+    .option('--show-persistent-paths', 'Show persistent path alternatives for configured ports')
     .helpOption('-h, --help', 'Display help information');
 
   program.parse(process.argv);
@@ -121,6 +120,89 @@ async function main(): Promise<void> {
     console.log('# Example FDC+ Serial Drive Server Configuration File');
     console.log('# Save as .fdcsds.config, .config/fdcsds.json, or fdcsds.config.json\n');
     console.log(getExampleConfig());
+    process.exit(0);
+  }
+
+  // Show persistent paths if requested
+  if (options.showPersistentPaths) {
+    console.log('Serial Port Path Information\n');
+
+    // Load config to get configured ports
+    let configFile = null;
+    try {
+      configFile = await loadConfigFile(options.config);
+    } catch (error) {
+      // Ignore config load errors for this command
+    }
+
+    const mergedOptions = mergeConfig(configFile, options);
+    const portsToCheck: Array<{ label: string; path: string }> = [];
+
+    if (mergedOptions.port) {
+      portsToCheck.push({ label: 'Primary Serial Port', path: mergedOptions.port });
+    }
+
+    if (mergedOptions.terminalPort) {
+      portsToCheck.push({ label: 'Terminal Serial Port', path: mergedOptions.terminalPort });
+    }
+
+    if (portsToCheck.length === 0) {
+      console.log('No serial ports configured. Showing all available ports:\n');
+      try {
+        const allPorts = await listPortsWithPersistent();
+        if (allPorts.length === 0) {
+          console.log('  No serial ports detected on this system.\n');
+        } else {
+          for (const port of allPorts) {
+            console.log(`Port: ${port.path}`);
+            if (port.metadata.manufacturer) {
+              console.log(`  Manufacturer: ${port.metadata.manufacturer}`);
+            }
+            if (port.persistentPaths.byId) {
+              console.log(`  Persistent (by-id): ${port.persistentPaths.byId}`);
+              console.log(`  ↑ Recommended for config file`);
+            } else if (port.persistentPaths.byPath) {
+              console.log(`  Persistent (by-path): ${port.persistentPaths.byPath}`);
+              console.log(`  ↑ Recommended for config file`);
+            } else {
+              console.log(`  No persistent path available (non-Linux or built-in port)`);
+            }
+            console.log();
+          }
+        }
+      } catch (error) {
+        console.error(`Error listing ports: ${(error as Error).message}`);
+        process.exit(1);
+      }
+    } else {
+      for (const portToCheck of portsToCheck) {
+        console.log(`${portToCheck.label}:`);
+        try {
+          const portInfo = await resolvePortPath(portToCheck.path);
+          console.log(`  Current: ${portInfo.path}`);
+          console.log(`  Resolved: ${portInfo.resolvedPath}`);
+          console.log(`  Exists: ${portInfo.exists ? 'Yes' : 'No'}`);
+
+          if (portInfo.metadata.manufacturer) {
+            console.log(`  Manufacturer: ${portInfo.metadata.manufacturer}`);
+          }
+
+          if (portInfo.persistentPaths.byId) {
+            console.log(`  Persistent (by-id): ${portInfo.persistentPaths.byId}`);
+            console.log(`  ↑ Recommended for config file`);
+          } else if (portInfo.persistentPaths.byPath) {
+            console.log(`  Persistent (by-path): ${portInfo.persistentPaths.byPath}`);
+            console.log(`  ↑ Recommended for config file`);
+          } else {
+            console.log(`  No persistent path available (non-Linux or built-in port)`);
+          }
+          console.log();
+        } catch (error) {
+          console.error(`  Error: ${(error as Error).message}\n`);
+        }
+      }
+    }
+
     process.exit(0);
   }
 
@@ -192,7 +274,6 @@ async function main(): Promise<void> {
   config.baudRate = baudRate as BaudRate;
   config.verbose = mergedOptions.verbose || false;
   config.debug = mergedOptions.debug || false;
-  const headless = mergedOptions.headless !== undefined ? mergedOptions.headless : true;
 
   // Parse drive mounts (skip empty strings)
   if (mergedOptions.drive0 && mergedOptions.drive0.trim()) config.drives.set(0, mergedOptions.drive0);
@@ -213,7 +294,6 @@ async function main(): Promise<void> {
   const driveManager = getDriveManager();
   const serialManager = getSerialPortManager();
   const terminalManager = getTerminalSerialManager();
-  const displayManager = getDisplayManager();
   const gpioController = getGpioLedController();
   const logger = getLogger();
 
@@ -226,21 +306,12 @@ async function main(): Promise<void> {
   // Initialize file-based logging if requested
   if (mergedOptions.logFile) {
     try {
-      // In headless mode, disable console output (logs go to file only)
-      // In normal mode, enable console output (logs go to both file and console)
-      await logger.initialize(mergedOptions.logFile, !headless);
+      await logger.initialize(mergedOptions.logFile, true);
       console.log(`File-based logging enabled: ${mergedOptions.logFile}`);
     } catch (error) {
       console.error('Failed to initialize logging:', error);
       console.log('Continuing without file-based logging');
     }
-  }
-
-  // Initialize display (unless running in headless mode)
-  if (!headless) {
-    displayManager.init();
-  } else {
-    console.log('Running in headless mode (text-based display disabled)');
   }
 
   // Initialize GPIO LEDs if enabled
@@ -285,20 +356,15 @@ async function main(): Promise<void> {
     // Set write protection for read-only drives
     for (const drive of config.readonlyDrives) {
       await driveManager.writeProtect(drive, true);
-      displayManager.displayRO(drive, true);
     }
 
     // Mount drives
     for (const [driveNum, filename] of config.drives.entries()) {
       try {
         await driveManager.mountDrive(driveNum, filename);
-        displayManager.displayMount(driveNum, filename);
+        console.log(`Mounted drive ${driveNum}: ${filename}`);
       } catch (error) {
-        displayManager.displayMount(driveNum, '--ERROR--');
-        displayManager.displayError(
-          `Failed to mount drive ${driveNum}`,
-          error as NodeJS.ErrnoException
-        );
+        console.error(`Failed to mount drive ${driveNum}:`, error);
       }
     }
 
@@ -308,12 +374,9 @@ async function main(): Promise<void> {
         throw new Error('No primary serial port configured');
       }
       await serialManager.openPort(config.port, config.baudRate);
-      displayManager.displayPort(config.port);
-      displayManager.displayBaud(config.baudRate);
+      console.log(`Serial port opened: ${config.port} @ ${config.baudRate} baud`);
     } catch (error) {
       console.error('Primary serial port unavailable; continuing without connection:', error);
-      displayManager.displayError('Primary serial unavailable - configure via web UI');
-      displayManager.displayDebug('Open the web interface to set port/baud and reconnect.');
     }
   }
 
@@ -367,13 +430,6 @@ async function main(): Promise<void> {
               // Drive already mounted from config - only update readonly status if different
               console.log(`Drive ${assignment.drive_id} already mounted, updating readonly status to ${assignment.readonly ? 'RO' : 'RW'}`);
               await driveManager.writeProtect(assignment.drive_id, !!assignment.readonly);
-
-              // Update display
-              if (assignment.readonly) {
-                displayManager.displayRO(assignment.drive_id, true);
-              } else {
-                displayManager.displayRO(assignment.drive_id, false);
-              }
             } else {
               // Drive not mounted yet - mount it now
               await driveManager.mountDrive(assignment.drive_id, fullPath);
@@ -384,10 +440,6 @@ async function main(): Promise<void> {
               }
 
               console.log(`Restored drive ${assignment.drive_id}: ${assignment.filename} (${assignment.readonly ? 'RO' : 'RW'})`);
-              displayManager.displayMount(assignment.drive_id, assignment.filename);
-              if (assignment.readonly) {
-                displayManager.displayRO(assignment.drive_id, true);
-              }
             }
           } catch (error) {
             console.error(`Failed to restore drive ${assignment.drive_id}:`, error);
@@ -410,7 +462,6 @@ async function main(): Promise<void> {
     server = new FdcServer(
       driveManager,
       serialManager,
-      displayManager,
       config
     );
   }
@@ -438,7 +489,7 @@ async function main(): Promise<void> {
       serialManager,
       terminalManager,
       preferredTerminalSettings,
-      { server: server || undefined, displayManager, runtimeConfig: mergedOptions, database }
+      { server: server || undefined, runtimeConfig: mergedOptions, database }
     );
     await webServer.start();
   }
@@ -478,8 +529,6 @@ async function main(): Promise<void> {
       if (logger.isInitialized()) {
         await logger.close();
       }
-
-      displayManager.reset();
     };
 
     try {

@@ -36,11 +36,9 @@ src/
 ├── terminal-serial.ts  # Terminal serial port manager
 ├── web-server.ts       # Web interface & REST API
 ├── protocol.ts         # FDC+ protocol definitions & types
-├── gpio/               # GPIO LED status indicators
-│   ├── gpio-manager.ts      # Low-level GPIO control
-│   └── gpio-controller.ts   # High-level LED state management
-└── ui/
-    └── display.ts      # Terminal UI (blessed-based)
+└── gpio/               # GPIO LED status indicators
+    ├── gpio-manager.ts      # Low-level GPIO control
+    └── gpio-controller.ts   # High-level LED state management
 ```
 
 ### Key Modules
@@ -52,7 +50,6 @@ src/
 - **web-server.ts**: Express-based REST API and Socket.IO WebSocket server
 - **gpio-manager.ts**: Low-level GPIO pin control for LED indicators
 - **gpio-controller.ts**: High-level LED state management for drives and terminal
-- **display.ts**: Terminal UI using the `blessed` library
 - **server.ts**: Command processing (STAT, READ, WRIT)
 - **index.ts**: CLI argument parsing and initialization
 
@@ -103,7 +100,6 @@ npm install --no-optional
 
 This will install:
 - `serialport` - Serial port communication
-- `blessed` - Terminal UI
 - `commander` - CLI argument parsing
 - `express` - Web server framework
 - `socket.io` - WebSocket communication
@@ -182,7 +178,6 @@ The configuration file uses JSON format:
   "readonly": [0],
   "verbose": false,
   "debug": false,
-  "headless": false,
   "logFile": null,
   "web": true,
   "webPort": 3000,
@@ -238,7 +233,6 @@ Options:
   -r, --readonly <n>        Make drive 0-3 read only
   -v, --verbose             Verbose display
   -d, --debug               Debug mode
-  --headless                Disable text-based status display (for systemd/background)
   --log-file <path>         Log file path (enables file-based logging)
   -w, --web                 Enable web interface (default: disabled)
   --web-port <port>         Web interface port (default: 3000)
@@ -290,19 +284,6 @@ fdcsds -p /dev/ttyUSB0 -b 460800 -0 disks/cpm22.dsk
 fdcsds -p /dev/ttyUSB0 -v -0 disks/cpm22.dsk
 ```
 
-**Headless mode (for systemd services or background operation):**
-```bash
-fdcsds --headless -p /dev/ttyUSB0 -0 disks/cpm22.dsk -w
-# Runs without text-based UI, suitable for systemd or screen/tmux
-```
-
-**Headless mode with file-based logging:**
-```bash
-fdcsds --headless --log-file /var/log/fdcsds.log -p /dev/ttyUSB0 -0 disks/cpm22.dsk -w
-# Runs without text-based UI and logs all output to file
-# Perfect for systemd services or production deployments
-```
-
 **Enable web interface:**
 ```bash
 fdcsds -p /dev/ttyUSB0 -0 disks/cpm22.dsk -w
@@ -349,29 +330,6 @@ fdcsds -p /dev/ttyUSB0 -0 disks/cpm22.dsk --gpio-leds -w
 # GPIO LEDs show real-time status for all drives and terminal
 # See GPIO-LEDS.md for wiring and configuration details
 ```
-
----
-
-## Terminal UI
-
-The server provides a real-time terminal interface showing:
-
-- **Connection Info**: Serial port and baud rate
-- **Command Status**: Current FDC+ command being processed
-- **Drive Status** (up to 4 drives):
-  - Mounted disk image filename
-  - Drive enable indicator
-  - Head load status
-  - Current track number
-  - Read-only flag
-- **Error Messages**: Error details with errno information
-- **Buffer Display**: Hex dump of data in verbose mode
-
-### Interactive Controls
-
-- **C** - Clear error message
-- **Q** - Quit program
-- **V** - Toggle verbose mode
 
 ---
 
@@ -737,7 +695,6 @@ npx tsc --noEmit
 
 **Runtime:**
 - `serialport` ^12.0.0 - Serial port I/O
-- `blessed` ^0.1.81 - Terminal UI
 - `commander` ^11.0.0 - CLI parsing
 - `express` ^4.18.0 - Web server
 - `socket.io` ^4.6.0 - WebSocket communication
@@ -753,7 +710,6 @@ npx tsc --noEmit
 **Development:**
 - `typescript` ^5.3.0
 - `@types/node` ^20.0.0
-- `@types/blessed` ^0.1.25
 - `@types/express` ^4.17.0
 - `ts-node` ^10.9.0
 - `jest` ^29.0.0
@@ -798,6 +754,150 @@ Use `cu.*` devices for best results.
 
 ---
 
+## Persistent Serial Port Paths (Linux)
+
+### The Problem
+
+USB serial adapters on Linux get assigned volatile device names like `/dev/ttyUSB0`, `/dev/ttyUSB1` based on USB enumeration order. After a reboot or when devices are unplugged/replugged, these names can change, breaking your configuration.
+
+**Example:**
+- Before reboot: FDC+ on `/dev/ttyUSB0`, Terminal on `/dev/ttyUSB1`
+- After reboot: Terminal on `/dev/ttyUSB0`, FDC+ on `/dev/ttyUSB1` ❌
+
+### The Solution: Persistent Paths
+
+Linux provides stable device paths that survive reboots and hardware changes:
+
+```
+/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_ABC123-if00-port0
+/dev/serial/by-path/pci-0000:00:14.0-usb-0:1:1.0-port0
+```
+
+These paths:
+- ✅ Are stable across reboots
+- ✅ Are based on device serial numbers or USB port locations
+- ✅ Prevent configuration mix-ups with multiple adapters
+- ✅ Work automatically on all Linux distributions
+
+### Finding Your Persistent Paths
+
+#### Method 1: Using the built-in helper
+
+```bash
+# Show persistent paths for configured ports
+fdcsds --show-persistent-paths
+
+# Example output:
+# Primary Serial Port:
+#   Current: /dev/ttyUSB0
+#   Resolved: /dev/ttyUSB0
+#   Exists: Yes
+#   Manufacturer: FTDI
+#   Persistent (by-id): /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_ABC123-if00-port0
+#   ↑ Recommended for config file
+```
+
+#### Method 2: Manual discovery
+
+```bash
+# List all persistent paths
+ls -l /dev/serial/by-id/
+
+# Example output:
+# usb-FTDI_FT232R_USB_UART_ABC123-if00-port0 -> ../../ttyUSB0
+# usb-Prolific_USB-Serial_Controller_XYZ789-if00-port0 -> ../../ttyUSB1
+```
+
+#### Method 3: Using udevadm
+
+```bash
+# Get device info
+udevadm info --name=/dev/ttyUSB0 | grep ID_SERIAL
+```
+
+### Migration Guide
+
+#### Step 1: Find Your Current Ports
+
+```bash
+# If you're already running fdcsds
+fdcsds --show-persistent-paths -c your-config.json
+
+# Or list all ports
+ls -l /dev/serial/by-id/
+```
+
+#### Step 2: Update Your Configuration
+
+**Before:**
+```json
+{
+  "port": "/dev/ttyUSB0",
+  "terminalPort": "/dev/ttyUSB1"
+}
+```
+
+**After:**
+```json
+{
+  "port": "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_ABC123-if00-port0",
+  "terminalPort": "/dev/serial/by-id/usb-Prolific_USB-Serial_Controller_XYZ789-if00-port0"
+}
+```
+
+#### Step 3: Test
+
+```bash
+# Test your new configuration
+fdcsds -c your-config.json
+
+# Reboot and verify it still works
+sudo reboot
+```
+
+### Choosing Between by-id and by-path
+
+**by-id** (Recommended):
+- Based on device serial number
+- Stays the same even if you change USB ports
+- Example: `usb-FTDI_FT232R_USB_UART_ABC123-if00-port0`
+
+**by-path** (Alternative):
+- Based on physical USB port location
+- Changes if you move the device to a different USB port
+- Example: `pci-0000:00:14.0-usb-0:1:1.0-port0`
+
+**Use by-id** unless your devices don't have unique serial numbers.
+
+### Web Interface Support
+
+The web interface automatically shows persistent paths:
+
+1. Open the web UI (default: http://localhost:3000)
+2. Go to Serial Configuration
+3. Click "Refresh Ports"
+4. Ports are labeled:
+   - `(Persistent - Recommended)` - Use these!
+   - `(Volatile)` - May change after reboot
+
+The UI will automatically use persistent paths when available.
+
+### Backward Compatibility
+
+**Existing configurations continue to work!** The application automatically resolves both:
+- Volatile paths: `/dev/ttyUSB0`
+- Persistent paths: `/dev/serial/by-id/...`
+- Symlinks: Any custom symlinks you've created
+
+There's no breaking change - migrate at your own pace.
+
+### Platform Support
+
+**Linux:** Full support for persistent paths
+**macOS/Windows:** Paths work normally (persistent paths aren't needed/available)
+
+---
+
 ## Differences from C Version
 
 ### Improvements
@@ -812,7 +912,6 @@ Use `cu.*` devices for best results.
 ### API Differences
 
 - Uses `serialport` package instead of termios
-- Uses `blessed` instead of ncurses
 - Uses `fs/promises` instead of POSIX file I/O
 - Promise-based timeout handling instead of select()
 
@@ -831,12 +930,20 @@ The TypeScript version is **protocol-compatible** with the C version:
 ### Serial Port Not Found
 
 ```bash
-# List available serial ports
+# Use built-in port discovery
+fdcsds --show-persistent-paths
+
+# Or list available serial ports manually
 ls /dev/tty* /dev/cu*
 
 # Check permissions
 ls -l /dev/ttyUSB0
 ```
+
+**If port changed after reboot (Linux):**
+- Use persistent paths instead of volatile `/dev/ttyUSB*` names
+- See the [Persistent Serial Port Paths](#persistent-serial-port-paths-linux) section above
+- Run `fdcsds --show-persistent-paths` to find stable paths
 
 ### Build Errors
 
@@ -921,4 +1028,3 @@ GPL-3.0 - Same as original C version
 - [FDC+ Hardware Documentation](http://www.deramp.com)
 - [Altair 8800 Information](https://en.wikipedia.org/wiki/Altair_8800)
 - [Node.js SerialPort](https://serialport.io/)
-- [Blessed Documentation](https://github.com/chjj/blessed)

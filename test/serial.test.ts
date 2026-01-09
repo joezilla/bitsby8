@@ -5,6 +5,11 @@
 import { BaudRate } from '../src/protocol';
 import { EventEmitter } from 'events';
 
+// Mock fs/promises
+jest.mock('fs/promises');
+import * as fs from 'fs/promises';
+const mockedFs = fs as jest.Mocked<typeof fs>;
+
 // Mock SerialPort - defined before the mock setup
 const mockSerialPortInstances: any[] = [];
 
@@ -52,10 +57,32 @@ class MockSerialPort extends EventEmitter {
 
 // Mock the serialport module
 jest.mock('serialport', () => {
+  const mockList = jest.fn().mockResolvedValue([
+    {
+      path: '/dev/ttyUSB0',
+      manufacturer: 'FTDI',
+      serialNumber: 'ABC123',
+      pnpId: 'usb-FTDI_FT232R_USB_UART_ABC123-if00-port0',
+      vendorId: '0403',
+      productId: '6001',
+    },
+    {
+      path: '/dev/ttyUSB1',
+      manufacturer: 'Prolific',
+      serialNumber: 'XYZ789',
+      vendorId: '067b',
+      productId: '2303',
+    }
+  ]);
+
+  const MockSerialPortClass = jest.fn((options: any, callback?: (error: Error | null) => void) => {
+    return new MockSerialPort(options, callback);
+  }) as any;
+
+  MockSerialPortClass.list = mockList;
+
   return {
-    SerialPort: jest.fn((options: any, callback?: (error: Error | null) => void) => {
-      return new MockSerialPort(options, callback);
-    })
+    SerialPort: MockSerialPortClass
   };
 });
 
@@ -68,6 +95,12 @@ describe('SerialPortManager', () => {
   beforeEach(() => {
     serialManager = new SerialPortManager();
     jest.clearAllMocks();
+
+    // Setup fs mocks for port resolution
+    mockedFs.access.mockResolvedValue(undefined);
+    mockedFs.lstat.mockResolvedValue({ isSymbolicLink: () => false } as any);
+    mockedFs.readdir.mockResolvedValue([] as any);
+    mockedFs.realpath.mockImplementation(async (p: any) => p as any);
   });
 
   describe('constructor', () => {

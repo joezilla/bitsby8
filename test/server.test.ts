@@ -9,7 +9,6 @@
 import { FdcServer } from '../src/server';
 import { DriveManager } from '../src/drive';
 import { SerialPortManager } from '../src/serial';
-import { DisplayManager } from '../src/ui/display';
 import {
   createDefaultConfig,
 } from '../src/protocol';
@@ -17,20 +16,17 @@ import {
 // Mock all dependencies
 jest.mock('../src/drive');
 jest.mock('../src/serial');
-jest.mock('../src/ui/display');
 
 describe('FdcServer', () => {
   let server: FdcServer;
   let mockDriveManager: jest.Mocked<DriveManager>;
   let mockSerialManager: jest.Mocked<SerialPortManager>;
-  let mockDisplayManager: jest.Mocked<DisplayManager>;
   let config: any;
 
   beforeEach(() => {
     // Create mock instances
     mockDriveManager = new DriveManager() as jest.Mocked<DriveManager>;
     mockSerialManager = new SerialPortManager() as jest.Mocked<SerialPortManager>;
-    mockDisplayManager = new DisplayManager() as jest.Mocked<DisplayManager>;
 
     // Setup default mock implementations
     mockDriveManager.getDriveState = jest.fn().mockReturnValue({
@@ -48,14 +44,6 @@ describe('FdcServer', () => {
     mockSerialManager.receiveBuffer = jest.fn();
     mockSerialManager.sendBuffer = jest.fn().mockResolvedValue(undefined);
 
-    mockDisplayManager.displayCommand = jest.fn();
-    mockDisplayManager.displayBlock = jest.fn();
-    mockDisplayManager.displayHead = jest.fn();
-    mockDisplayManager.displayTrack = jest.fn();
-    mockDisplayManager.displayBuffer = jest.fn();
-    mockDisplayManager.displayError = jest.fn();
-    mockDisplayManager.displayDebug = jest.fn();
-
     config = createDefaultConfig();
     config.verbose = false;
     config.debug = false;
@@ -63,7 +51,6 @@ describe('FdcServer', () => {
     server = new FdcServer(
       mockDriveManager,
       mockSerialManager,
-      mockDisplayManager,
       config
     );
   });
@@ -85,7 +72,6 @@ describe('FdcServer', () => {
       const verboseServer = new FdcServer(
         mockDriveManager,
         mockSerialManager,
-        mockDisplayManager,
         verboseConfig
       );
       expect((verboseServer as any).verbose).toBe(true);
@@ -99,7 +85,6 @@ describe('FdcServer', () => {
       const debugServer = new FdcServer(
         mockDriveManager,
         mockSerialManager,
-        mockDisplayManager,
         debugConfig
       );
       expect((debugServer as any).debug).toBe(true);
@@ -169,10 +154,6 @@ describe('FdcServer', () => {
     test('should use injected serial manager', () => {
       expect((server as any).serialManager).toBe(mockSerialManager);
     });
-
-    test('should use injected display manager', () => {
-      expect((server as any).displayManager).toBe(mockDisplayManager);
-    });
   });
 
   describe('configuration', () => {
@@ -183,7 +164,6 @@ describe('FdcServer', () => {
       const verboseServer = new FdcServer(
         mockDriveManager,
         mockSerialManager,
-        mockDisplayManager,
         verboseConfig
       );
 
@@ -197,7 +177,6 @@ describe('FdcServer', () => {
       const debugServer = new FdcServer(
         mockDriveManager,
         mockSerialManager,
-        mockDisplayManager,
         debugConfig
       );
 
