@@ -819,6 +819,78 @@
             min-width: 100px;
         }
 
+        /* Key Mapping Table Styles */
+        .key-mapping-table {
+            background: var(--hover-bg);
+            border-radius: 8px;
+            padding: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .key-mapping-row {
+            display: grid;
+            grid-template-columns: 150px 1fr 120px auto;
+            gap: 12px;
+            padding: 10px 12px;
+            align-items: center;
+            border-bottom: 1px solid var(--md-sys-color-outline-variant);
+        }
+
+        .key-mapping-row:last-child {
+            border-bottom: none;
+        }
+
+        .key-mapping-row:hover {
+            background: rgba(74, 158, 255, 0.1);
+        }
+
+        .key-name {
+            font-weight: 600;
+            color: var(--text-primary);
+            font-family: 'Courier New', monospace;
+        }
+
+        .key-sequence {
+            font-family: 'Courier New', monospace;
+            color: var(--md-sys-color-tertiary);
+            font-size: 0.9em;
+        }
+
+        .key-description {
+            color: var(--text-secondary);
+            font-size: 0.9em;
+        }
+
+        .key-mapping-actions {
+            display: flex;
+            gap: 4px;
+            justify-content: flex-end;
+        }
+
+        .key-mapping-empty {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+
+        .md-input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid var(--md-sys-color-outline-variant);
+            border-radius: 4px;
+            background: var(--md-sys-color-surface);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 0.95em;
+        }
+
+        .md-input:focus {
+            outline: 2px solid var(--md-sys-color-primary);
+            outline-offset: -1px;
+        }
+
         button {
             padding: 8px 16px;
             border: none;
@@ -2206,6 +2278,114 @@
             <div class="config-card">
                 <div class="config-header">
                     <div>
+                        <div class="config-title"><span class="material-symbols-outlined">keyboard</span> Terminal Key Mappings</div>
+                        <div class="config-subtitle">Configure keyboard behavior for terminal emulation. Changes apply immediately.</div>
+                    </div>
+                </div>
+
+                <div class="config-grid">
+                    <!-- Profile Selection -->
+                    <div class="config-field" style="grid-column: 1 / -1;">
+                        <label for="keyMappingProfile">Key Mapping Profile</label>
+                        <select id="keyMappingProfile" class="md-select" onchange="switchKeyMappingProfile()">
+                            <option value="VT102 Native">VT102 Native (xterm.js default)</option>
+                            <option value="Mac Backspace Fix">Mac Backspace Fix</option>
+                            <option value="CP/M">CP/M (ADM-3A style)</option>
+                            <option value="VT100">VT100 Standard</option>
+                            <option value="Unix/Linux">Unix/Linux (xterm)</option>
+                            <option value="Custom">Custom (user-defined)</option>
+                        </select>
+                    </div>
+
+                    <!-- Profile Description -->
+                    <div class="config-help" id="keyMappingProfileDesc" style="grid-column: 1 / -1; margin-top: 0;">
+                        Select a preset profile or create custom key mappings.
+                    </div>
+
+                    <!-- Expand/Collapse Advanced Settings -->
+                    <div class="config-field" style="grid-column: 1 / -1;">
+                        <button class="btn-secondary" onclick="toggleKeyMappingAdvanced()" id="keyMappingAdvancedBtn">
+                            <span class="material-symbols-outlined">expand_more</span>
+                            Show Key Mappings
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Advanced Settings (Initially Hidden) -->
+                <div id="keyMappingAdvanced" style="display: none; margin-top: 1rem;">
+                    <div style="margin-bottom: 1rem; font-weight: 600; color: var(--text-primary);">
+                        Current Key Mappings:
+                    </div>
+
+                    <!-- Mappings Table -->
+                    <div class="key-mapping-table" id="keyMappingTable">
+                        <!-- Dynamically populated -->
+                    </div>
+
+                    <!-- Custom Profile Editor (Only shown for Custom profile) -->
+                    <div id="customKeyMappingEditor" style="display: none; margin-top: 1rem;">
+                        <div class="config-grid">
+                            <div class="config-field">
+                                <label for="customKeyName">Key Name</label>
+                                <select id="customKeyName" class="md-select">
+                                    <option value="Backspace">Backspace</option>
+                                    <option value="Delete">Delete</option>
+                                    <option value="ArrowUp">Arrow Up</option>
+                                    <option value="ArrowDown">Arrow Down</option>
+                                    <option value="ArrowLeft">Arrow Left</option>
+                                    <option value="ArrowRight">Arrow Right</option>
+                                    <option value="Home">Home</option>
+                                    <option value="End">End</option>
+                                    <option value="PageUp">Page Up</option>
+                                    <option value="PageDown">Page Down</option>
+                                    <option value="Insert">Insert</option>
+                                    <option value="Escape">Escape</option>
+                                    <option value="F1">F1</option>
+                                    <option value="F2">F2</option>
+                                    <option value="F3">F3</option>
+                                    <option value="F4">F4</option>
+                                    <option value="F5">F5</option>
+                                    <option value="F6">F6</option>
+                                    <option value="F7">F7</option>
+                                    <option value="F8">F8</option>
+                                    <option value="F9">F9</option>
+                                    <option value="F10">F10</option>
+                                    <option value="F11">F11</option>
+                                    <option value="F12">F12</option>
+                                </select>
+                            </div>
+                            <div class="config-field">
+                                <label for="customKeySequence">Sequence (hex or escape)</label>
+                                <input type="text" id="customKeySequence" class="md-input"
+                                       placeholder="e.g., \x7F or \x1B[A">
+                            </div>
+                            <div class="config-field">
+                                <label for="customKeyDescription">Description</label>
+                                <input type="text" id="customKeyDescription" class="md-input"
+                                       placeholder="e.g., Backspace sends DEL">
+                            </div>
+                            <div class="config-actions">
+                                <button class="btn-primary" onclick="addCustomKeyMapping()">
+                                    <span class="material-symbols-outlined">add</span>
+                                    Add Mapping
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="config-actions" style="margin-top: 1rem;">
+                        <button class="btn-secondary" onclick="resetKeyMappings()">
+                            <span class="material-symbols-outlined">refresh</span>
+                            Reset to Default
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="config-card">
+                <div class="config-header">
+                    <div>
                         <div class="config-title"><span class="material-symbols-outlined">display_settings</span> Display Options</div>
                         <div class="config-subtitle">Configure logging and display behavior.</div>
                     </div>
@@ -2419,6 +2599,7 @@
                 loadScripts();
             } else if (page === 'configuration') {
                 loadConfiguration();
+                initializeKeyMappingUI();
             }
 
             // Update URL hash without scrolling
@@ -2533,6 +2714,159 @@
         let currentCommand = '';
         let terminalControlsVisible = true;
         let terminalIsFullscreen = false;
+
+        // ===== Terminal Key Mapping System =====
+
+        // Default built-in profiles
+        const BUILTIN_KEY_PROFILES = [
+            {
+                name: "VT102 Native",
+                description: "No custom mappings - use xterm.js default VT102 behavior",
+                isBuiltIn: true,
+                mappings: []
+            },
+            {
+                name: "Mac Backspace Fix",
+                description: "Map Mac Delete key to send Backspace (DEL 0x7F) - minimal changes",
+                isBuiltIn: true,
+                mappings: [
+                    { key: "Backspace", sequence: "\\x7F", description: "Mac Delete (Backspace) sends DEL", displayValue: "DEL (0x7F)" }
+                ]
+            },
+            {
+                name: "CP/M",
+                description: "Standard CP/M terminal mappings (ADM-3A style)",
+                isBuiltIn: true,
+                mappings: [
+                    { key: "Backspace", sequence: "\\x7F", description: "Backspace sends DEL", displayValue: "DEL (0x7F)" },
+                    { key: "Delete", sequence: "\\x7F", description: "Delete sends DEL", displayValue: "DEL (0x7F)" },
+                    { key: "ArrowUp", sequence: "\\x0B", description: "Up arrow sends Ctrl-K", displayValue: "^K (0x0B)" },
+                    { key: "ArrowDown", sequence: "\\x0A", description: "Down arrow sends Ctrl-J (LF)", displayValue: "^J (0x0A)" },
+                    { key: "ArrowLeft", sequence: "\\x08", description: "Left arrow sends Ctrl-H (BS)", displayValue: "^H (0x08)" },
+                    { key: "ArrowRight", sequence: "\\x0C", description: "Right arrow sends Ctrl-L", displayValue: "^L (0x0C)" },
+                    { key: "Escape", sequence: "\\x1B", description: "Escape sends ESC", displayValue: "ESC (0x1B)" }
+                ]
+            },
+            {
+                name: "VT100",
+                description: "DEC VT100 standard key mappings",
+                isBuiltIn: true,
+                mappings: [
+                    { key: "Backspace", sequence: "\\x7F", description: "Backspace sends DEL", displayValue: "DEL (0x7F)" },
+                    { key: "Delete", sequence: "\\x1B[3~", description: "Delete sends ESC[3~", displayValue: "ESC[3~" },
+                    { key: "ArrowUp", sequence: "\\x1B[A", description: "Up arrow", displayValue: "ESC[A" },
+                    { key: "ArrowDown", sequence: "\\x1B[B", description: "Down arrow", displayValue: "ESC[B" },
+                    { key: "ArrowRight", sequence: "\\x1B[C", description: "Right arrow", displayValue: "ESC[C" },
+                    { key: "ArrowLeft", sequence: "\\x1B[D", description: "Left arrow", displayValue: "ESC[D" },
+                    { key: "Home", sequence: "\\x1B[H", description: "Home key", displayValue: "ESC[H" },
+                    { key: "End", sequence: "\\x1B[F", description: "End key", displayValue: "ESC[F" },
+                    { key: "PageUp", sequence: "\\x1B[5~", description: "Page Up", displayValue: "ESC[5~" },
+                    { key: "PageDown", sequence: "\\x1B[6~", description: "Page Down", displayValue: "ESC[6~" },
+                    { key: "Insert", sequence: "\\x1B[2~", description: "Insert key", displayValue: "ESC[2~" },
+                    { key: "F1", sequence: "\\x1BOP", description: "F1 key", displayValue: "ESC OP" },
+                    { key: "F2", sequence: "\\x1BOQ", description: "F2 key", displayValue: "ESC OQ" },
+                    { key: "F3", sequence: "\\x1BOR", description: "F3 key", displayValue: "ESC OR" },
+                    { key: "F4", sequence: "\\x1BOS", description: "F4 key", displayValue: "ESC OS" },
+                    { key: "F5", sequence: "\\x1B[15~", description: "F5 key", displayValue: "ESC[15~" },
+                    { key: "F6", sequence: "\\x1B[17~", description: "F6 key", displayValue: "ESC[17~" },
+                    { key: "F7", sequence: "\\x1B[18~", description: "F7 key", displayValue: "ESC[18~" },
+                    { key: "F8", sequence: "\\x1B[19~", description: "F8 key", displayValue: "ESC[19~" },
+                    { key: "F9", sequence: "\\x1B[20~", description: "F9 key", displayValue: "ESC[20~" },
+                    { key: "F10", sequence: "\\x1B[21~", description: "F10 key", displayValue: "ESC[21~" },
+                    { key: "F11", sequence: "\\x1B[23~", description: "F11 key", displayValue: "ESC[23~" },
+                    { key: "F12", sequence: "\\x1B[24~", description: "F12 key", displayValue: "ESC[24~" }
+                ]
+            },
+            {
+                name: "Unix/Linux",
+                description: "Modern Unix/Linux terminal (xterm compatible)",
+                isBuiltIn: true,
+                mappings: [
+                    { key: "Backspace", sequence: "\\x08", description: "Backspace sends BS (Ctrl-H)", displayValue: "^H (0x08)" },
+                    { key: "Delete", sequence: "\\x1B[3~", description: "Delete sends ESC[3~", displayValue: "ESC[3~" },
+                    { key: "ArrowUp", sequence: "\\x1B[A", description: "Up arrow", displayValue: "ESC[A" },
+                    { key: "ArrowDown", sequence: "\\x1B[B", description: "Down arrow", displayValue: "ESC[B" },
+                    { key: "ArrowRight", sequence: "\\x1B[C", description: "Right arrow", displayValue: "ESC[C" },
+                    { key: "ArrowLeft", sequence: "\\x1B[D", description: "Left arrow", displayValue: "ESC[D" },
+                    { key: "Home", sequence: "\\x1B[H", description: "Home key", displayValue: "ESC[H" },
+                    { key: "End", sequence: "\\x1B[F", description: "End key", displayValue: "ESC[F" },
+                    { key: "PageUp", sequence: "\\x1B[5~", description: "Page Up", displayValue: "ESC[5~" },
+                    { key: "PageDown", sequence: "\\x1B[6~", description: "Page Down", displayValue: "ESC[6~" },
+                    { key: "F1", sequence: "\\x1BOP", description: "F1 key", displayValue: "ESC OP" },
+                    { key: "F2", sequence: "\\x1BOQ", description: "F2 key", displayValue: "ESC OQ" },
+                    { key: "F3", sequence: "\\x1BOR", description: "F3 key", displayValue: "ESC OR" },
+                    { key: "F4", sequence: "\\x1BOS", description: "F4 key", displayValue: "ESC OS" },
+                    { key: "F5", sequence: "\\x1B[15~", description: "F5 key", displayValue: "ESC[15~" },
+                    { key: "F6", sequence: "\\x1B[17~", description: "F6 key", displayValue: "ESC[17~" },
+                    { key: "F7", sequence: "\\x1B[18~", description: "F7 key", displayValue: "ESC[18~" },
+                    { key: "F8", sequence: "\\x1B[19~", description: "F8 key", displayValue: "ESC[19~" },
+                    { key: "F9", sequence: "\\x1B[20~", description: "F9 key", displayValue: "ESC[20~" },
+                    { key: "F10", sequence: "\\x1B[21~", description: "F10 key", displayValue: "ESC[21~" },
+                    { key: "F11", sequence: "\\x1B[23~", description: "F11 key", displayValue: "ESC[23~" },
+                    { key: "F12", sequence: "\\x1B[24~", description: "F12 key", displayValue: "ESC[24~" }
+                ]
+            }
+        ];
+
+        // Load or initialize key mapping config from localStorage
+        function loadKeyMappingConfig() {
+            const stored = localStorage.getItem('fdcplus_terminal_keymappings');
+
+            if (stored) {
+                try {
+                    const config = JSON.parse(stored);
+                    // Ensure built-in profiles are up-to-date (in case we add new ones)
+                    config.profiles = BUILTIN_KEY_PROFILES.concat(
+                        config.profiles.filter(p => !p.isBuiltIn)
+                    );
+                    return config;
+                } catch (e) {
+                    console.error('Error loading key mappings:', e);
+                }
+            }
+
+            // Default configuration
+            return {
+                version: 1,
+                activeProfile: "VT102 Native",
+                profiles: [...BUILTIN_KEY_PROFILES, {
+                    name: "Custom",
+                    description: "User-defined custom key mappings",
+                    isBuiltIn: false,
+                    mappings: []
+                }]
+            };
+        }
+
+        // Save key mapping config to localStorage
+        function saveKeyMappingConfig(config) {
+            localStorage.setItem('fdcplus_terminal_keymappings', JSON.stringify(config));
+        }
+
+        // Parse escape sequences in key mapping strings
+        function parseEscapeSequence(sequence) {
+            return sequence
+                .replace(/\\x([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+                .replace(/\\n/g, '\n')
+                .replace(/\\r/g, '\r')
+                .replace(/\\t/g, '\t')
+                .replace(/\\\\/g, '\\');
+        }
+
+        // Global key mapping state
+        let keyMappingConfig = loadKeyMappingConfig();
+        let activeMappings = [];  // Currently active mappings (for fast lookup)
+
+        // Update active mappings based on selected profile
+        function updateActiveMappings() {
+            const profile = keyMappingConfig.profiles.find(
+                p => p.name === keyMappingConfig.activeProfile
+            );
+            activeMappings = profile ? profile.mappings : [];
+        }
+
+        // Initialize active mappings
+        updateActiveMappings();
 
         // Socket event handlers
         socket.on('connect', () => {
@@ -3269,6 +3603,38 @@
             term.open(document.getElementById('terminal'));
             fitAddon.fit();
 
+            // Attach custom key event handler for key mapping system
+            term.attachCustomKeyEventHandler((event) => {
+                // Don't intercept modifier key combinations (let browser/xterm handle)
+                if (event.ctrlKey || event.altKey || event.metaKey) {
+                    return true;  // Let xterm.js handle it
+                }
+
+                // Check if this key has a custom mapping
+                const mapping = activeMappings.find(m => {
+                    if (m.code && m.code !== event.code) return false;
+                    return m.key === event.key;
+                });
+
+                if (mapping) {
+                    // Send custom sequence
+                    event.preventDefault();
+
+                    // Parse escape sequences properly
+                    const sequence = parseEscapeSequence(mapping.sequence);
+
+                    // Emit through WebSocket if connected
+                    if (terminalConnected) {
+                        socket.emit('terminal:write', sequence);
+                    }
+
+                    return false;  // Prevent xterm.js from processing
+                }
+
+                // No custom mapping - let xterm.js handle normally
+                return true;
+            });
+
             // Handle terminal input (keyboard)
             term.onData((data) => {
                 if (terminalConnected) {
@@ -3424,6 +3790,189 @@
                     fitAddon.fit();
                 }
             }, 100);
+        }
+
+        // ===== Key Mapping UI Control Functions =====
+
+        // Switch key mapping profile
+        function switchKeyMappingProfile() {
+            const select = document.getElementById('keyMappingProfile');
+            const profileName = select.value;
+
+            keyMappingConfig.activeProfile = profileName;
+            updateActiveMappings();
+            saveKeyMappingConfig(keyMappingConfig);
+
+            // Update UI
+            updateKeyMappingUI();
+
+            showNotification(`Key mapping profile changed to: ${profileName}`, 'success');
+        }
+
+        // Toggle advanced key mapping panel
+        function toggleKeyMappingAdvanced() {
+            const panel = document.getElementById('keyMappingAdvanced');
+            const btn = document.getElementById('keyMappingAdvancedBtn');
+            const icon = btn.querySelector('.material-symbols-outlined');
+
+            if (panel.style.display === 'none') {
+                panel.style.display = 'block';
+                icon.textContent = 'expand_less';
+                btn.innerHTML = '<span class="material-symbols-outlined">expand_less</span>Hide Key Mappings';
+                updateKeyMappingTable();
+            } else {
+                panel.style.display = 'none';
+                icon.textContent = 'expand_more';
+                btn.innerHTML = '<span class="material-symbols-outlined">expand_more</span>Show Key Mappings';
+            }
+        }
+
+        // Update key mapping table display
+        function updateKeyMappingTable() {
+            const table = document.getElementById('keyMappingTable');
+            const profile = keyMappingConfig.profiles.find(
+                p => p.name === keyMappingConfig.activeProfile
+            );
+
+            if (!profile || profile.mappings.length === 0) {
+                table.innerHTML = '<div class="key-mapping-empty">No custom key mappings defined. All keys use xterm.js VT102 defaults.</div>';
+                return;
+            }
+
+            let html = '';
+            profile.mappings.forEach((mapping, index) => {
+                const canDelete = !profile.isBuiltIn;
+                html += `
+                    <div class="key-mapping-row">
+                        <div class="key-name">${mapping.key}</div>
+                        <div class="key-description">${mapping.description}</div>
+                        <div class="key-sequence">${mapping.displayValue || mapping.sequence}</div>
+                        <div class="key-mapping-actions">
+                            ${canDelete ? `<button class="btn-icon btn-text" onclick="deleteCustomKeyMapping(${index})" title="Delete mapping">
+                                <span class="material-symbols-outlined">delete</span>
+                            </button>` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+
+            table.innerHTML = html;
+        }
+
+        // Update entire key mapping UI
+        function updateKeyMappingUI() {
+            const select = document.getElementById('keyMappingProfile');
+            const descDiv = document.getElementById('keyMappingProfileDesc');
+            const customEditor = document.getElementById('customKeyMappingEditor');
+
+            // Update profile description
+            const profile = keyMappingConfig.profiles.find(
+                p => p.name === keyMappingConfig.activeProfile
+            );
+            if (profile) {
+                descDiv.textContent = profile.description;
+            }
+
+            // Show/hide custom editor
+            if (keyMappingConfig.activeProfile === 'Custom') {
+                customEditor.style.display = 'block';
+            } else {
+                customEditor.style.display = 'none';
+            }
+
+            // Update table if visible
+            const panel = document.getElementById('keyMappingAdvanced');
+            if (panel.style.display !== 'none') {
+                updateKeyMappingTable();
+            }
+        }
+
+        // Add custom key mapping
+        function addCustomKeyMapping() {
+            const keyName = document.getElementById('customKeyName').value;
+            const sequence = document.getElementById('customKeySequence').value;
+            const description = document.getElementById('customKeyDescription').value;
+
+            if (!sequence) {
+                showNotification('Please enter a key sequence', 'error');
+                return;
+            }
+
+            // Find Custom profile
+            const customProfile = keyMappingConfig.profiles.find(p => p.name === 'Custom');
+            if (!customProfile) {
+                showNotification('Custom profile not found', 'error');
+                return;
+            }
+
+            // Remove existing mapping for this key if any
+            customProfile.mappings = customProfile.mappings.filter(m => m.key !== keyName);
+
+            // Add new mapping
+            customProfile.mappings.push({
+                key: keyName,
+                sequence: sequence,
+                description: description || `${keyName} custom mapping`,
+                displayValue: sequence  // Show raw sequence in UI
+            });
+
+            // Save and update
+            saveKeyMappingConfig(keyMappingConfig);
+            updateActiveMappings();
+            updateKeyMappingTable();
+
+            // Clear form
+            document.getElementById('customKeySequence').value = '';
+            document.getElementById('customKeyDescription').value = '';
+
+            showNotification(`Custom mapping added for ${keyName}`, 'success');
+        }
+
+        // Delete custom key mapping
+        function deleteCustomKeyMapping(index) {
+            const customProfile = keyMappingConfig.profiles.find(p => p.name === 'Custom');
+            if (!customProfile) return;
+
+            customProfile.mappings.splice(index, 1);
+            saveKeyMappingConfig(keyMappingConfig);
+            updateActiveMappings();
+            updateKeyMappingTable();
+
+            showNotification('Mapping deleted', 'success');
+        }
+
+        // Reset key mappings to default
+        function resetKeyMappings() {
+            if (confirm('Reset all key mappings to default? This will remove all custom mappings.')) {
+                keyMappingConfig = {
+                    version: 1,
+                    activeProfile: "VT102 Native",
+                    profiles: [...BUILTIN_KEY_PROFILES, {
+                        name: "Custom",
+                        description: "User-defined custom key mappings",
+                        isBuiltIn: false,
+                        mappings: []
+                    }]
+                };
+
+                saveKeyMappingConfig(keyMappingConfig);
+                updateActiveMappings();
+
+                // Update UI
+                document.getElementById('keyMappingProfile').value = 'VT102 Native';
+                updateKeyMappingUI();
+
+                showNotification('Key mappings reset to default', 'success');
+            }
+        }
+
+        // Initialize key mapping UI on page load
+        function initializeKeyMappingUI() {
+            const select = document.getElementById('keyMappingProfile');
+            if (select) {
+                select.value = keyMappingConfig.activeProfile;
+                updateKeyMappingUI();
+            }
         }
 
         // Load available serial ports
