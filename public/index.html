@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <!-- iOS web app meta tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>FDC+ Serial Drive Server - Web Interface</title>
     <!-- xterm.js Terminal Emulator -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
@@ -59,6 +62,9 @@
 
     <!-- Material Symbols Icons -->
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+
+    <!-- Retro CRT Terminal Font (VT323 - authentic terminal look) -->
+    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
 
     <style>
         /* Material Symbols styling */
@@ -1162,7 +1168,9 @@
         .terminal-header-actions button {
             background: transparent;
             border: none;
-            padding: 8px;
+            width: 40px;
+            height: 40px;
+            padding: 0;
             cursor: pointer;
             border-radius: 50%;
             display: flex;
@@ -1170,6 +1178,7 @@
             justify-content: center;
             color: var(--md-sys-color-on-surface-variant);
             transition: background-color 0.2s ease;
+            flex-shrink: 0;
         }
 
         .terminal-header-actions button:hover {
@@ -1226,6 +1235,30 @@
             color: var(--text-primary);
         }
 
+        .terminal-status.clickable {
+            cursor: pointer;
+            transition: background-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .terminal-status.clickable:hover {
+            background: var(--md-sys-color-primary-container);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .terminal-status.clickable:active {
+            background: var(--md-sys-color-primary);
+            color: var(--md-sys-color-on-primary);
+        }
+
+        .terminal-status.clickable.connected {
+            cursor: default;
+        }
+
+        .terminal-status.clickable.connected:hover {
+            background: var(--hover-bg);
+            box-shadow: none;
+        }
+
         .terminal-container {
             background: #1e1e1e;
             border-radius: 5px;
@@ -1237,6 +1270,231 @@
         #terminal {
             height: 100%;
         }
+
+        /* ===== CRT Retro Terminal Mode ===== */
+
+        /* CRT mode container modifications */
+        .terminal-container.crt-mode {
+            border-radius: 20px / 12px;
+            position: relative;
+            box-shadow:
+                inset 0 0 80px rgba(0, 0, 0, 0.4),
+                0 0 20px rgba(85, 255, 255, 0.15);
+            background: #000000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            /* Fill available viewport height, leaving room for header/nav */
+            height: calc(100vh - 200px) !important;
+            height: calc(100dvh - 200px) !important;
+            min-height: 400px;
+            padding: 15px;
+        }
+
+        /* Center xterm viewport in CRT mode */
+        .terminal-container.crt-mode #terminal {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: auto !important;
+        }
+
+        .terminal-container.crt-mode .xterm {
+            /* Let xterm size naturally based on font/dimensions */
+        }
+
+        .terminal-container.crt-mode .xterm-viewport {
+            /* Ensure viewport doesn't overflow */
+            overflow: hidden !important;
+        }
+
+        /* Responsive CRT container height */
+        @media (max-width: 768px) {
+            .terminal-container.crt-mode {
+                height: calc(100vh - 180px) !important;
+                height: calc(100dvh - 180px) !important;
+                min-height: 300px;
+                padding: 10px;
+            }
+        }
+
+        /* Scanline overlay */
+        .terminal-container.crt-mode::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.2) 0px,
+                rgba(0, 0, 0, 0.2) 1px,
+                transparent 1px,
+                transparent 3px
+            );
+            pointer-events: none;
+            z-index: 10;
+            border-radius: 20px / 12px;
+        }
+
+        /* Vignette effect */
+        .terminal-container.crt-mode::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(
+                ellipse at center,
+                transparent 50%,
+                rgba(0, 0, 0, 0.5) 100%
+            );
+            pointer-events: none;
+            z-index: 11;
+            border-radius: 20px / 12px;
+        }
+
+        /* Phosphor glow on terminal text */
+        .terminal-container.crt-mode .xterm-rows {
+            filter: drop-shadow(0 0 1px var(--crt-glow-color, #55FFFF));
+        }
+
+        /* CRT color variants */
+        .terminal-container.crt-mode.crt-cyan {
+            --crt-glow-color: #55FFFF;
+            box-shadow:
+                inset 0 0 80px rgba(0, 0, 0, 0.4),
+                0 0 20px rgba(85, 255, 255, 0.15);
+        }
+
+        .terminal-container.crt-mode.crt-green {
+            --crt-glow-color: #33FF33;
+            box-shadow:
+                inset 0 0 80px rgba(0, 0, 0, 0.4),
+                0 0 20px rgba(51, 255, 51, 0.15);
+        }
+
+        .terminal-container.crt-mode.crt-amber {
+            --crt-glow-color: #FFB000;
+            box-shadow:
+                inset 0 0 80px rgba(0, 0, 0, 0.4),
+                0 0 20px rgba(255, 176, 0, 0.15);
+        }
+
+        /* Optional subtle flicker animation */
+        @keyframes crt-flicker {
+            0%, 100% { opacity: 1; }
+            92% { opacity: 0.98; }
+            94% { opacity: 1; }
+            97% { opacity: 0.97; }
+        }
+
+        .terminal-container.crt-mode.crt-flicker {
+            animation: crt-flicker 0.15s infinite;
+        }
+
+        /* CRT toggle button active state */
+        .terminal-header-actions button.crt-active {
+            color: var(--md-sys-color-primary);
+            background-color: var(--md-sys-color-primary-container);
+        }
+
+        /* CRT variant selector dropdown - Material Design 3 Menu */
+        .crt-variant-menu {
+            position: absolute;
+            top: calc(100% + 4px);
+            right: 0;
+            background: var(--md-sys-color-surface-container);
+            border-radius: 4px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.3), 0 2px 6px 2px rgba(0,0,0,0.15);
+            padding: 8px 0;
+            z-index: 100;
+            min-width: 180px;
+            opacity: 0;
+            visibility: hidden;
+            transform: scaleY(0.8);
+            transform-origin: top right;
+            transition: opacity 0.12s cubic-bezier(0.2, 0, 0, 1),
+                        transform 0.12s cubic-bezier(0.2, 0, 0, 1),
+                        visibility 0.12s;
+        }
+
+        .crt-variant-menu.show {
+            opacity: 1;
+            visibility: visible;
+            transform: scaleY(1);
+        }
+
+        /* CRT variant menu needs higher z-index in fullscreen */
+        .terminal-section.simulated-fullscreen .crt-variant-menu {
+            z-index: 10002;
+        }
+
+        .crt-variant-menu button {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            width: 100%;
+            min-height: 48px;
+            padding: 0 16px;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: 500;
+            letter-spacing: 0.1px;
+            color: var(--md-sys-color-on-surface);
+            text-align: left;
+            transition: background-color 0.1s ease;
+        }
+
+        /* State layer for hover */
+        .crt-variant-menu button:hover {
+            background: var(--md-sys-color-on-surface);
+            background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+        }
+
+        /* State layer for focus */
+        .crt-variant-menu button:focus-visible {
+            outline: none;
+            background: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+        }
+
+        /* State layer for active/pressed */
+        .crt-variant-menu button:active {
+            background: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+        }
+
+        /* Selected state */
+        .crt-variant-menu button.selected {
+            background: var(--md-sys-color-secondary-container);
+            color: var(--md-sys-color-on-secondary-container);
+        }
+
+        .crt-variant-menu button.selected:hover {
+            background: color-mix(in srgb, var(--md-sys-color-on-secondary-container) 8%, var(--md-sys-color-secondary-container));
+        }
+
+        /* Checkmark for selected item */
+        .crt-variant-menu button.selected::after {
+            content: 'check';
+            font-family: 'Material Symbols Outlined';
+            font-size: 20px;
+            margin-left: auto;
+            color: var(--md-sys-color-on-secondary-container);
+        }
+
+        .crt-color-dot {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            display: inline-block;
+            flex-shrink: 0;
+            box-shadow: inset 0 0 0 1px rgba(0,0,0,0.1);
+        }
+
+        .crt-color-dot.cyan { background: #55FFFF; }
+        .crt-color-dot.green { background: #33FF33; }
+        .crt-color-dot.amber { background: #FFB000; }
+        .crt-color-dot.off { background: var(--md-sys-color-outline); }
 
         /* Fullscreen mode adjustments */
         .terminal-section:fullscreen,
@@ -1289,6 +1547,302 @@
             margin: 0;
             border-radius: 0;
             padding: 10px;
+        }
+
+        /* CRT mode in fullscreen - adjust section background */
+        .terminal-section:fullscreen:has(.terminal-container.crt-mode),
+        .terminal-section:-webkit-full-screen:has(.terminal-container.crt-mode),
+        .terminal-section:-moz-full-screen:has(.terminal-container.crt-mode),
+        .terminal-section:-ms-fullscreen:has(.terminal-container.crt-mode) {
+            background: #000000;
+        }
+
+        /* CRT mode header in fullscreen - darker background */
+        .terminal-section:fullscreen:has(.terminal-container.crt-mode) .terminal-header,
+        .terminal-section:-webkit-full-screen:has(.terminal-container.crt-mode) .terminal-header,
+        .terminal-section:-moz-full-screen:has(.terminal-container.crt-mode) .terminal-header,
+        .terminal-section:-ms-fullscreen:has(.terminal-container.crt-mode) .terminal-header {
+            background: rgba(0, 0, 0, 0.9);
+            min-height: 36px;
+            padding: 4px 16px;
+        }
+
+        .terminal-section:fullscreen .terminal-container.crt-mode,
+        .terminal-section:-webkit-full-screen .terminal-container.crt-mode,
+        .terminal-section:-moz-full-screen .terminal-container.crt-mode,
+        .terminal-section:-ms-fullscreen .terminal-container.crt-mode {
+            border-radius: 0;
+            /* Override fixed height - fill entire screen */
+            height: 100% !important;
+            max-height: none !important;
+            flex: 1 1 auto;
+            padding: 0;
+            margin: 0;
+            box-shadow: none;
+        }
+
+        /* Terminal element fills container in fullscreen CRT mode */
+        .terminal-section:fullscreen .terminal-container.crt-mode #terminal,
+        .terminal-section:-webkit-full-screen .terminal-container.crt-mode #terminal,
+        .terminal-section:-moz-full-screen .terminal-container.crt-mode #terminal,
+        .terminal-section:-ms-fullscreen .terminal-container.crt-mode #terminal {
+            width: 100% !important;
+            height: 100% !important;
+            display: flex !important;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* xterm fills space in fullscreen CRT mode */
+        .terminal-section:fullscreen .terminal-container.crt-mode .xterm,
+        .terminal-section:-webkit-full-screen .terminal-container.crt-mode .xterm,
+        .terminal-section:-moz-full-screen .terminal-container.crt-mode .xterm,
+        .terminal-section:-ms-fullscreen .terminal-container.crt-mode .xterm {
+            height: auto !important;
+        }
+
+        /* Keep scanlines but no curved corners in fullscreen */
+        .terminal-section:fullscreen .terminal-container.crt-mode::after,
+        .terminal-section:-webkit-full-screen .terminal-container.crt-mode::after,
+        .terminal-section:-moz-full-screen .terminal-container.crt-mode::after,
+        .terminal-section:-ms-fullscreen .terminal-container.crt-mode::after,
+        .terminal-section:fullscreen .terminal-container.crt-mode::before,
+        .terminal-section:-webkit-full-screen .terminal-container.crt-mode::before,
+        .terminal-section:-moz-full-screen .terminal-container.crt-mode::before,
+        .terminal-section:-ms-fullscreen .terminal-container.crt-mode::before {
+            border-radius: 0;
+        }
+
+        /* Fallback: JS-added class for fullscreen CRT mode (better browser support) */
+        .terminal-section.crt-fullscreen {
+            background: #000000 !important;
+        }
+
+        .terminal-section.crt-fullscreen .terminal-header {
+            background: rgba(0, 0, 0, 0.9) !important;
+            min-height: 36px !important;
+            padding: 4px 16px !important;
+        }
+
+        .terminal-section.crt-fullscreen .terminal-container.crt-mode {
+            height: calc(100vh - 44px) !important;
+            max-height: none !important;
+            flex: 1 1 auto !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+        }
+
+        /* ===== Simulated Fullscreen Mode (iOS/iPad/Cross-device compatible) ===== */
+
+        /* Use simulated fullscreen on all devices for consistency */
+        .terminal-section.simulated-fullscreen {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            width: 100vw !important;
+            width: 100dvw !important; /* Dynamic viewport width */
+            height: 100vh !important;
+            height: 100dvh !important; /* Dynamic viewport height - accounts for iOS Safari bars */
+            z-index: 9999 !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border-radius: 0 !important;
+            background: #1e1e1e !important;
+            display: flex !important;
+            flex-direction: column !important;
+            /* iOS safe area insets */
+            padding-top: env(safe-area-inset-top) !important;
+            padding-bottom: env(safe-area-inset-bottom) !important;
+            padding-left: env(safe-area-inset-left) !important;
+            padding-right: env(safe-area-inset-right) !important;
+        }
+
+        /* Prevent body scroll when in simulated fullscreen */
+        body.fullscreen-active {
+            overflow: hidden !important;
+        }
+
+        /* Header in simulated fullscreen - terminal is always dark themed */
+        .terminal-section.simulated-fullscreen .terminal-header {
+            background: rgba(30, 30, 30, 0.98) !important;
+            color: #e3e2e6 !important;
+            backdrop-filter: blur(10px) !important;
+            -webkit-backdrop-filter: blur(10px) !important;
+            padding: 8px 16px !important;
+            padding-top: calc(8px + env(safe-area-inset-top)) !important;
+            margin: 0 !important;
+            border-radius: 0 !important;
+            flex-shrink: 0 !important;
+            min-height: 44px !important;
+        }
+
+        .terminal-section.simulated-fullscreen .terminal-header .terminal-title,
+        .terminal-section.simulated-fullscreen .terminal-header .terminal-status {
+            color: #e3e2e6 !important;
+        }
+
+        .terminal-section.simulated-fullscreen .terminal-header-actions button {
+            color: #e3e2e6 !important;
+        }
+
+        .terminal-section.simulated-fullscreen .terminal-title {
+            font-size: 14px !important;
+        }
+
+        /* Hide controls in simulated fullscreen */
+        .terminal-section.simulated-fullscreen .terminal-controls {
+            display: none !important;
+        }
+
+        /* Container fills remaining space */
+        .terminal-section.simulated-fullscreen .terminal-container {
+            flex: 1 1 auto !important;
+            height: auto !important;
+            max-height: none !important;
+            margin: 0 !important;
+            border-radius: 0 !important;
+            padding: 10px !important;
+            padding-bottom: calc(10px + env(safe-area-inset-bottom)) !important;
+            overflow: hidden !important;
+        }
+
+        /* CRT mode in simulated fullscreen */
+        .terminal-section.simulated-fullscreen.crt-fullscreen {
+            background: #000000 !important;
+        }
+
+        .terminal-section.simulated-fullscreen.crt-fullscreen .terminal-header {
+            background: rgba(0, 0, 0, 0.95) !important;
+        }
+
+        .terminal-section.simulated-fullscreen .terminal-container.crt-mode {
+            height: auto !important;
+            flex: 1 1 auto !important;
+            padding: 0 !important;
+            padding-bottom: env(safe-area-inset-bottom) !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            min-height: 0 !important;
+            max-height: none !important;
+        }
+
+        /* Terminal element in simulated fullscreen */
+        .terminal-section.simulated-fullscreen #terminal {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        /* xterm fills space in simulated fullscreen CRT mode */
+        .terminal-section.simulated-fullscreen .terminal-container.crt-mode #terminal {
+            width: auto !important;
+            height: auto !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }
+
+        .terminal-section.simulated-fullscreen .terminal-container.crt-mode .xterm {
+            max-width: 100% !important;
+            max-height: 100% !important;
+        }
+
+        /* Close button for simulated fullscreen (mobile-friendly) */
+        .simulated-fullscreen-close {
+            display: none;
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.15);
+            border: none;
+            color: #fff;
+            font-size: 20px;
+            cursor: pointer;
+            z-index: 10001;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s ease;
+        }
+
+        .simulated-fullscreen-close .material-symbols-outlined {
+            margin: 0;
+            font-size: inherit;
+        }
+
+        .simulated-fullscreen-close:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .simulated-fullscreen-close:active {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        /* Hide close button - fullscreen exit is in header actions */
+        .terminal-section.simulated-fullscreen .simulated-fullscreen-close {
+            display: none;
+        }
+
+        /* Touch device optimizations */
+        @media (hover: none) and (pointer: coarse) {
+            .terminal-section.simulated-fullscreen .terminal-header {
+                min-height: 50px !important;
+            }
+
+            .terminal-section.simulated-fullscreen .simulated-fullscreen-close {
+                width: 44px;
+                height: 44px;
+                font-size: 24px;
+            }
+
+            .terminal-header-actions button {
+                min-width: 44px;
+                min-height: 44px;
+            }
+        }
+
+        /* Landscape orientation on mobile */
+        @media (max-height: 500px) and (orientation: landscape) {
+            .terminal-section.simulated-fullscreen .terminal-header {
+                padding: 4px 16px !important;
+                padding-left: calc(4px + env(safe-area-inset-left)) !important;
+                padding-right: calc(4px + env(safe-area-inset-right)) !important;
+                min-height: 36px !important;
+            }
+
+            .terminal-section.simulated-fullscreen .terminal-title {
+                font-size: 12px !important;
+            }
+
+            .terminal-section.simulated-fullscreen .simulated-fullscreen-close {
+                width: 32px;
+                height: 32px;
+                font-size: 18px;
+                top: 4px;
+                top: calc(4px + env(safe-area-inset-top));
+            }
+        }
+
+        /* iPad specific adjustments */
+        @media (min-width: 768px) and (max-width: 1024px) {
+            .terminal-section.simulated-fullscreen .terminal-header {
+                padding: 10px 20px !important;
+                padding-top: calc(10px + env(safe-area-inset-top)) !important;
+            }
+
+            .terminal-section.simulated-fullscreen .simulated-fullscreen-close {
+                top: 16px;
+                right: 16px;
+                width: 44px;
+                height: 44px;
+                font-size: 24px;
+            }
         }
 
         .btn-success {
@@ -2032,13 +2586,40 @@
         <div id="page-terminal" class="page active">
             <!-- Terminal Section -->
             <div class="terminal-section" id="terminalSection">
+                <!-- Close button for simulated fullscreen (touch devices) -->
+                <button class="simulated-fullscreen-close" id="simulatedFullscreenClose" onclick="exitSimulatedFullscreen()" title="Exit fullscreen">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
                 <div class="terminal-header">
                     <div class="terminal-title"><span class="material-symbols-outlined">terminal</span> Serial Terminal (VT102)</div>
-                    <div class="terminal-status">
+                    <div class="terminal-status clickable" id="terminalStatusArea" onclick="handleTerminalStatusClick()" title="Click to connect">
                         <span class="status-dot" id="terminalStatus"></span>
                         <span id="terminalDevice">Not Connected</span>
                     </div>
                     <div class="terminal-header-actions">
+                        <div style="position: relative; display: inline-block;">
+                            <button class="btn-icon btn-text"
+                                    id="crtModeBtn"
+                                    onclick="toggleCrtMode(event)"
+                                    oncontextmenu="showCrtVariantMenu(event); return false;"
+                                    title="Toggle CRT Mode (Ctrl+Shift+R) | Right-click or long-press for variants">
+                                <span class="material-symbols-outlined" id="crtModeIcon">tv</span>
+                            </button>
+                            <div class="crt-variant-menu" id="crtVariantMenu">
+                                <button onclick="setCrtVariant('off')" id="crtVariantOff">
+                                    <span class="crt-color-dot off"></span> Modern
+                                </button>
+                                <button onclick="setCrtVariant('cyan')" id="crtVariantCyan">
+                                    <span class="crt-color-dot cyan"></span> CGA Cyan
+                                </button>
+                                <button onclick="setCrtVariant('green')" id="crtVariantGreen">
+                                    <span class="crt-color-dot green"></span> Green Phosphor
+                                </button>
+                                <button onclick="setCrtVariant('amber')" id="crtVariantAmber">
+                                    <span class="crt-color-dot amber"></span> Amber Phosphor
+                                </button>
+                            </div>
+                        </div>
                         <button class="btn-icon btn-text"
                                 id="toggleControlsBtn"
                                 onclick="toggleTerminalControls()"
@@ -2674,6 +3255,7 @@
                 const hash = window.location.hash.slice(1) || 'terminal';
                 navigateTo(hash);
                 initializeTerminal();
+                initializeCrtMode();
                 loadPrimaryPorts();
                 loadAvailablePorts();
             } catch (error) {
@@ -2754,6 +3336,18 @@
             if (e.ctrlKey && e.shiftKey && e.key === 'H' && currentPage === 'terminal') {
                 e.preventDefault();
                 toggleTerminalControls();
+            }
+
+            // Ctrl+Shift+R for CRT mode toggle
+            if (e.ctrlKey && e.shiftKey && e.key === 'R' && currentPage === 'terminal') {
+                e.preventDefault();
+                toggleCrtMode();
+            }
+
+            // ESC key to exit simulated fullscreen
+            if (e.key === 'Escape' && terminalIsFullscreen) {
+                e.preventDefault();
+                exitSimulatedFullscreen();
             }
         });
 
@@ -3621,6 +4215,109 @@
 
         // ===== Terminal Functions =====
 
+        // ===== CRT/CGA Terminal Theme Configuration =====
+
+        // Modern terminal theme (default)
+        const modernTerminalTheme = {
+            background: '#1e1e1e',
+            foreground: '#f0f0f0',
+            cursor: '#f0f0f0',
+            cursorAccent: '#1e1e1e',
+            black: '#000000',
+            red: '#cd3131',
+            green: '#0dbc79',
+            yellow: '#e5e510',
+            blue: '#2472c8',
+            magenta: '#bc3fbc',
+            cyan: '#11a8cd',
+            white: '#e5e5e5',
+            brightBlack: '#666666',
+            brightRed: '#f14c4c',
+            brightGreen: '#23d18b',
+            brightYellow: '#f5f543',
+            brightBlue: '#3b8eea',
+            brightMagenta: '#d670d6',
+            brightCyan: '#29b8db',
+            brightWhite: '#e5e5e5'
+        };
+
+        // CGA/CRT theme variants
+        const crtThemes = {
+            cyan: {
+                // CGA Palette 1 High Intensity (Cyan/Magenta/White)
+                background: '#000000',
+                foreground: '#55FFFF',
+                cursor: '#55FFFF',
+                cursorAccent: '#000000',
+                black: '#000000',
+                red: '#FF5555',
+                green: '#55FF55',
+                yellow: '#FFFF55',
+                blue: '#5555FF',
+                magenta: '#FF55FF',
+                cyan: '#55FFFF',
+                white: '#FFFFFF',
+                brightBlack: '#555555',
+                brightRed: '#FF5555',
+                brightGreen: '#55FF55',
+                brightYellow: '#FFFF55',
+                brightBlue: '#5555FF',
+                brightMagenta: '#FF55FF',
+                brightCyan: '#55FFFF',
+                brightWhite: '#FFFFFF'
+            },
+            green: {
+                // Classic green phosphor monochrome
+                background: '#000000',
+                foreground: '#33FF33',
+                cursor: '#33FF33',
+                cursorAccent: '#000000',
+                black: '#000000',
+                red: '#33FF33',
+                green: '#33FF33',
+                yellow: '#66FF66',
+                blue: '#33FF33',
+                magenta: '#33FF33',
+                cyan: '#33FF33',
+                white: '#33FF33',
+                brightBlack: '#1A8A1A',
+                brightRed: '#66FF66',
+                brightGreen: '#66FF66',
+                brightYellow: '#99FF99',
+                brightBlue: '#66FF66',
+                brightMagenta: '#66FF66',
+                brightCyan: '#66FF66',
+                brightWhite: '#99FF99'
+            },
+            amber: {
+                // Classic amber phosphor monochrome
+                background: '#000000',
+                foreground: '#FFB000',
+                cursor: '#FFB000',
+                cursorAccent: '#000000',
+                black: '#000000',
+                red: '#FFB000',
+                green: '#FFB000',
+                yellow: '#FFCC00',
+                blue: '#FFB000',
+                magenta: '#FFB000',
+                cyan: '#FFB000',
+                white: '#FFB000',
+                brightBlack: '#8A6000',
+                brightRed: '#FFCC00',
+                brightGreen: '#FFCC00',
+                brightYellow: '#FFE066',
+                brightBlue: '#FFCC00',
+                brightMagenta: '#FFCC00',
+                brightCyan: '#FFCC00',
+                brightWhite: '#FFE066'
+            }
+        };
+
+        // CRT mode state
+        let crtModeEnabled = false;
+        let currentCrtVariant = 'cyan';
+
         // Initialize xterm.js terminal
         function initializeTerminal() {
             term = new Terminal({
@@ -3774,79 +4471,479 @@
             }, 400); // Match CSS transition duration
         }
 
-        // Toggle terminal fullscreen mode
-        async function toggleTerminalFullscreen() {
+        // Toggle terminal fullscreen mode (uses simulated fullscreen for cross-device compatibility)
+        function toggleTerminalFullscreen() {
+            if (terminalIsFullscreen) {
+                exitSimulatedFullscreen();
+            } else {
+                enterSimulatedFullscreen();
+            }
+        }
+
+        // Enter simulated fullscreen mode
+        function enterSimulatedFullscreen() {
             const section = document.getElementById('terminalSection');
             const icon = document.getElementById('fullscreenIcon');
 
-            try {
-                if (!document.fullscreenElement &&
-                    !document.webkitFullscreenElement &&
-                    !document.mozFullScreenElement &&
-                    !document.msFullscreenElement) {
-                    // Enter fullscreen
-                    if (section.requestFullscreen) {
-                        await section.requestFullscreen();
-                    } else if (section.webkitRequestFullscreen) {
-                        await section.webkitRequestFullscreen(); // Safari
-                    } else if (section.mozRequestFullScreen) {
-                        await section.mozRequestFullScreen(); // Firefox
-                    } else if (section.msRequestFullscreen) {
-                        await section.msRequestFullscreen(); // IE11
-                    }
+            // Store scroll position before entering fullscreen
+            window.simulatedFullscreenScrollPos = window.scrollY;
 
-                    terminalIsFullscreen = true;
-                    icon.textContent = 'fullscreen_exit';
+            // Add simulated fullscreen classes
+            section.classList.add('simulated-fullscreen');
+            document.body.classList.add('fullscreen-active');
+
+            // Add CRT fullscreen class if in CRT mode
+            if (crtModeEnabled) {
+                section.classList.add('crt-fullscreen');
+            }
+
+            terminalIsFullscreen = true;
+            icon.textContent = 'fullscreen_exit';
+
+            // Refit terminal after transition
+            refitTerminalAfterFullscreenChange();
+
+            // Prevent scrolling on touch devices
+            document.body.style.overflow = 'hidden';
+
+            // Focus terminal
+            if (term) {
+                term.focus();
+            }
+        }
+
+        // Exit simulated fullscreen mode
+        function exitSimulatedFullscreen() {
+            const section = document.getElementById('terminalSection');
+            const icon = document.getElementById('fullscreenIcon');
+
+            // Remove simulated fullscreen classes
+            section.classList.remove('simulated-fullscreen');
+            section.classList.remove('crt-fullscreen');
+            document.body.classList.remove('fullscreen-active');
+
+            terminalIsFullscreen = false;
+            icon.textContent = 'fullscreen';
+
+            // Restore scrolling
+            document.body.style.overflow = '';
+
+            // Restore scroll position
+            if (window.simulatedFullscreenScrollPos !== undefined) {
+                window.scrollTo(0, window.simulatedFullscreenScrollPos);
+            }
+
+            // Refit terminal after transition
+            refitTerminalAfterFullscreenChange();
+        }
+
+        // Refit terminal after fullscreen state change
+        function refitTerminalAfterFullscreenChange() {
+            // Use multiple timeouts to catch the transition at different stages
+            // Earlier timeouts for responsiveness, later ones for accuracy
+            const refitOnce = () => {
+                if (crtModeEnabled) {
+                    applyCrtSizing();
+                } else if (fitAddon) {
+                    fitAddon.fit();
+                }
+            };
+
+            // Immediate attempt
+            refitOnce();
+
+            // Multiple delayed attempts to handle animation/transition timing
+            setTimeout(refitOnce, 50);
+            setTimeout(refitOnce, 150);
+            setTimeout(refitOnce, 300);
+            setTimeout(refitOnce, 500);
+
+            // Final attempt after animations complete
+            setTimeout(refitOnce, 800);
+        }
+
+        // Handle native fullscreen change events (for ESC key on desktop browsers)
+        function handleFullscreenChange() {
+            const icon = document.getElementById('fullscreenIcon');
+            const section = document.getElementById('terminalSection');
+
+            // Check if native fullscreen was exited (e.g., via ESC key)
+            const isNativeFullscreen = document.fullscreenElement ||
+                document.webkitFullscreenElement ||
+                document.mozFullScreenElement ||
+                document.msFullscreenElement;
+
+            // If native fullscreen was exited but we're still in simulated fullscreen, exit that too
+            if (!isNativeFullscreen && section.classList.contains('simulated-fullscreen')) {
+                // This handles the case where ESC exits native fullscreen on some browsers
+                // but we want to also exit our simulated fullscreen
+            }
+
+            // Refit terminal when fullscreen state changes
+            refitTerminalAfterFullscreenChange();
+        }
+
+        // ===== CRT Mode Functions =====
+
+        // Toggle CRT mode on/off
+        function toggleCrtMode(event) {
+            if (event) event.stopPropagation();
+
+            if (crtModeEnabled) {
+                // Turn off CRT mode
+                setCrtVariant('off');
+            } else {
+                // Turn on CRT mode with current variant
+                setCrtVariant(currentCrtVariant);
+            }
+
+            // Hide variant menu if open
+            hideCrtVariantMenu();
+        }
+
+        // Show CRT variant dropdown menu
+        function showCrtVariantMenu(event) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+
+            const menu = document.getElementById('crtVariantMenu');
+            menu.classList.toggle('show');
+
+            // Update selected state in menu
+            updateCrtVariantMenuSelection();
+
+            // Close menu when clicking outside
+            setTimeout(() => {
+                document.addEventListener('click', hideCrtVariantMenuOnClickOutside, { once: true });
+            }, 0);
+        }
+
+        // Hide CRT variant menu
+        function hideCrtVariantMenu() {
+            const menu = document.getElementById('crtVariantMenu');
+            if (menu) menu.classList.remove('show');
+        }
+
+        // Hide menu when clicking outside
+        function hideCrtVariantMenuOnClickOutside(event) {
+            const menu = document.getElementById('crtVariantMenu');
+            const btn = document.getElementById('crtModeBtn');
+
+            if (menu && !menu.contains(event.target) && !btn.contains(event.target)) {
+                menu.classList.remove('show');
+            }
+        }
+
+        // Long-press support for touch devices (iPad, mobile)
+        let crtLongPressTimer = null;
+        let crtLongPressTriggered = false;
+
+        function setupCrtButtonTouchHandlers() {
+            const btn = document.getElementById('crtModeBtn');
+            if (!btn) return;
+
+            btn.addEventListener('touchstart', (e) => {
+                crtLongPressTriggered = false;
+                crtLongPressTimer = setTimeout(() => {
+                    crtLongPressTriggered = true;
+                    showCrtVariantMenu(e);
+                    // Provide haptic feedback if available
+                    if (navigator.vibrate) {
+                        navigator.vibrate(50);
+                    }
+                }, 500);
+            }, { passive: true });
+
+            btn.addEventListener('touchend', (e) => {
+                clearTimeout(crtLongPressTimer);
+                if (crtLongPressTriggered) {
+                    e.preventDefault();
+                }
+            });
+
+            btn.addEventListener('touchmove', () => {
+                clearTimeout(crtLongPressTimer);
+            }, { passive: true });
+
+            btn.addEventListener('touchcancel', () => {
+                clearTimeout(crtLongPressTimer);
+            }, { passive: true });
+        }
+
+        // Initialize touch handlers when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', setupCrtButtonTouchHandlers);
+        } else {
+            setupCrtButtonTouchHandlers();
+        }
+
+        // Update menu selection state
+        function updateCrtVariantMenuSelection() {
+            const variants = ['off', 'cyan', 'green', 'amber'];
+            variants.forEach(v => {
+                const btn = document.getElementById(`crtVariant${v.charAt(0).toUpperCase() + v.slice(1)}`);
+                if (btn) {
+                    const isSelected = (v === 'off' && !crtModeEnabled) ||
+                                       (v !== 'off' && crtModeEnabled && currentCrtVariant === v);
+                    btn.classList.toggle('selected', isSelected);
+                }
+            });
+        }
+
+        // CRT mode constants - classic 80x25 text mode
+        const CRT_COLS = 80;
+        const CRT_ROWS = 25;
+
+        // Check if currently in fullscreen mode
+        function isInFullscreen() {
+            // Check for simulated fullscreen first (works on all devices)
+            const section = document.getElementById('terminalSection');
+            if (section && section.classList.contains('simulated-fullscreen')) {
+                return true;
+            }
+            // Also check native fullscreen API
+            return !!(document.fullscreenElement ||
+                      document.webkitFullscreenElement ||
+                      document.mozFullScreenElement ||
+                      document.msFullscreenElement);
+        }
+
+        // Calculate optimal font size for CRT mode to fill container
+        function calculateCrtFontSize() {
+            const container = document.querySelector('.terminal-container');
+            const section = document.getElementById('terminalSection');
+            const header = document.querySelector('.terminal-header');
+            if (!container || !term) return 20;
+
+            let availableWidth, availableHeight;
+
+            if (isInFullscreen()) {
+                // In fullscreen, use actual container dimensions after flexbox layout
+                // Fall back to window dimensions minus header if container not ready
+                const headerHeight = header ? header.offsetHeight : 50;
+                const safeAreaBottom = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sab') || '0') || 0;
+
+                // Try to get actual container size first
+                const containerRect = container.getBoundingClientRect();
+                if (containerRect.width > 0 && containerRect.height > 0) {
+                    availableWidth = containerRect.width;
+                    availableHeight = containerRect.height;
                 } else {
-                    // Exit fullscreen
-                    if (document.exitFullscreen) {
-                        await document.exitFullscreen();
-                    } else if (document.webkitExitFullscreen) {
-                        await document.webkitExitFullscreen();
-                    } else if (document.mozCancelFullScreen) {
-                        await document.mozCancelFullScreen();
-                    } else if (document.msExitFullscreen) {
-                        await document.msExitFullscreen();
-                    }
+                    // Fallback to window calculations
+                    availableWidth = window.innerWidth;
+                    availableHeight = window.innerHeight - headerHeight - safeAreaBottom;
+                }
+            } else {
+                // Normal mode - use container dimensions
+                const containerStyle = getComputedStyle(container);
+                const paddingX = parseFloat(containerStyle.paddingLeft) + parseFloat(containerStyle.paddingRight);
+                const paddingY = parseFloat(containerStyle.paddingTop) + parseFloat(containerStyle.paddingBottom);
 
-                    terminalIsFullscreen = false;
-                    icon.textContent = 'fullscreen';
+                availableWidth = container.clientWidth - paddingX;
+                availableHeight = container.clientHeight - paddingY;
+            }
+
+            // VT323 font metrics - character aspect ratio is approximately 0.55 (width/height)
+            // We need to find the largest font size where:
+            // - 80 chars * charWidth <= availableWidth
+            // - 25 rows * lineHeight <= availableHeight
+
+            const charAspectRatio = 0.55; // VT323 is narrower than typical monospace
+            const lineHeightRatio = 1.0;  // Line height = font size
+
+            // Calculate max font size based on width: fontSize * aspectRatio * cols <= width
+            const maxFontByWidth = availableWidth / (CRT_COLS * charAspectRatio);
+
+            // Calculate max font size based on height: fontSize * lineHeight * rows <= height
+            const maxFontByHeight = availableHeight / (CRT_ROWS * lineHeightRatio);
+
+            // Use the smaller of the two, with minimal margin for maximum fill
+            const optimalSize = Math.floor(Math.min(maxFontByWidth, maxFontByHeight) * 0.97);
+
+            // Clamp between reasonable bounds - allow large fonts to fill screen
+            const maxSize = isInFullscreen() ? 200 : 120;
+            return Math.max(14, Math.min(optimalSize, maxSize));
+        }
+
+        // Apply CRT mode sizing to terminal
+        function applyCrtSizing() {
+            if (!term || !crtModeEnabled) return;
+
+            const fontSize = calculateCrtFontSize();
+
+            // Set fixed 80x25 dimensions
+            term.resize(CRT_COLS, CRT_ROWS);
+
+            // Apply calculated font size
+            term.options.fontSize = fontSize;
+            term.options.lineHeight = 1.0;
+
+            // Force terminal to refresh
+            term.refresh(0, CRT_ROWS - 1);
+        }
+
+        // Set CRT variant (cyan, green, amber, or off)
+        function setCrtVariant(variant) {
+            const container = document.querySelector('.terminal-container');
+            const section = document.getElementById('terminalSection');
+            const btn = document.getElementById('crtModeBtn');
+            const icon = document.getElementById('crtModeIcon');
+
+            // Remove all CRT classes
+            container.classList.remove('crt-mode', 'crt-cyan', 'crt-green', 'crt-amber');
+
+            if (variant === 'off') {
+                // Disable CRT mode - restore modern theme
+                crtModeEnabled = false;
+
+                // Remove fullscreen CRT class
+                section.classList.remove('crt-fullscreen');
+
+                if (term) {
+                    term.options.theme = modernTerminalTheme;
+                    term.options.fontFamily = '"Courier New", Courier, monospace';
+                    term.options.fontSize = 14;
+                    term.options.letterSpacing = 0;
+                    term.options.lineHeight = 1.0;
                 }
 
-                // Refit terminal after fullscreen transition
+                // Update button state
+                btn.classList.remove('crt-active');
+                icon.textContent = 'tv';
+
+                // Reset container background
+                container.style.background = '#1e1e1e';
+
+                // Restore dynamic sizing with fitAddon
                 setTimeout(() => {
                     if (fitAddon) {
                         fitAddon.fit();
                     }
-                }, 100);
+                }, 50);
 
-            } catch (error) {
-                console.error('Fullscreen toggle failed:', error);
-                showNotification('Fullscreen mode not supported or blocked', 'error');
+            } else {
+                // Enable CRT mode with selected variant
+                crtModeEnabled = true;
+                currentCrtVariant = variant;
+
+                // Apply CRT classes
+                container.classList.add('crt-mode', `crt-${variant}`);
+
+                // Add fullscreen CRT class if already in fullscreen
+                if (isInFullscreen()) {
+                    section.classList.add('crt-fullscreen');
+                }
+
+                if (term) {
+                    term.options.theme = crtThemes[variant];
+                    term.options.fontFamily = '"VT323", "Courier New", monospace';
+                    term.options.letterSpacing = 0;
+                }
+
+                // Update button state
+                btn.classList.add('crt-active');
+                icon.textContent = 'tv';
+
+                // Apply fixed 80x25 sizing with calculated font
+                setTimeout(() => {
+                    applyCrtSizing();
+                }, 50);
             }
+
+            // Save preference
+            localStorage.setItem('terminalCrtMode', crtModeEnabled ? 'true' : 'false');
+            localStorage.setItem('terminalCrtVariant', currentCrtVariant);
+
+            // Hide menu
+            hideCrtVariantMenu();
+
+            // Update menu selection
+            updateCrtVariantMenuSelection();
         }
 
-        // Handle fullscreen change events
-        function handleFullscreenChange() {
-            const icon = document.getElementById('fullscreenIcon');
+        // Handle window resize for CRT mode
+        let crtResizeTimeout;
+        function handleCrtResize() {
+            if (!crtModeEnabled) return;
 
-            if (document.fullscreenElement ||
-                document.webkitFullscreenElement ||
-                document.mozFullScreenElement ||
-                document.msFullscreenElement) {
-                terminalIsFullscreen = true;
-                icon.textContent = 'fullscreen_exit';
-            } else {
-                terminalIsFullscreen = false;
-                icon.textContent = 'fullscreen';
-            }
+            // Debounce resize events
+            clearTimeout(crtResizeTimeout);
+            crtResizeTimeout = setTimeout(() => {
+                applyCrtSizing();
+            }, 100);
+        }
 
-            // Refit terminal when fullscreen state changes
+        // Add resize listener for CRT mode
+        window.addEventListener('resize', handleCrtResize);
+
+        // Handle orientation change for mobile devices
+        function handleOrientationChange() {
+            // Small delay to allow the browser to update dimensions
             setTimeout(() => {
-                if (fitAddon) {
+                if (terminalIsFullscreen) {
+                    refitTerminalAfterFullscreenChange();
+                } else if (crtModeEnabled) {
+                    applyCrtSizing();
+                } else if (fitAddon) {
                     fitAddon.fit();
                 }
             }, 100);
+
+            // Additional delayed refit for iOS which can be slow to update
+            setTimeout(() => {
+                if (terminalIsFullscreen) {
+                    refitTerminalAfterFullscreenChange();
+                } else if (crtModeEnabled) {
+                    applyCrtSizing();
+                } else if (fitAddon) {
+                    fitAddon.fit();
+                }
+            }, 500);
+        }
+
+        // Listen for orientation changes
+        window.addEventListener('orientationchange', handleOrientationChange);
+
+        // Also listen for resize in case orientationchange isn't fired (some browsers)
+        let lastWindowWidth = window.innerWidth;
+        let lastWindowHeight = window.innerHeight;
+        window.addEventListener('resize', () => {
+            const widthChanged = Math.abs(window.innerWidth - lastWindowWidth) > 100;
+            const heightChanged = Math.abs(window.innerHeight - lastWindowHeight) > 100;
+
+            // Detect significant dimension changes (likely orientation change)
+            if (widthChanged || heightChanged) {
+                lastWindowWidth = window.innerWidth;
+                lastWindowHeight = window.innerHeight;
+                handleOrientationChange();
+            }
+        });
+
+        // Handle visibility change (when returning to tab on mobile)
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && terminalIsFullscreen) {
+                // Refit when tab becomes visible again
+                setTimeout(() => {
+                    refitTerminalAfterFullscreenChange();
+                }, 100);
+            }
+        });
+
+        // Initialize CRT mode from localStorage
+        function initializeCrtMode() {
+            const savedMode = localStorage.getItem('terminalCrtMode');
+            const savedVariant = localStorage.getItem('terminalCrtVariant') || 'cyan';
+
+            currentCrtVariant = savedVariant;
+
+            if (savedMode === 'true') {
+                // Small delay to ensure terminal is initialized
+                setTimeout(() => {
+                    setCrtVariant(savedVariant);
+                }, 100);
+            }
         }
 
         // ===== Key Mapping UI Control Functions =====
@@ -4151,6 +5248,36 @@
             }
         }
 
+        // Handle click on terminal status area
+        function handleTerminalStatusClick() {
+            if (terminalConnected) {
+                // Already connected - do nothing (or could show info/disconnect option)
+                return;
+            }
+
+            // Check if a port is selected
+            const device = document.getElementById('terminalPortSelect').value;
+            if (!device) {
+                // No port selected - show the controls panel if hidden and focus the select
+                const controls = document.getElementById('terminalControls');
+                if (controls.classList.contains('collapsed')) {
+                    toggleTerminalControls();
+                }
+                // Flash the port select to draw attention
+                const portSelect = document.getElementById('terminalPortSelect');
+                portSelect.focus();
+                portSelect.style.outline = '2px solid var(--md-sys-color-primary)';
+                setTimeout(() => {
+                    portSelect.style.outline = '';
+                }, 2000);
+                showNotification('Please select a port first', 'info');
+                return;
+            }
+
+            // Port is selected - initiate connection
+            connectTerminal();
+        }
+
         // Clear terminal screen
         function clearTerminal() {
             if (term) {
@@ -4162,6 +5289,7 @@
         function updateTerminalStatus(status) {
             const statusDot = document.getElementById('terminalStatus');
             const deviceText = document.getElementById('terminalDevice');
+            const statusArea = document.getElementById('terminalStatusArea');
 
             if (status.connected) {
                 statusDot.className = 'status-dot connected';
@@ -4169,12 +5297,18 @@
                 terminalConnected = true;
                 document.getElementById('terminalConnect').disabled = true;
                 document.getElementById('terminalDisconnect').disabled = false;
+                // Update clickable status area
+                statusArea.classList.add('connected');
+                statusArea.title = 'Connected to ' + (status.device || 'serial port');
             } else {
                 statusDot.className = 'status-dot disconnected';
                 deviceText.textContent = 'Not Connected';
                 terminalConnected = false;
                 document.getElementById('terminalConnect').disabled = false;
                 document.getElementById('terminalDisconnect').disabled = true;
+                // Update clickable status area
+                statusArea.classList.remove('connected');
+                statusArea.title = 'Click to connect';
             }
 
             updateReplayButton();
