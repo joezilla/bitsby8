@@ -1420,12 +1420,13 @@
             box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.4);
         }
 
-        /* CRT distortion disabled - removes scanlines and vignette */
-        .terminal-container.crt-mode.crt-no-distortion::after {
+        /* CRT scanlines disabled */
+        .terminal-container.crt-mode.crt-no-scanlines::after {
             display: none;
         }
 
-        .terminal-container.crt-mode.crt-no-distortion::before {
+        /* CRT vignette disabled */
+        .terminal-container.crt-mode.crt-no-vignette::before {
             display: none;
         }
 
@@ -2970,11 +2971,15 @@
                         <input type="checkbox" id="configCrtGlow" checked onchange="toggleCrtGlow()">
                     </div>
                     <div class="config-field">
-                        <label for="configCrtDistortion">Scanlines &amp; Vignette</label>
-                        <input type="checkbox" id="configCrtDistortion" checked onchange="toggleCrtDistortion()">
+                        <label for="configCrtScanlines">Scanlines</label>
+                        <input type="checkbox" id="configCrtScanlines" checked onchange="toggleCrtScanlines()">
+                    </div>
+                    <div class="config-field">
+                        <label for="configCrtVignette">Vignette</label>
+                        <input type="checkbox" id="configCrtVignette" checked onchange="toggleCrtVignette()">
                     </div>
                 </div>
-                <div class="config-help">Screen glow adds a phosphor glow effect to text. Scanlines and vignette add retro CRT monitor distortion effects.</div>
+                <div class="config-help">Screen glow adds a phosphor glow effect to text. Scanlines add horizontal line overlay. Vignette darkens the screen edges.</div>
             </div>
 
             <div class="config-card">
@@ -4424,7 +4429,8 @@
         let crtModeEnabled = false;
         let currentCrtVariant = 'cyan';
         let crtGlowEnabled = true;
-        let crtDistortionEnabled = true;
+        let crtScanlinesEnabled = true;
+        let crtVignetteEnabled = true;
 
         // Initialize xterm.js terminal
         function initializeTerminal() {
@@ -5055,17 +5061,29 @@
             const savedMode = localStorage.getItem('terminalCrtMode');
             const savedVariant = localStorage.getItem('terminalCrtVariant') || 'cyan';
             const savedGlow = localStorage.getItem('terminalCrtGlow');
+            const savedScanlines = localStorage.getItem('terminalCrtScanlines');
+            const savedVignette = localStorage.getItem('terminalCrtVignette');
+
+            // Migration: if old distortion setting exists, apply to both new settings
             const savedDistortion = localStorage.getItem('terminalCrtDistortion');
+            if (savedDistortion !== null && savedScanlines === null && savedVignette === null) {
+                localStorage.setItem('terminalCrtScanlines', savedDistortion);
+                localStorage.setItem('terminalCrtVignette', savedDistortion);
+                localStorage.removeItem('terminalCrtDistortion');
+            }
 
             currentCrtVariant = savedVariant;
             crtGlowEnabled = savedGlow !== 'false'; // default true
-            crtDistortionEnabled = savedDistortion !== 'false'; // default true
+            crtScanlinesEnabled = (savedScanlines ?? savedDistortion) !== 'false'; // default true
+            crtVignetteEnabled = (savedVignette ?? savedDistortion) !== 'false'; // default true
 
             // Update config checkboxes
             const glowCheckbox = document.getElementById('configCrtGlow');
-            const distortionCheckbox = document.getElementById('configCrtDistortion');
+            const scanlinesCheckbox = document.getElementById('configCrtScanlines');
+            const vignetteCheckbox = document.getElementById('configCrtVignette');
             if (glowCheckbox) glowCheckbox.checked = crtGlowEnabled;
-            if (distortionCheckbox) distortionCheckbox.checked = crtDistortionEnabled;
+            if (scanlinesCheckbox) scanlinesCheckbox.checked = crtScanlinesEnabled;
+            if (vignetteCheckbox) vignetteCheckbox.checked = crtVignetteEnabled;
 
             if (savedMode === 'true') {
                 // Small delay to ensure terminal is initialized
@@ -5090,19 +5108,26 @@
             localStorage.setItem('terminalCrtGlow', crtGlowEnabled ? 'true' : 'false');
         }
 
-        // Toggle CRT distortion effect (scanlines and vignette)
-        function toggleCrtDistortion() {
-            const checkbox = document.getElementById('configCrtDistortion');
-            crtDistortionEnabled = checkbox ? checkbox.checked : !crtDistortionEnabled;
+        // Toggle CRT scanlines effect
+        function toggleCrtScanlines() {
+            const checkbox = document.getElementById('configCrtScanlines');
+            crtScanlinesEnabled = checkbox ? checkbox.checked : !crtScanlinesEnabled;
 
             const container = document.querySelector('.terminal-container');
-            if (crtDistortionEnabled) {
-                container.classList.remove('crt-no-distortion');
-            } else {
-                container.classList.add('crt-no-distortion');
-            }
+            container.classList.toggle('crt-no-scanlines', !crtScanlinesEnabled);
 
-            localStorage.setItem('terminalCrtDistortion', crtDistortionEnabled ? 'true' : 'false');
+            localStorage.setItem('terminalCrtScanlines', crtScanlinesEnabled ? 'true' : 'false');
+        }
+
+        // Toggle CRT vignette effect
+        function toggleCrtVignette() {
+            const checkbox = document.getElementById('configCrtVignette');
+            crtVignetteEnabled = checkbox ? checkbox.checked : !crtVignetteEnabled;
+
+            const container = document.querySelector('.terminal-container');
+            container.classList.toggle('crt-no-vignette', !crtVignetteEnabled);
+
+            localStorage.setItem('terminalCrtVignette', crtVignetteEnabled ? 'true' : 'false');
         }
 
         // Apply CRT effect classes based on current state
@@ -5110,17 +5135,9 @@
             const container = document.querySelector('.terminal-container');
             if (!container) return;
 
-            if (crtGlowEnabled) {
-                container.classList.remove('crt-no-glow');
-            } else {
-                container.classList.add('crt-no-glow');
-            }
-
-            if (crtDistortionEnabled) {
-                container.classList.remove('crt-no-distortion');
-            } else {
-                container.classList.add('crt-no-distortion');
-            }
+            container.classList.toggle('crt-no-glow', !crtGlowEnabled);
+            container.classList.toggle('crt-no-scanlines', !crtScanlinesEnabled);
+            container.classList.toggle('crt-no-vignette', !crtVignetteEnabled);
         }
 
         // ===== Key Mapping UI Control Functions =====
