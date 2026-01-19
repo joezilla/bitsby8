@@ -4763,6 +4763,9 @@
             const header = document.querySelector('.terminal-header');
             if (!container || !term) return 20;
 
+            // Force reflow to ensure we get accurate dimensions after CSS changes
+            void container.offsetHeight;
+
             let availableWidth, availableHeight;
 
             if (isInFullscreen()) {
@@ -4892,12 +4895,16 @@
                 btn.classList.add('crt-active');
                 icon.textContent = 'tv';
 
+                // Force reflow to ensure CSS changes are applied before measuring
+                void container.offsetHeight;
+
                 // Apply fixed 80x25 sizing with calculated font
-                setTimeout(() => {
+                // Use requestAnimationFrame for reliable timing after layout
+                requestAnimationFrame(() => {
                     applyCrtSizing();
-                    // Recalculate after layout settles
-                    setTimeout(() => applyCrtSizing(), 100);
-                }, 50);
+                    // Recalculate after layout fully settles
+                    requestAnimationFrame(() => applyCrtSizing());
+                });
             }
 
             // Save preference
