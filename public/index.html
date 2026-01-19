@@ -1411,6 +1411,24 @@
             animation: crt-flicker 0.15s infinite;
         }
 
+        /* CRT glow disabled - removes phosphor glow and outer box-shadow glow */
+        .terminal-container.crt-mode.crt-no-glow .xterm-rows {
+            filter: none;
+        }
+
+        .terminal-container.crt-mode.crt-no-glow {
+            box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.4);
+        }
+
+        /* CRT distortion disabled - removes scanlines and vignette */
+        .terminal-container.crt-mode.crt-no-distortion::after {
+            display: none;
+        }
+
+        .terminal-container.crt-mode.crt-no-distortion::before {
+            display: none;
+        }
+
         /* CRT toggle button active state */
         .terminal-header-actions button.crt-active {
             color: var(--md-sys-color-primary);
@@ -2942,6 +2960,26 @@
             <div class="config-card">
                 <div class="config-header">
                     <div>
+                        <div class="config-title"><span class="material-symbols-outlined">tv</span> CRT Display Effects</div>
+                        <div class="config-subtitle">Configure CRT mode visual effects. Changes apply immediately.</div>
+                    </div>
+                </div>
+                <div class="config-grid">
+                    <div class="config-field">
+                        <label for="configCrtGlow">Screen Glow</label>
+                        <input type="checkbox" id="configCrtGlow" checked onchange="toggleCrtGlow()">
+                    </div>
+                    <div class="config-field">
+                        <label for="configCrtDistortion">Scanlines &amp; Vignette</label>
+                        <input type="checkbox" id="configCrtDistortion" checked onchange="toggleCrtDistortion()">
+                    </div>
+                </div>
+                <div class="config-help">Screen glow adds a phosphor glow effect to text. Scanlines and vignette add retro CRT monitor distortion effects.</div>
+            </div>
+
+            <div class="config-card">
+                <div class="config-header">
+                    <div>
                         <div class="config-title"><span class="material-symbols-outlined">keyboard</span> Terminal Key Mappings</div>
                         <div class="config-subtitle">Configure keyboard behavior for terminal emulation. Changes apply immediately.</div>
                     </div>
@@ -4385,6 +4423,8 @@
         // CRT mode state
         let crtModeEnabled = false;
         let currentCrtVariant = 'cyan';
+        let crtGlowEnabled = true;
+        let crtDistortionEnabled = true;
 
         // Initialize xterm.js terminal
         function initializeTerminal() {
@@ -4903,6 +4943,9 @@
                 container.classList.add('crt-mode', `crt-${variant}`);
                 section.classList.add('crt-mode-active');
 
+                // Apply glow/distortion effect classes based on settings
+                applyCrtEffectClasses();
+
                 // Add fullscreen CRT class if already in fullscreen
                 if (isInFullscreen()) {
                     section.classList.add('crt-fullscreen');
@@ -5011,14 +5054,72 @@
         function initializeCrtMode() {
             const savedMode = localStorage.getItem('terminalCrtMode');
             const savedVariant = localStorage.getItem('terminalCrtVariant') || 'cyan';
+            const savedGlow = localStorage.getItem('terminalCrtGlow');
+            const savedDistortion = localStorage.getItem('terminalCrtDistortion');
 
             currentCrtVariant = savedVariant;
+            crtGlowEnabled = savedGlow !== 'false'; // default true
+            crtDistortionEnabled = savedDistortion !== 'false'; // default true
+
+            // Update config checkboxes
+            const glowCheckbox = document.getElementById('configCrtGlow');
+            const distortionCheckbox = document.getElementById('configCrtDistortion');
+            if (glowCheckbox) glowCheckbox.checked = crtGlowEnabled;
+            if (distortionCheckbox) distortionCheckbox.checked = crtDistortionEnabled;
 
             if (savedMode === 'true') {
                 // Small delay to ensure terminal is initialized
                 setTimeout(() => {
                     setCrtVariant(savedVariant);
                 }, 100);
+            }
+        }
+
+        // Toggle CRT glow effect
+        function toggleCrtGlow() {
+            const checkbox = document.getElementById('configCrtGlow');
+            crtGlowEnabled = checkbox ? checkbox.checked : !crtGlowEnabled;
+
+            const container = document.querySelector('.terminal-container');
+            if (crtGlowEnabled) {
+                container.classList.remove('crt-no-glow');
+            } else {
+                container.classList.add('crt-no-glow');
+            }
+
+            localStorage.setItem('terminalCrtGlow', crtGlowEnabled ? 'true' : 'false');
+        }
+
+        // Toggle CRT distortion effect (scanlines and vignette)
+        function toggleCrtDistortion() {
+            const checkbox = document.getElementById('configCrtDistortion');
+            crtDistortionEnabled = checkbox ? checkbox.checked : !crtDistortionEnabled;
+
+            const container = document.querySelector('.terminal-container');
+            if (crtDistortionEnabled) {
+                container.classList.remove('crt-no-distortion');
+            } else {
+                container.classList.add('crt-no-distortion');
+            }
+
+            localStorage.setItem('terminalCrtDistortion', crtDistortionEnabled ? 'true' : 'false');
+        }
+
+        // Apply CRT effect classes based on current state
+        function applyCrtEffectClasses() {
+            const container = document.querySelector('.terminal-container');
+            if (!container) return;
+
+            if (crtGlowEnabled) {
+                container.classList.remove('crt-no-glow');
+            } else {
+                container.classList.add('crt-no-glow');
+            }
+
+            if (crtDistortionEnabled) {
+                container.classList.remove('crt-no-distortion');
+            } else {
+                container.classList.add('crt-no-distortion');
             }
         }
 
