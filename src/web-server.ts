@@ -525,6 +525,88 @@ export class WebServer {
       }
     });
 
+    // Create new blank disk image
+    this.app.post('/api/images/create', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const { filename, format, extension } = req.body;
+
+        // Validate required parameters
+        if (!filename || !format || !extension) {
+          res.status(400).json({ error: 'Filename, format, and extension are required' });
+          return;
+        }
+
+        // Validate filename (prevent path traversal, allow only safe characters)
+        const safeFilenameRegex = /^[a-zA-Z0-9_\-. ]+$/;
+        if (!safeFilenameRegex.test(filename)) {
+          res.status(400).json({
+            error: 'Invalid filename. Only letters, numbers, spaces, underscores, hyphens, and periods allowed.',
+          });
+          return;
+        }
+
+        if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+          res.status(400).json({ error: 'Invalid filename' });
+          return;
+        }
+
+        // Validate extension
+        const validExtensions = ['.dsk', '.img', '.ima'];
+        if (!validExtensions.includes(extension.toLowerCase())) {
+          res.status(400).json({ error: 'Invalid extension. Must be .dsk, .img, or .ima' });
+          return;
+        }
+
+        // Calculate disk size based on format
+        const TRACK_SIZE = 137 * 32; // 4,384 bytes per track
+        let trackCount: number;
+        let formatLabel: string;
+
+        switch (format) {
+          case '8inch':
+            trackCount = 77;
+            formatLabel = '8-inch (330K)';
+            break;
+          case 'minidisk':
+            trackCount = 17;
+            formatLabel = 'Minidisk (75K)';
+            break;
+          case '8mb':
+            trackCount = 1863;
+            formatLabel = '8MB';
+            break;
+          default:
+            res.status(400).json({ error: 'Invalid format. Must be 8inch, minidisk, or 8mb' });
+            return;
+        }
+
+        const diskSize = trackCount * TRACK_SIZE;
+
+        // Construct full filename and path
+        const fullFilename = filename.endsWith(extension) ? filename : `${filename}${extension}`;
+        const filePath = path.join(this.config.disksDir, fullFilename);
+
+        // Check if file already exists
+        if (existsSync(filePath)) {
+          res.status(409).json({ error: 'File already exists' });
+          return;
+        }
+
+        // Create blank disk image (all zeros)
+        const zeroBuffer = Buffer.alloc(diskSize, 0);
+        await fs.writeFile(filePath, zeroBuffer);
+
+        res.json({
+          success: true,
+          filename: fullFilename,
+          size: diskSize,
+          format: formatLabel,
+        });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
     // Delete disk image
     this.app.delete('/api/images/:filename', async (req: Request, res: Response): Promise<void> => {
       try {
