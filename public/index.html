@@ -1293,10 +1293,11 @@
 
         /* Center xterm viewport in CRT mode */
         .terminal-container.crt-mode #terminal {
+            width: 100%;
+            height: 100%;
             display: flex;
             align-items: center;
             justify-content: center;
-            height: auto !important;
         }
 
         .terminal-container.crt-mode .xterm {
@@ -4894,6 +4895,8 @@
                 // Apply fixed 80x25 sizing with calculated font
                 setTimeout(() => {
                     applyCrtSizing();
+                    // Recalculate after layout settles
+                    setTimeout(() => applyCrtSizing(), 100);
                 }, 50);
             }
 
