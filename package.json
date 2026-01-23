@@ -4,7 +4,8 @@
   "description": "FDC+ Serial Drive Server in TypeScript",
   "main": "dist/index.js",
   "bin": {
-    "fdcsds": "./dist/index.js"
+    "fdcsds": "./dist/index.js",
+    "create-boot-disk": "./create-boot-disk.js"
   },
   "scripts": {
     "build": "tsc",

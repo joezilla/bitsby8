@@ -1273,6 +1273,23 @@
 
         /* ===== CRT Retro Terminal Mode ===== */
 
+        /* Terminal section layout in CRT mode */
+        .terminal-section.crt-mode-active {
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 120px);
+            height: calc(100dvh - 120px);
+            margin-bottom: 0;
+        }
+
+        .terminal-section.crt-mode-active .terminal-header {
+            flex-shrink: 0;
+        }
+
+        .terminal-section.crt-mode-active .terminal-controls {
+            flex-shrink: 0;
+        }
+
         /* CRT mode container modifications */
         .terminal-container.crt-mode {
             border-radius: 20px / 12px;
@@ -1284,23 +1301,25 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            /* Fill available viewport height, leaving room for header/nav */
-            height: calc(100vh - 200px) !important;
-            height: calc(100dvh - 200px) !important;
-            min-height: 400px;
+            /* Fill remaining space in flex container */
+            flex: 1;
+            min-height: 300px;
             padding: 15px;
         }
 
         /* Center xterm viewport in CRT mode */
         .terminal-container.crt-mode #terminal {
+            width: 100%;
+            height: 100%;
             display: flex;
             align-items: center;
             justify-content: center;
-            height: auto !important;
         }
 
         .terminal-container.crt-mode .xterm {
             /* Let xterm size naturally based on font/dimensions */
+            width: 100%;
+            height: 100%;
         }
 
         .terminal-container.crt-mode .xterm-viewport {
@@ -1308,12 +1327,15 @@
             overflow: hidden !important;
         }
 
-        /* Responsive CRT container height */
+        /* Responsive CRT layout */
         @media (max-width: 768px) {
+            .terminal-section.crt-mode-active {
+                height: calc(100vh - 100px);
+                height: calc(100dvh - 100px);
+            }
+
             .terminal-container.crt-mode {
-                height: calc(100vh - 180px) !important;
-                height: calc(100dvh - 180px) !important;
-                min-height: 300px;
+                min-height: 250px;
                 padding: 10px;
             }
         }
@@ -1387,6 +1409,25 @@
 
         .terminal-container.crt-mode.crt-flicker {
             animation: crt-flicker 0.15s infinite;
+        }
+
+        /* CRT glow disabled - removes phosphor glow and outer box-shadow glow */
+        .terminal-container.crt-mode.crt-no-glow .xterm-rows {
+            filter: none;
+        }
+
+        .terminal-container.crt-mode.crt-no-glow {
+            box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.4);
+        }
+
+        /* CRT scanlines disabled */
+        .terminal-container.crt-mode.crt-no-scanlines::after {
+            display: none;
+        }
+
+        /* CRT vignette disabled */
+        .terminal-container.crt-mode.crt-no-vignette::before {
+            display: none;
         }
 
         /* CRT toggle button active state */
@@ -1505,7 +1546,7 @@
             background: #1e1e1e;
             display: flex;
             flex-direction: column;
-            height: 100vh;
+            height: 100vh;            
         }
 
         /* Compact header in fullscreen - shows status LEDs */
@@ -1598,7 +1639,8 @@
         .terminal-section:-webkit-full-screen .terminal-container.crt-mode .xterm,
         .terminal-section:-moz-full-screen .terminal-container.crt-mode .xterm,
         .terminal-section:-ms-fullscreen .terminal-container.crt-mode .xterm {
-            height: auto !important;
+            width: 100% !important;
+            height: 100% !important;
         }
 
         /* Keep scanlines but no curved corners in fullscreen */
@@ -1739,16 +1781,16 @@
 
         /* xterm fills space in simulated fullscreen CRT mode */
         .terminal-section.simulated-fullscreen .terminal-container.crt-mode #terminal {
-            width: auto !important;
-            height: auto !important;
+            width: 100% !important;
+            height: 100% !important;
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
         }
 
         .terminal-section.simulated-fullscreen .terminal-container.crt-mode .xterm {
-            max-width: 100% !important;
-            max-height: 100% !important;
+            width: 100% !important;
+            height: 100% !important;
         }
 
         /* Close button for simulated fullscreen (mobile-friendly) */
@@ -2715,6 +2757,10 @@
                 <div class="disk-manager-header">
                     <div class="disk-manager-title"><span class="material-symbols-outlined">save</span> Disk Image Library</div>
                     <div class="upload-form">
+                        <md-tonal-button onclick="showCreateDiskModal()">
+                            <span class="material-symbols-outlined">add</span>
+                            Create New
+                        </md-tonal-button>
                         <div class="file-input-wrapper">
                             <input type="file" id="diskImageFile" accept=".dsk,.img,.ima" onchange="handleFileSelect(event)">
                             <label for="diskImageFile" class="file-input-label">Choose File</label>
@@ -2910,6 +2956,30 @@
                         <button class="btn-secondary" onclick="refreshTerminalPorts()">Refresh Ports</button>
                     </div>
                 </div>
+            </div>
+
+            <div class="config-card">
+                <div class="config-header">
+                    <div>
+                        <div class="config-title"><span class="material-symbols-outlined">tv</span> CRT Display Effects</div>
+                        <div class="config-subtitle">Configure CRT mode visual effects. Changes apply immediately.</div>
+                    </div>
+                </div>
+                <div class="config-grid">
+                    <div class="config-field">
+                        <label for="configCrtGlow">Screen Glow</label>
+                        <input type="checkbox" id="configCrtGlow" checked onchange="toggleCrtGlow()">
+                    </div>
+                    <div class="config-field">
+                        <label for="configCrtScanlines">Scanlines</label>
+                        <input type="checkbox" id="configCrtScanlines" checked onchange="toggleCrtScanlines()">
+                    </div>
+                    <div class="config-field">
+                        <label for="configCrtVignette">Vignette</label>
+                        <input type="checkbox" id="configCrtVignette" checked onchange="toggleCrtVignette()">
+                    </div>
+                </div>
+                <div class="config-help">Screen glow adds a phosphor glow effect to text. Scanlines add horizontal line overlay. Vignette darkens the screen edges.</div>
             </div>
 
             <div class="config-card">
@@ -3144,6 +3214,47 @@
             <div class="modal-actions">
                 <button class="btn-secondary" onclick="closeScriptModal()">Cancel</button>
                 <button class="btn-primary" id="saveScriptBtn" onclick="saveScript()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create New Disk Modal -->
+    <div class="modal-overlay" id="createDiskModal" onclick="closeCreateDiskModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div class="modal-title">Create New Disk Image</div>
+                <button class="modal-close" onclick="closeCreateDiskModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="newDiskFilename">Filename (without extension)</label>
+                    <input type="text" id="newDiskFilename" placeholder="e.g., my-new-disk" style="width: 100%;" oninput="updateCreateDiskPreview()">
+                </div>
+                <div class="form-group">
+                    <label for="newDiskFormat">Disk Format</label>
+                    <select id="newDiskFormat" class="md-select" style="width: 100%;" onchange="updateCreateDiskPreview()">
+                        <option value="8inch">8-inch Floppy (330K - 77 tracks)</option>
+                        <option value="minidisk">Minidisk (75K - 17 tracks)</option>
+                        <option value="8mb">8MB Disk (1863 tracks)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="newDiskExtension">File Extension</label>
+                    <select id="newDiskExtension" class="md-select" style="width: 100%;" onchange="updateCreateDiskPreview()">
+                        <option value=".dsk">.dsk</option>
+                        <option value=".img">.img</option>
+                        <option value=".ima">.ima</option>
+                    </select>
+                </div>
+                <div class="form-group" style="background: var(--md-sys-color-surface-container); padding: 12px; border-radius: 8px;">
+                    <div style="color: var(--text-secondary); font-size: 0.9em;">
+                        <strong>Preview:</strong> <span id="createDiskPreview">my-new-disk.dsk (330K)</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <md-text-button onclick="closeCreateDiskModal()">Cancel</md-text-button>
+                <md-filled-button id="createDiskBtn" onclick="createNewDisk()">Create Disk</md-filled-button>
             </div>
         </div>
     </div>
@@ -4317,6 +4428,9 @@
         // CRT mode state
         let crtModeEnabled = false;
         let currentCrtVariant = 'cyan';
+        let crtGlowEnabled = true;
+        let crtScanlinesEnabled = true;
+        let crtVignetteEnabled = true;
 
         // Initialize xterm.js terminal
         function initializeTerminal() {
@@ -4413,9 +4527,9 @@
                 }
             });
 
-            // Handle window resize
+            // Handle window resize (only when not in CRT mode)
             window.addEventListener('resize', () => {
-                if (fitAddon) {
+                if (fitAddon && !crtModeEnabled) {
                     fitAddon.fit();
                 }
             });
@@ -4717,6 +4831,9 @@
             const header = document.querySelector('.terminal-header');
             if (!container || !term) return 20;
 
+            // Force reflow to ensure we get accurate dimensions after CSS changes
+            void container.offsetHeight;
+
             let availableWidth, availableHeight;
 
             if (isInFullscreen()) {
@@ -4798,8 +4915,8 @@
                 // Disable CRT mode - restore modern theme
                 crtModeEnabled = false;
 
-                // Remove fullscreen CRT class
-                section.classList.remove('crt-fullscreen');
+                // Remove CRT classes from section
+                section.classList.remove('crt-fullscreen', 'crt-mode-active');
 
                 if (term) {
                     term.options.theme = modernTerminalTheme;
@@ -4830,6 +4947,10 @@
 
                 // Apply CRT classes
                 container.classList.add('crt-mode', `crt-${variant}`);
+                section.classList.add('crt-mode-active');
+
+                // Apply glow/distortion effect classes based on settings
+                applyCrtEffectClasses();
 
                 // Add fullscreen CRT class if already in fullscreen
                 if (isInFullscreen()) {
@@ -4846,7 +4967,11 @@
                 btn.classList.add('crt-active');
                 icon.textContent = 'tv';
 
+                // Force reflow to ensure CSS changes are applied before measuring
+                void container.offsetHeight;
+
                 // Apply fixed 80x25 sizing with calculated font
+                // Single delayed call after layout settles
                 setTimeout(() => {
                     applyCrtSizing();
                 }, 50);
@@ -4885,7 +5010,8 @@
                 if (terminalIsFullscreen) {
                     refitTerminalAfterFullscreenChange();
                 } else if (crtModeEnabled) {
-                    applyCrtSizing();
+                    // Use the debounced handler to avoid conflicts
+                    handleCrtResize();
                 } else if (fitAddon) {
                     fitAddon.fit();
                 }
@@ -4895,9 +5021,8 @@
             setTimeout(() => {
                 if (terminalIsFullscreen) {
                     refitTerminalAfterFullscreenChange();
-                } else if (crtModeEnabled) {
-                    applyCrtSizing();
-                } else if (fitAddon) {
+                } else if (!crtModeEnabled && fitAddon) {
+                    // Only call fitAddon for non-CRT mode; CRT handled by handleCrtResize
                     fitAddon.fit();
                 }
             }, 500);
@@ -4935,8 +5060,30 @@
         function initializeCrtMode() {
             const savedMode = localStorage.getItem('terminalCrtMode');
             const savedVariant = localStorage.getItem('terminalCrtVariant') || 'cyan';
+            const savedGlow = localStorage.getItem('terminalCrtGlow');
+            const savedScanlines = localStorage.getItem('terminalCrtScanlines');
+            const savedVignette = localStorage.getItem('terminalCrtVignette');
+
+            // Migration: if old distortion setting exists, apply to both new settings
+            const savedDistortion = localStorage.getItem('terminalCrtDistortion');
+            if (savedDistortion !== null && savedScanlines === null && savedVignette === null) {
+                localStorage.setItem('terminalCrtScanlines', savedDistortion);
+                localStorage.setItem('terminalCrtVignette', savedDistortion);
+                localStorage.removeItem('terminalCrtDistortion');
+            }
 
             currentCrtVariant = savedVariant;
+            crtGlowEnabled = savedGlow !== 'false'; // default true
+            crtScanlinesEnabled = (savedScanlines ?? savedDistortion) !== 'false'; // default true
+            crtVignetteEnabled = (savedVignette ?? savedDistortion) !== 'false'; // default true
+
+            // Update config checkboxes
+            const glowCheckbox = document.getElementById('configCrtGlow');
+            const scanlinesCheckbox = document.getElementById('configCrtScanlines');
+            const vignetteCheckbox = document.getElementById('configCrtVignette');
+            if (glowCheckbox) glowCheckbox.checked = crtGlowEnabled;
+            if (scanlinesCheckbox) scanlinesCheckbox.checked = crtScanlinesEnabled;
+            if (vignetteCheckbox) vignetteCheckbox.checked = crtVignetteEnabled;
 
             if (savedMode === 'true') {
                 // Small delay to ensure terminal is initialized
@@ -4944,6 +5091,53 @@
                     setCrtVariant(savedVariant);
                 }, 100);
             }
+        }
+
+        // Toggle CRT glow effect
+        function toggleCrtGlow() {
+            const checkbox = document.getElementById('configCrtGlow');
+            crtGlowEnabled = checkbox ? checkbox.checked : !crtGlowEnabled;
+
+            const container = document.querySelector('.terminal-container');
+            if (crtGlowEnabled) {
+                container.classList.remove('crt-no-glow');
+            } else {
+                container.classList.add('crt-no-glow');
+            }
+
+            localStorage.setItem('terminalCrtGlow', crtGlowEnabled ? 'true' : 'false');
+        }
+
+        // Toggle CRT scanlines effect
+        function toggleCrtScanlines() {
+            const checkbox = document.getElementById('configCrtScanlines');
+            crtScanlinesEnabled = checkbox ? checkbox.checked : !crtScanlinesEnabled;
+
+            const container = document.querySelector('.terminal-container');
+            container.classList.toggle('crt-no-scanlines', !crtScanlinesEnabled);
+
+            localStorage.setItem('terminalCrtScanlines', crtScanlinesEnabled ? 'true' : 'false');
+        }
+
+        // Toggle CRT vignette effect
+        function toggleCrtVignette() {
+            const checkbox = document.getElementById('configCrtVignette');
+            crtVignetteEnabled = checkbox ? checkbox.checked : !crtVignetteEnabled;
+
+            const container = document.querySelector('.terminal-container');
+            container.classList.toggle('crt-no-vignette', !crtVignetteEnabled);
+
+            localStorage.setItem('terminalCrtVignette', crtVignetteEnabled ? 'true' : 'false');
+        }
+
+        // Apply CRT effect classes based on current state
+        function applyCrtEffectClasses() {
+            const container = document.querySelector('.terminal-container');
+            if (!container) return;
+
+            container.classList.toggle('crt-no-glow', !crtGlowEnabled);
+            container.classList.toggle('crt-no-scanlines', !crtScanlinesEnabled);
+            container.classList.toggle('crt-no-vignette', !crtVignetteEnabled);
         }
 
         // ===== Key Mapping UI Control Functions =====
@@ -5483,6 +5677,112 @@
                 }
             } catch (error) {
                 showNotification(`Failed to delete: ${error.message}`, 'error');
+            }
+        }
+
+        // ===== Create New Disk Image =====
+
+        // Show create disk modal
+        function showCreateDiskModal() {
+            // Reset form
+            document.getElementById('newDiskFilename').value = '';
+            document.getElementById('newDiskFormat').value = '8inch';
+            document.getElementById('newDiskExtension').value = '.dsk';
+            updateCreateDiskPreview();
+
+            // Show modal
+            document.getElementById('createDiskModal').classList.add('show');
+
+            // Focus filename field after modal animation
+            setTimeout(() => document.getElementById('newDiskFilename').focus(), 100);
+        }
+
+        // Close create disk modal
+        function closeCreateDiskModal(event) {
+            // Only close if clicking overlay or close button, or called directly
+            if (event && event.target !== event.currentTarget) {
+                return;
+            }
+            document.getElementById('createDiskModal').classList.remove('show');
+        }
+
+        // Update the preview text when form values change
+        function updateCreateDiskPreview() {
+            const filename = document.getElementById('newDiskFilename').value || 'my-new-disk';
+            const format = document.getElementById('newDiskFormat').value;
+            const extension = document.getElementById('newDiskExtension').value;
+
+            let sizeLabel;
+            switch (format) {
+                case '8inch':
+                    sizeLabel = '330K';
+                    break;
+                case 'minidisk':
+                    sizeLabel = '75K';
+                    break;
+                case '8mb':
+                    sizeLabel = '8MB';
+                    break;
+                default:
+                    sizeLabel = '';
+            }
+
+            document.getElementById('createDiskPreview').textContent = `${filename}${extension} (${sizeLabel})`;
+        }
+
+        // Create new disk image
+        async function createNewDisk() {
+            const filenameField = document.getElementById('newDiskFilename');
+            const filename = filenameField.value.trim();
+            const format = document.getElementById('newDiskFormat').value;
+            const extension = document.getElementById('newDiskExtension').value;
+
+            // Validate filename
+            if (!filename) {
+                showNotification('Please enter a filename', 'error');
+                filenameField.focus();
+                return;
+            }
+
+            // Check for invalid characters
+            const safeFilenameRegex = /^[a-zA-Z0-9_\-. ]+$/;
+            if (!safeFilenameRegex.test(filename)) {
+                showNotification('Invalid filename. Only letters, numbers, spaces, underscores, hyphens, and periods allowed.', 'error');
+                filenameField.focus();
+                return;
+            }
+
+            // Disable button during creation
+            const createBtn = document.getElementById('createDiskBtn');
+            createBtn.disabled = true;
+
+            try {
+                const response = await fetch('/api/images/create', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        filename: filename,
+                        format: format,
+                        extension: extension
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showNotification(`Created ${data.filename} (${formatFileSize(data.size)})`, 'success');
+                    closeCreateDiskModal();
+                    loadDiskImageList();
+                    loadAvailableImages();
+                } else {
+                    showNotification(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Failed to create disk: ${error.message}`, 'error');
+            } finally {
+                createBtn.disabled = false;
             }
         }
 
