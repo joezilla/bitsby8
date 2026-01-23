@@ -1,6 +1,7 @@
 # Build output
 dist/
 *.js
+!create-boot-disk.js
 *.js.map
 
 # Dependencies
