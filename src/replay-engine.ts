@@ -68,10 +68,14 @@ export class ReplayEngine extends EventEmitter {
     let bytesSent = 0;
     let totalBytes = 0;
 
+    const dbg = (msg: string) => console.log(`[REPLAY ${Date.now()}] ${msg}`);
+
     try {
       // Read entire file into buffer
       const fileBuffer = await fs.readFile(options.filePath);
       totalBytes = fileBuffer.length;
+
+      dbg(`START file=${options.fileName} size=${totalBytes} chunkSize=${chunkSize} interByte=${interByteDelayMs} interLine=${interLineDelayMs}`);
 
       if (totalBytes === 0) {
         this.emitProgress({
@@ -89,13 +93,20 @@ export class ReplayEngine extends EventEmitter {
       const bitsPerByte = 1 + dataBits + (parity !== 'none' ? 1 : 0) + stopBits;
       const msPerByte = (bitsPerByte * 1000) / baudRate;
 
+      dbg(`SERIAL baud=${baudRate} bits/byte=${bitsPerByte} ms/byte=${msPerByte.toFixed(3)}`);
+
       let lastEmittedPercent = -1;
       let lastEmitTime = Date.now();
       let offset = 0;
+      let loopIter = 0;
+      let lastLoopLogTime = Date.now();
 
       while (offset < totalBytes) {
+        loopIter++;
+
         // Check cancellation
         if (this.cancelled) {
+          dbg(`CANCELLED at offset=${offset} bytesSent=${bytesSent}`);
           this.emitProgress({
             state: 'cancelled',
             bytesSent,
@@ -132,18 +143,28 @@ export class ReplayEngine extends EventEmitter {
         // Write chunk without drain — drain is called at line boundaries
         // below to flush data to the USB hardware.
         const chunk = fileBuffer.subarray(offset, end);
+        const hex = chunk.length <= 8
+          ? Array.from(chunk).map(b => b.toString(16).padStart(2, '0')).join(' ')
+          : `${chunk.length}B`;
+
+        const writeStart = Date.now();
+        dbg(`WRITE iter=${loopIter} offset=${offset} len=${chunk.length} newline=${hitNewline} hex=[${hex}]`);
         await this.terminalManager.write(chunk, false);
+        const writeMs = Date.now() - writeStart;
+        dbg(`WRITE-DONE iter=${loopIter} took=${writeMs}ms`);
 
         bytesSent = end;
         offset = end;
 
         // Inter-byte/chunk delay
         if (interByteDelayMs > 0) {
+          const delayStart = Date.now();
           await delay(interByteDelayMs);
+          dbg(`INTER-BYTE-DELAY iter=${loopIter} requested=${interByteDelayMs}ms actual=${Date.now() - delayStart}ms`);
         }
 
         // At line boundaries: drain + inter-line delay.
-        // macOS USB serial drivers may stop actively polling the kernel
+        // USB serial drivers may stop actively polling the kernel
         // TX buffer when it has been empty for a few cycles.  Periodic
         // tcdrain() calls (via drain()) re-activate the driver's output
         // handling, preventing data from accumulating unsent in the
@@ -152,19 +173,33 @@ export class ReplayEngine extends EventEmitter {
         if (hitNewline) {
           const drainTimeout = Math.max(interLineDelayMs, 100);
           const drainStart = Date.now();
-          await this.terminalManager.drain(drainTimeout);
+          dbg(`DRAIN iter=${loopIter} timeout=${drainTimeout}ms`);
+          const drainResult = await this.terminalManager.drain(drainTimeout);
           const drainElapsed = Date.now() - drainStart;
+          dbg(`DRAIN-DONE iter=${loopIter} result=${drainResult} took=${drainElapsed}ms`);
 
           if (interLineDelayMs > 0 && drainElapsed < interLineDelayMs) {
-            await delay(interLineDelayMs - drainElapsed);
+            const remaining = interLineDelayMs - drainElapsed;
+            const lineDelayStart = Date.now();
+            await delay(remaining);
+            dbg(`LINE-DELAY iter=${loopIter} requested=${remaining}ms actual=${Date.now() - lineDelayStart}ms`);
           }
         } else {
           // Mid-line: enforce minimum transmission time at baud rate to
           // prevent overrunning the receiver's input buffer.
           const transmitMs = chunk.length * msPerByte;
           if (interByteDelayMs <= 0 && transmitMs > 1) {
+            const paceStart = Date.now();
             await delay(Math.ceil(transmitMs));
+            dbg(`BAUD-PACE iter=${loopIter} requested=${Math.ceil(transmitMs)}ms actual=${Date.now() - paceStart}ms`);
           }
+        }
+
+        // Periodic loop summary (every 2s of wall time) to avoid log flood
+        const loopNow = Date.now();
+        if (loopNow - lastLoopLogTime >= 2000) {
+          dbg(`PROGRESS offset=${offset}/${totalBytes} (${Math.round((offset / totalBytes) * 100)}%) iter=${loopIter} elapsed=${loopNow - lastLoopLogTime}ms since last log`);
+          lastLoopLogTime = loopNow;
         }
 
         // Throttled progress emission: every 1% change or every 100ms
@@ -183,6 +218,8 @@ export class ReplayEngine extends EventEmitter {
         }
       }
 
+      dbg(`COMPLETED total=${totalBytes} iterations=${loopIter}`);
+
       // Completed
       this.emitProgress({
         state: 'completed',
@@ -193,6 +230,7 @@ export class ReplayEngine extends EventEmitter {
       });
     } catch (err) {
       const errorMessage = (err as Error).message || 'Unknown error';
+      dbg(`ERROR bytesSent=${bytesSent}/${totalBytes} err=${errorMessage}`);
       this.emitProgress({
         state: 'error',
         bytesSent,

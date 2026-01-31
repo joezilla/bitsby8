@@ -214,22 +214,38 @@ export class TerminalSerialManager {
     // Blink TX LED
     getGpioLedController().updateTerminalTx();
 
+    const len = Buffer.isBuffer(data) ? data.length : data.length;
+    const t0 = Date.now();
+
     return new Promise((resolve, reject) => {
-      this.port!.write(data, (error) => {
+      const streamOk = this.port!.write(data, (error) => {
+        const cbMs = Date.now() - t0;
         if (error) {
+          console.log(`[SERIAL ${Date.now()}] WRITE-CB len=${len} drain=${drain} err=${error.message} took=${cbMs}ms`);
           reject(error);
         } else if (drain) {
+          const drainT0 = Date.now();
           this.port!.drain((drainError) => {
+            const drainMs = Date.now() - drainT0;
             if (drainError) {
+              console.log(`[SERIAL ${Date.now()}] WRITE-DRAIN-ERR len=${len} writeCb=${cbMs}ms drainErr=${drainError.message} drainTook=${drainMs}ms`);
               reject(drainError);
             } else {
+              console.log(`[SERIAL ${Date.now()}] WRITE-DRAIN-OK len=${len} writeCb=${cbMs}ms drainTook=${drainMs}ms`);
               resolve();
             }
           });
         } else {
+          if (cbMs > 50) {
+            console.log(`[SERIAL ${Date.now()}] WRITE-CB-SLOW len=${len} drain=false took=${cbMs}ms streamOk=${streamOk}`);
+          }
           resolve();
         }
       });
+
+      if (!streamOk) {
+        console.log(`[SERIAL ${Date.now()}] WRITE-BACKPRESSURE len=${len} drain=${drain} — stream returned false`);
+      }
     });
   }
 
@@ -241,10 +257,17 @@ export class TerminalSerialManager {
    * Returns true if drain completed, false if timed out or skipped.
    */
   async drain(timeoutMs: number = 5000): Promise<boolean> {
-    if (!this.port || !this.port.isOpen) return false;
-    if (this.drainInProgress) return false;
+    if (!this.port || !this.port.isOpen) {
+      console.log(`[SERIAL ${Date.now()}] DRAIN-SKIP port not open`);
+      return false;
+    }
+    if (this.drainInProgress) {
+      console.log(`[SERIAL ${Date.now()}] DRAIN-SKIP already in progress`);
+      return false;
+    }
 
     this.drainInProgress = true;
+    const t0 = Date.now();
 
     return new Promise<boolean>((resolve) => {
       let completed = false;
@@ -252,6 +275,7 @@ export class TerminalSerialManager {
       const timer = setTimeout(() => {
         if (!completed) {
           completed = true;
+          console.log(`[SERIAL ${Date.now()}] DRAIN-TIMEOUT timeout=${timeoutMs}ms elapsed=${Date.now() - t0}ms`);
           // drain is still running in background — drainInProgress stays
           // true until the underlying tcdrain() finishes
           resolve(false);
@@ -259,11 +283,20 @@ export class TerminalSerialManager {
       }, timeoutMs);
 
       this.port!.drain((error) => {
+        const elapsed = Date.now() - t0;
         this.drainInProgress = false;
         if (!completed) {
           completed = true;
           clearTimeout(timer);
+          if (error) {
+            console.log(`[SERIAL ${Date.now()}] DRAIN-ERR err=${error.message} took=${elapsed}ms`);
+          } else {
+            console.log(`[SERIAL ${Date.now()}] DRAIN-OK took=${elapsed}ms`);
+          }
           resolve(!error);
+        } else {
+          // Drain completed after timeout
+          console.log(`[SERIAL ${Date.now()}] DRAIN-LATE-COMPLETE took=${elapsed}ms (timed out at ${timeoutMs}ms)`);
         }
       });
     });
