@@ -198,9 +198,13 @@ export class TerminalSerialManager {
   }
 
   /**
-   * Write data to serial port
+   * Write data to serial port.
+   * @param drain  Wait for the OS transmit buffer to empty before resolving.
+   *               Defaults to true.  Pass false when the caller handles its
+   *               own pacing (e.g. baud-rate-timed replay) — some USB serial
+   *               drivers stall on drain() when no new data is being written.
    */
-  async write(data: Buffer | string): Promise<void> {
+  async write(data: Buffer | string, drain: boolean = true): Promise<void> {
     if (!this.port || !this.port.isOpen) {
       throw new Error('Serial port not open');
     }
@@ -212,7 +216,7 @@ export class TerminalSerialManager {
       this.port!.write(data, (error) => {
         if (error) {
           reject(error);
-        } else {
+        } else if (drain) {
           this.port!.drain((drainError) => {
             if (drainError) {
               reject(drainError);
@@ -220,6 +224,8 @@ export class TerminalSerialManager {
               resolve();
             }
           });
+        } else {
+          resolve();
         }
       });
     });

@@ -133,15 +133,15 @@ export class ReplayEngine extends EventEmitter {
           }
         }
 
-        // Write chunk with backpressure (write + drain)
+        // Write chunk without drain — baud-rate pacing below handles timing.
+        // drain() can stall indefinitely on USB serial adapters when the
+        // driver stops polling the device's TX buffer between writes.
         const chunk = fileBuffer.subarray(offset, end);
         const writeStart = Date.now();
-        await this.terminalManager.write(chunk);
+        await this.terminalManager.write(chunk, false);
 
-        // Enforce minimum transmission time at baud rate.
-        // drain() on USB serial adapters often returns before data has
-        // been physically clocked out, allowing the loop to outpace the
-        // receiver and overflow its input buffer.
+        // Enforce minimum transmission time at baud rate to prevent
+        // overrunning the receiver's input buffer.
         const transmitMs = chunk.length * msPerByte;
         const writeElapsed = Date.now() - writeStart;
         if (writeElapsed < transmitMs) {
