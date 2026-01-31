@@ -84,6 +84,15 @@ export class ReplayEngine extends EventEmitter {
         return;
       }
 
+      // Calculate baud-rate pacing to prevent overwhelming the receiver.
+      // drain() may return before data has been physically transmitted
+      // (common with USB serial adapters whose internal TX FIFO absorbs
+      // data faster than the baud rate clocks it out), so we enforce
+      // minimum transmission time based on baud rate and serial framing.
+      const { baudRate, dataBits, stopBits, parity } = this.terminalManager.getConfig();
+      const bitsPerByte = 1 + dataBits + (parity !== 'none' ? 1 : 0) + stopBits;
+      const msPerByte = (bitsPerByte * 1000) / baudRate;
+
       let lastEmittedPercent = -1;
       let lastEmitTime = Date.now();
       let offset = 0;
@@ -126,7 +135,19 @@ export class ReplayEngine extends EventEmitter {
 
         // Write chunk with backpressure (write + drain)
         const chunk = fileBuffer.subarray(offset, end);
+        const writeStart = Date.now();
         await this.terminalManager.write(chunk);
+
+        // Enforce minimum transmission time at baud rate.
+        // drain() on USB serial adapters often returns before data has
+        // been physically clocked out, allowing the loop to outpace the
+        // receiver and overflow its input buffer.
+        const transmitMs = chunk.length * msPerByte;
+        const writeElapsed = Date.now() - writeStart;
+        if (writeElapsed < transmitMs) {
+          await delay(Math.ceil(transmitMs - writeElapsed));
+        }
+
         bytesSent = end;
         offset = end;
 
