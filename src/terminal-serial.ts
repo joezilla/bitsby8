@@ -40,6 +40,7 @@ export class TerminalSerialManager {
   private persistentPaths: { byId?: string; byPath?: string };
   private config: TerminalConfig;
   private dataCallback: ((data: Buffer) => void) | null;
+  private dataInterceptor: ((data: Buffer) => void) | null;
   private errorCallback: ((error: Error) => void) | null;
   private closeCallback: (() => void) | null;
 
@@ -50,6 +51,7 @@ export class TerminalSerialManager {
     this.persistentPaths = {};
     this.config = { ...DEFAULT_TERMINAL_CONFIG };
     this.dataCallback = null;
+    this.dataInterceptor = null;
     this.errorCallback = null;
     this.closeCallback = null;
   }
@@ -144,12 +146,14 @@ export class TerminalSerialManager {
         }
       );
 
-      // Setup data handler - forward all incoming data to callback
+      // Setup data handler - forward incoming data to interceptor or callback
       this.port.on('data', (data: Buffer) => {
         // Blink RX LED
         getGpioLedController().updateTerminalRx();
 
-        if (this.dataCallback) {
+        if (this.dataInterceptor) {
+          this.dataInterceptor(data);
+        } else if (this.dataCallback) {
           this.dataCallback(data);
         }
       });
@@ -258,6 +262,21 @@ export class TerminalSerialManager {
    */
   onClose(callback: () => void): void {
     this.closeCallback = callback;
+  }
+
+  /**
+   * Set a data interceptor that captures incoming serial data instead of the normal callback.
+   * Used by XMODEM sender to read ACK/NAK responses during file transfer.
+   */
+  setDataInterceptor(fn: (data: Buffer) => void): void {
+    this.dataInterceptor = fn;
+  }
+
+  /**
+   * Clear the data interceptor, restoring normal data callback behavior.
+   */
+  clearDataInterceptor(): void {
+    this.dataInterceptor = null;
   }
 
   /**

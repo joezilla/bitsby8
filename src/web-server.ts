@@ -18,6 +18,8 @@ import { BaudRate, MAX_DRIVES } from './protocol';
 import { ConfigFile } from './config';
 import { FdcServer } from './server';
 import { Database } from './database';
+import { ReplayEngine, ReplayProgress } from './replay-engine';
+import { XmodemSender } from './xmodem-sender';
 import playSound from 'play-sound';
 
 export interface WebServerConfig {
@@ -26,6 +28,7 @@ export interface WebServerConfig {
   disksDir: string;
   cassettesDir: string;
   scriptsDir: string;
+  uploadsDir?: string;
 }
 
 export interface PreferredTerminalSettings {
@@ -50,6 +53,8 @@ export class WebServer {
   private currentAudioProcess: any = null;
   private diskServingEnabled: boolean = false;
   private serverTask: Promise<void> | null = null;
+  private replayEngine: ReplayEngine | null = null;
+  private xmodemSender: XmodemSender | null = null;
 
   constructor(
     config: WebServerConfig,
@@ -1022,12 +1027,23 @@ export class WebServer {
 
     // Script API endpoints
 
-    // List all scripts
+    // List all scripts (all files in scripts dir)
     this.app.get('/api/scripts', async (_req: Request, res: Response): Promise<void> => {
       try {
         await fs.mkdir(this.config.scriptsDir, { recursive: true });
         const files = await fs.readdir(this.config.scriptsDir);
-        const scripts = files.filter(file => file.endsWith('.txt'));
+        // Return all files with name and size
+        const scripts = await Promise.all(
+          files.filter(f => !f.startsWith('.')).map(async (name) => {
+            try {
+              const stat = await fs.stat(path.join(this.config.scriptsDir, name));
+              return { name, size: stat.size };
+            } catch {
+              return { name, size: 0 };
+            }
+          })
+        );
+        scripts.sort((a, b) => a.name.localeCompare(b.name));
         res.json({ scripts });
       } catch (error) {
         res.status(500).json({ error: (error as Error).message });
@@ -1039,7 +1055,7 @@ export class WebServer {
       try {
         const name = req.params.name;
 
-        if (!name || !name.endsWith('.txt')) {
+        if (!name) {
           res.status(400).json({ error: 'Invalid script name' });
           return;
         }
@@ -1057,20 +1073,27 @@ export class WebServer {
           return;
         }
 
-        const content = await fs.readFile(scriptPath, 'utf-8');
-        res.json({ name, content });
+        const stat = await fs.stat(scriptPath);
+
+        // For text files, return content; for binary, return metadata only
+        if (name.endsWith('.txt')) {
+          const content = await fs.readFile(scriptPath, 'utf-8');
+          res.json({ name, content, size: stat.size, binary: false });
+        } else {
+          res.json({ name, size: stat.size, binary: true });
+        }
       } catch (error) {
         res.status(500).json({ error: (error as Error).message });
       }
     });
 
-    // Create new script
+    // Create new text script
     this.app.post('/api/scripts', async (req: Request, res: Response): Promise<void> => {
       try {
         const { name, content } = req.body;
 
-        if (!name || !name.endsWith('.txt')) {
-          res.status(400).json({ error: 'Script name must end with .txt' });
+        if (!name) {
+          res.status(400).json({ error: 'Script name is required' });
           return;
         }
 
@@ -1102,7 +1125,7 @@ export class WebServer {
         const name = req.params.name;
         const { content } = req.body;
 
-        if (!name || !name.endsWith('.txt')) {
+        if (!name) {
           res.status(400).json({ error: 'Invalid script name' });
           return;
         }
@@ -1132,7 +1155,7 @@ export class WebServer {
       try {
         const name = req.params.name;
 
-        if (!name || !name.endsWith('.txt')) {
+        if (!name) {
           res.status(400).json({ error: 'Invalid script name' });
           return;
         }
@@ -1154,6 +1177,124 @@ export class WebServer {
         res.json({ success: true, name });
       } catch (error) {
         res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Script file upload (any file type, stored in scripts dir)
+    const scriptUploadStorage = multer.diskStorage({
+      destination: async (_req, _file, cb) => {
+        await fs.mkdir(this.config.scriptsDir, { recursive: true });
+        cb(null, this.config.scriptsDir);
+      },
+      filename: (_req, file, cb) => {
+        cb(null, file.originalname);
+      },
+    });
+
+    const scriptUpload = multer({
+      storage: scriptUploadStorage,
+      fileFilter: (_req, file, cb) => {
+        // Validate filename (prevent path traversal)
+        if (file.originalname.includes('..') || file.originalname.includes('/') || file.originalname.includes('\\')) {
+          cb(new Error('Invalid filename'));
+          return;
+        }
+        cb(null, true);
+      },
+      limits: {
+        fileSize: 1 * 1024 * 1024, // 1MB max
+      },
+    });
+
+    this.app.post(
+      '/api/scripts/upload',
+      scriptUpload.single('file'),
+      async (req: Request, res: Response): Promise<void> => {
+        try {
+          if (!req.file) {
+            res.status(400).json({ error: 'No file uploaded' });
+            return;
+          }
+
+          res.json({
+            success: true,
+            name: req.file.filename,
+            size: req.file.size,
+          });
+        } catch (error) {
+          res.status(500).json({ error: (error as Error).message });
+        }
+      }
+    );
+
+    // Replay API endpoints
+
+    // Start raw replay or XMODEM send
+    this.app.post('/api/replay/start', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const { scriptName, mode, chunkSize, interByteDelayMs, interLineDelayMs, useCrc } = req.body;
+
+        if (!scriptName) {
+          res.status(400).json({ error: 'scriptName is required' });
+          return;
+        }
+
+        // Check for active transfer
+        if ((this.replayEngine && this.replayEngine.isRunning()) ||
+            (this.xmodemSender && this.xmodemSender.isRunning())) {
+          res.status(409).json({ error: 'A transfer is already in progress' });
+          return;
+        }
+
+        // Validate filename
+        if (scriptName.includes('..') || scriptName.includes('/') || scriptName.includes('\\')) {
+          res.status(400).json({ error: 'Invalid script name' });
+          return;
+        }
+
+        const filePath = path.join(this.config.scriptsDir, scriptName);
+        if (!existsSync(filePath)) {
+          res.status(404).json({ error: 'File not found' });
+          return;
+        }
+
+        if (mode === 'xmodem') {
+          this.startXmodemSend(filePath, scriptName, useCrc);
+        } else {
+          this.startRawReplay(filePath, scriptName, chunkSize, interByteDelayMs, interLineDelayMs);
+        }
+
+        res.json({ success: true, mode: mode || 'raw', scriptName });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // Cancel active replay/xmodem
+    this.app.post('/api/replay/cancel', (_req: Request, res: Response) => {
+      if (this.replayEngine && this.replayEngine.isRunning()) {
+        this.replayEngine.cancel();
+        res.json({ success: true, message: 'Replay cancel requested' });
+      } else if (this.xmodemSender && this.xmodemSender.isRunning()) {
+        this.xmodemSender.cancel();
+        res.json({ success: true, message: 'XMODEM cancel requested' });
+      } else {
+        res.json({ success: true, message: 'No active transfer' });
+      }
+    });
+
+    // Get current transfer state
+    this.app.get('/api/replay/status', (_req: Request, res: Response) => {
+      if (this.replayEngine && this.replayEngine.isRunning()) {
+        res.json({ active: true, mode: 'raw', progress: this.replayEngine.getLastProgress() });
+      } else if (this.xmodemSender && this.xmodemSender.isRunning()) {
+        res.json({ active: true, mode: 'xmodem', progress: this.xmodemSender.getLastProgress() });
+      } else {
+        // Return last progress if available (for recently completed transfers)
+        const lastReplay = this.replayEngine?.getLastProgress();
+        const lastXmodem = this.xmodemSender?.getLastProgress();
+        const lastProgress = lastReplay || lastXmodem;
+        res.json({ active: false, progress: lastProgress || null });
       }
     });
 
@@ -1210,6 +1351,87 @@ export class WebServer {
         } catch (error) {
           socket.emit('terminal:error', { message: (error as Error).message });
         }
+      });
+
+      // Replay Socket.IO handlers
+
+      // Send current replay status on connect (if transfer is active)
+      if (this.replayEngine && this.replayEngine.isRunning()) {
+        const progress = this.replayEngine.getLastProgress();
+        if (progress) {
+          socket.emit('replay:status', { active: true, mode: 'raw', progress });
+        }
+      } else if (this.xmodemSender && this.xmodemSender.isRunning()) {
+        const progress = this.xmodemSender.getLastProgress();
+        if (progress) {
+          socket.emit('replay:status', { active: true, mode: 'xmodem', progress });
+        }
+      }
+
+      // Start replay/XMODEM via Socket.IO
+      socket.on('replay:start', async (data: {
+        scriptName: string;
+        mode?: string;
+        chunkSize?: number;
+        interByteDelayMs?: number;
+        interLineDelayMs?: number;
+        useCrc?: boolean;
+      }) => {
+        try {
+          const { scriptName, mode, chunkSize, interByteDelayMs, interLineDelayMs, useCrc } = data;
+
+          if (!scriptName) {
+            socket.emit('replay:progress', {
+              state: 'error', bytesSent: 0, totalBytes: 0,
+              percentComplete: 0, fileName: '', error: 'scriptName is required',
+            });
+            return;
+          }
+
+          // Check for active transfer
+          if ((this.replayEngine && this.replayEngine.isRunning()) ||
+              (this.xmodemSender && this.xmodemSender.isRunning())) {
+            socket.emit('replay:progress', {
+              state: 'error', bytesSent: 0, totalBytes: 0,
+              percentComplete: 0, fileName: scriptName, error: 'A transfer is already in progress',
+            });
+            return;
+          }
+
+          // Validate filename
+          if (scriptName.includes('..') || scriptName.includes('/') || scriptName.includes('\\')) {
+            socket.emit('replay:progress', {
+              state: 'error', bytesSent: 0, totalBytes: 0,
+              percentComplete: 0, fileName: scriptName, error: 'Invalid script name',
+            });
+            return;
+          }
+
+          const filePath = path.join(this.config.scriptsDir, scriptName);
+          if (!existsSync(filePath)) {
+            socket.emit('replay:progress', {
+              state: 'error', bytesSent: 0, totalBytes: 0,
+              percentComplete: 0, fileName: scriptName, error: 'File not found',
+            });
+            return;
+          }
+
+          if (mode === 'xmodem') {
+            this.startXmodemSend(filePath, scriptName, useCrc);
+          } else {
+            this.startRawReplay(filePath, scriptName, chunkSize, interByteDelayMs, interLineDelayMs);
+          }
+        } catch (error) {
+          socket.emit('replay:progress', {
+            state: 'error', bytesSent: 0, totalBytes: 0,
+            percentComplete: 0, fileName: data?.scriptName || '', error: (error as Error).message,
+          });
+        }
+      });
+
+      // Cancel active transfer via Socket.IO
+      socket.on('replay:cancel', () => {
+        this.cancelActiveTransfer();
       });
     });
 
@@ -1513,6 +1735,70 @@ export class WebServer {
     } catch (error) {
       console.error('Error listing cassettes with details:', error);
       return [];
+    }
+  }
+
+  /**
+   * Start a raw file replay via the replay engine.
+   */
+  private startRawReplay(
+    filePath: string,
+    fileName: string,
+    chunkSize?: number,
+    interByteDelayMs?: number,
+    interLineDelayMs?: number,
+  ): void {
+    if (!this.replayEngine) {
+      this.replayEngine = new ReplayEngine(this.terminalManager);
+      this.replayEngine.on('progress', (progress: ReplayProgress) => {
+        this.io.emit('replay:progress', progress);
+      });
+    }
+
+    this.replayEngine.replay({
+      filePath,
+      fileName,
+      chunkSize,
+      interByteDelayMs,
+      interLineDelayMs,
+    }).catch((err) => {
+      console.error('Replay error:', err);
+    });
+  }
+
+  /**
+   * Start an XMODEM file send.
+   */
+  private startXmodemSend(
+    filePath: string,
+    fileName: string,
+    useCrc?: boolean,
+  ): void {
+    if (!this.xmodemSender) {
+      this.xmodemSender = new XmodemSender(this.terminalManager);
+      this.xmodemSender.on('progress', (progress: ReplayProgress) => {
+        this.io.emit('replay:progress', progress);
+      });
+    }
+
+    this.xmodemSender.send({
+      filePath,
+      fileName,
+      useCrc,
+    }).catch((err) => {
+      console.error('XMODEM error:', err);
+    });
+  }
+
+  /**
+   * Cancel any active replay or XMODEM transfer.
+   */
+  public cancelActiveTransfer(): void {
+    if (this.replayEngine && this.replayEngine.isRunning()) {
+      this.replayEngine.cancel();
+    }
+    if (this.xmodemSender && this.xmodemSender.isRunning()) {
+      this.xmodemSender.cancel();
     }
   }
 

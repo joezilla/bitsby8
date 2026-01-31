@@ -24,6 +24,7 @@ import { getGpioLedController, DEFAULT_GPIO_CONFIG } from './gpio';
 import { getLogger } from './logger';
 import { resolvePortPath, listPortsWithPersistent } from './port-resolver';
 import * as path from 'path';
+import * as fs from 'fs/promises';
 
 /**
  * Print help information
@@ -475,6 +476,7 @@ async function main(): Promise<void> {
       disksDir: path.join(process.cwd(), 'disks'),
       cassettesDir: path.join(process.cwd(), 'cassettes'),
       scriptsDir: path.join(process.cwd(), 'scripts'),
+      uploadsDir: path.join(process.cwd(), 'uploads'),
     };
 
     // Pass preferred terminal settings from config
@@ -505,6 +507,11 @@ async function main(): Promise<void> {
 
     // Perform cleanup operations
     const cleanupPromise = async () => {
+      // Cancel any active replay/XMODEM transfers
+      if (webServer) {
+        webServer.cancelActiveTransfer();
+      }
+
       if (server) {
         server.stop();
       }
@@ -514,6 +521,14 @@ async function main(): Promise<void> {
       await serialManager.closePort();
       await terminalManager.closePort();
       await driveManager.unmountAll();
+
+      // Clean up temp upload files
+      try {
+        const uploadsReplayDir = path.join(process.cwd(), 'uploads', 'replay');
+        await fs.rm(uploadsReplayDir, { recursive: true, force: true });
+      } catch {
+        // Best effort cleanup
+      }
 
       // Cleanup GPIO LEDs
       if (gpioController.isInitialized()) {

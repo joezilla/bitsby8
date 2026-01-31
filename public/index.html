@@ -2736,8 +2736,43 @@
                             <option value="">Select script...</option>
                         </select>
                     </div>
+                    <div class="config-group">
+                        <select id="replayMode" class="md-select" style="min-width: 80px;" onchange="onReplayModeChange()">
+                            <option value="raw">Raw</option>
+                            <option value="xmodem">XMODEM</option>
+                        </select>
+                    </div>
                     <button class="btn-primary btn-compact" onclick="replayScript()" id="replayBtn" disabled><span class="material-symbols-outlined">play_arrow</span> Replay</button>
+                    <button class="btn-warning btn-compact" onclick="cancelReplay()" id="cancelReplayBtn" style="display:none;"><span class="material-symbols-outlined">stop</span> Cancel</button>
                     <button class="btn-danger btn-compact" onclick="toggleRecording()" id="recordBtn" disabled><span class="material-symbols-outlined">fiber_manual_record</span> Record</button>
+                    <div class="config-group" id="replayUploadGroup" style="margin-left: 8px;">
+                        <label for="replayFileInput" class="btn-primary btn-compact" style="cursor:pointer; display:inline-flex; align-items:center; gap:4px; margin:0;">
+                            <span class="material-symbols-outlined" style="font-size:18px;">upload_file</span> Upload
+                        </label>
+                        <input type="file" id="replayFileInput" style="display:none;" onchange="uploadReplayFile(event)">
+                    </div>
+                </div>
+                <div id="replaySettingsBar" style="display:none; padding: 2px 12px; background: var(--md-sys-color-surface-variant); border-bottom: 1px solid var(--md-sys-color-outline-variant); font-size: 12px; align-items: center; gap: 12px; flex-wrap: wrap;">
+                    <div class="config-group" id="rawReplaySettings">
+                        <span class="config-label">Chunk:</span>
+                        <input type="number" id="replayChunkSize" class="md-select" style="width: 50px;" value="1" min="1" max="16">
+                        <span class="config-label" style="margin-left: 8px;">Byte delay (ms):</span>
+                        <input type="number" id="replayByteDelay" class="md-select" style="width: 60px;" value="0" min="0" max="1000">
+                        <span class="config-label" style="margin-left: 8px;">Line delay (ms):</span>
+                        <input type="number" id="replayLineDelay" class="md-select" style="width: 60px;" value="200" min="0" max="5000">
+                    </div>
+                    <div class="config-group" id="xmodemSettings" style="display:none;">
+                        <label style="display:flex; align-items:center; gap:4px;">
+                            <input type="checkbox" id="xmodemUseCrc" checked> CRC-16 mode
+                        </label>
+                    </div>
+                    <button class="btn-small" style="margin-left: 8px;" onclick="toggleReplaySettings()">▲ Hide</button>
+                </div>
+                <div id="replayProgressContainer" style="display:none; padding: 2px 12px; background: var(--md-sys-color-surface-variant); border-bottom: 1px solid var(--md-sys-color-outline-variant); font-size: 12px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <md-linear-progress id="replayProgressBar" value="0" style="flex: 1;"></md-linear-progress>
+                        <span id="replayProgressText" style="min-width: 120px; text-align: right;"></span>
+                    </div>
                 </div>
                 <div class="terminal-container">
                     <div id="terminal"></div>
@@ -3669,6 +3704,18 @@
 
         socket.on('terminal:error', (error) => {
             showNotification(`Terminal error: ${error.message}`, 'error');
+        });
+
+        // Replay progress updates from server
+        socket.on('replay:progress', (progress) => {
+            updateReplayProgress(progress);
+        });
+
+        // Replay status on reconnect (if transfer was active)
+        socket.on('replay:status', (data) => {
+            if (data && data.active && data.progress) {
+                updateReplayProgress(data.progress);
+            }
         });
 
         // Load available disk images
@@ -6250,10 +6297,7 @@
         let isRecording = false;
         let recordedCommands = [];
         let isReplaying = false;
-
-        // Script replay timing parameters (Phase 1: Character-by-Character Transmission)
-        const SCRIPT_CHAR_DELAY_MS = 10;   // Delay between individual characters (prevents buffer overflow)
-        const SCRIPT_CMD_DELAY_MS = 500;    // Delay between complete commands (allows command execution)
+        let replaySettingsVisible = false;
 
         // Track if scripts have been loaded for the dropdown
         let scriptsLoadedForDropdown = false;
@@ -6277,6 +6321,10 @@
                     }
 
                     data.scripts.forEach(script => {
+                        const scriptName = typeof script === 'string' ? script : script.name;
+                        const scriptSize = typeof script === 'object' ? script.size : 0;
+                        const sizeLabel = scriptSize > 0 ? ` (${formatFileSize(scriptSize)})` : '';
+
                         // Add to script list (only if on scripts page)
                         if (scriptList) {
                             const item = document.createElement('div');
@@ -6285,12 +6333,12 @@
                                 <div class="disk-item-info">
                                     <div class="disk-item-icon"><span class="material-symbols-outlined">description</span></div>
                                     <div class="disk-item-details">
-                                        <div class="disk-item-name">${script}</div>
+                                        <div class="disk-item-name">${scriptName}${sizeLabel}</div>
                                     </div>
                                 </div>
                                 <div class="disk-item-actions">
-                                    <button class="btn-edit btn-small" onclick="editScript('${script}')">Edit</button>
-                                    <button class="btn-danger btn-small" onclick="deleteScript('${script}')">Delete</button>
+                                    <button class="btn-edit btn-small" onclick="editScript('${scriptName}')">Edit</button>
+                                    <button class="btn-danger btn-small" onclick="deleteScript('${scriptName}')">Delete</button>
                                 </div>
                             `;
                             scriptList.appendChild(item);
@@ -6299,8 +6347,8 @@
                         // Add to select dropdown (always update if exists)
                         if (scriptSelect) {
                             const option = document.createElement('option');
-                            option.value = script;
-                            option.textContent = script;
+                            option.value = scriptName;
+                            option.textContent = scriptName + sizeLabel;
                             scriptSelect.appendChild(option);
                         }
                     });
@@ -6333,9 +6381,12 @@
                     scriptSelect.innerHTML = '<option value="">Select script...</option>';
 
                     data.scripts.forEach(script => {
+                        const scriptName = typeof script === 'string' ? script : script.name;
+                        const scriptSize = typeof script === 'object' ? script.size : 0;
+                        const sizeLabel = scriptSize > 0 ? ` (${formatFileSize(scriptSize)})` : '';
                         const option = document.createElement('option');
-                        option.value = script;
-                        option.textContent = script;
+                        option.value = scriptName;
+                        option.textContent = scriptName + sizeLabel;
                         scriptSelect.appendChild(option);
                     });
                 }
@@ -6460,8 +6511,154 @@
         function updateReplayButton() {
             const scriptSelect = document.getElementById('scriptSelect');
             const replayBtn = document.getElementById('replayBtn');
+            const cancelReplayBtn = document.getElementById('cancelReplayBtn');
 
             replayBtn.disabled = !scriptSelect.value || !terminalConnected || isReplaying;
+            replayBtn.style.display = isReplaying ? 'none' : '';
+            cancelReplayBtn.style.display = isReplaying ? '' : 'none';
+        }
+
+        // Format file size for display
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        // Toggle replay settings bar visibility
+        function toggleReplaySettings() {
+            const bar = document.getElementById('replaySettingsBar');
+            replaySettingsVisible = !replaySettingsVisible;
+            bar.style.display = replaySettingsVisible ? 'flex' : 'none';
+        }
+
+        // Show replay settings bar
+        function showReplaySettings() {
+            if (!replaySettingsVisible) {
+                replaySettingsVisible = true;
+                document.getElementById('replaySettingsBar').style.display = 'flex';
+            }
+        }
+
+        // Handle replay mode change
+        function onReplayModeChange() {
+            const mode = document.getElementById('replayMode').value;
+            const rawSettings = document.getElementById('rawReplaySettings');
+            const xmodemSettings = document.getElementById('xmodemSettings');
+
+            if (mode === 'xmodem') {
+                rawSettings.style.display = 'none';
+                xmodemSettings.style.display = '';
+            } else {
+                rawSettings.style.display = '';
+                xmodemSettings.style.display = 'none';
+            }
+        }
+
+        // Cancel active replay/XMODEM
+        function cancelReplay() {
+            socket.emit('replay:cancel');
+        }
+
+        // Upload a file for replay
+        async function uploadReplayFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            if (file.size > 1024 * 1024) {
+                showNotification('File too large (max 1MB)', 'error');
+                event.target.value = '';
+                return;
+            }
+
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+
+                const response = await fetch('/api/scripts/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showNotification(`Uploaded ${data.name}`, 'success');
+                    // Reload scripts list and select the uploaded file
+                    scriptsLoadedForDropdown = false;
+                    await loadScriptsDropdown();
+                    const scriptSelect = document.getElementById('scriptSelect');
+                    scriptSelect.value = data.name;
+                    updateReplayButton();
+                } else {
+                    showNotification(`Upload failed: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Upload failed: ${error.message}`, 'error');
+            }
+
+            event.target.value = '';
+        }
+
+        // Update replay progress display
+        function updateReplayProgress(progress) {
+            const container = document.getElementById('replayProgressContainer');
+            const bar = document.getElementById('replayProgressBar');
+            const text = document.getElementById('replayProgressText');
+
+            if (!progress) {
+                container.style.display = 'none';
+                return;
+            }
+
+            if (progress.state === 'running') {
+                container.style.display = '';
+                bar.value = progress.percentComplete / 100;
+                text.textContent = `${formatFileSize(progress.bytesSent)} / ${formatFileSize(progress.totalBytes)} (${progress.percentComplete}%)`;
+                isReplaying = true;
+                updateReplayButton();
+                updateRecordButton();
+            } else if (progress.state === 'completed') {
+                container.style.display = '';
+                bar.value = 1;
+                text.textContent = `Complete — ${formatFileSize(progress.totalBytes)}`;
+                isReplaying = false;
+                updateReplayButton();
+                updateRecordButton();
+                showNotification(`Transfer complete: ${progress.fileName}`, 'success');
+                // Hide progress bar after a delay
+                setTimeout(() => {
+                    if (!isReplaying) {
+                        container.style.display = 'none';
+                    }
+                }, 3000);
+            } else if (progress.state === 'cancelled') {
+                container.style.display = '';
+                bar.value = progress.percentComplete / 100;
+                text.textContent = 'Cancelled';
+                isReplaying = false;
+                updateReplayButton();
+                updateRecordButton();
+                showNotification(`Transfer cancelled: ${progress.fileName}`, 'info');
+                setTimeout(() => {
+                    if (!isReplaying) {
+                        container.style.display = 'none';
+                    }
+                }, 3000);
+            } else if (progress.state === 'error') {
+                container.style.display = '';
+                bar.value = progress.percentComplete / 100;
+                text.textContent = `Error: ${progress.error || 'Unknown'}`;
+                isReplaying = false;
+                updateReplayButton();
+                updateRecordButton();
+                showNotification(`Transfer error: ${progress.error || 'Unknown error'}`, 'error');
+                setTimeout(() => {
+                    if (!isReplaying) {
+                        container.style.display = 'none';
+                    }
+                }, 5000);
+            }
         }
 
         // Update record button state
@@ -6530,8 +6727,8 @@
             }
         }
 
-        // Replay script
-        async function replayScript() {
+        // Replay script (server-side)
+        function replayScript() {
             const scriptSelect = document.getElementById('scriptSelect');
             const scriptName = scriptSelect.value;
 
@@ -6545,57 +6742,26 @@
                 return;
             }
 
-            try {
-                const response = await fetch(`/api/scripts/${encodeURIComponent(scriptName)}`);
-                const data = await response.json();
+            const mode = document.getElementById('replayMode').value;
 
-                if (!response.ok) {
-                    showNotification(`Error: ${data.error}`, 'error');
-                    return;
-                }
+            const options = { scriptName, mode };
 
-                const commands = data.content.split('\n').filter(line => line.trim());
-
-                if (commands.length === 0) {
-                    showNotification('Script is empty', 'error');
-                    return;
-                }
-
-                isReplaying = true;
-                updateReplayButton();
-                updateRecordButton();
-
-                showNotification(`Replaying ${scriptName}...`, 'success');
-
-                // Send commands character-by-character to prevent serial buffer overflow
-                // This is critical for devices with small input buffers (typically 16-128 bytes)
-                for (let i = 0; i < commands.length; i++) {
-                    const command = commands[i];
-
-                    // Send each character individually with delay
-                    for (let j = 0; j < command.length; j++) {
-                        socket.emit('terminal:write', command[j]);
-                        await new Promise(resolve => setTimeout(resolve, SCRIPT_CHAR_DELAY_MS));
-                    }
-
-                    // Send carriage return to execute the command
-                    socket.emit('terminal:write', '\r');
-
-                    // Wait for command to execute before sending next one
-                    await new Promise(resolve => setTimeout(resolve, SCRIPT_CMD_DELAY_MS));
-                }
-
-                isReplaying = false;
-                updateReplayButton();
-                updateRecordButton();
-
-                showNotification('Script replay complete', 'success');
-            } catch (error) {
-                isReplaying = false;
-                updateReplayButton();
-                updateRecordButton();
-                showNotification(`Failed to replay script: ${error.message}`, 'error');
+            if (mode === 'raw') {
+                options.chunkSize = parseInt(document.getElementById('replayChunkSize').value) || 1;
+                options.interByteDelayMs = parseInt(document.getElementById('replayByteDelay').value) || 0;
+                options.interLineDelayMs = parseInt(document.getElementById('replayLineDelay').value) || 200;
+            } else if (mode === 'xmodem') {
+                options.useCrc = document.getElementById('xmodemUseCrc').checked;
             }
+
+            isReplaying = true;
+            updateReplayButton();
+            updateRecordButton();
+
+            const modeLabel = mode === 'xmodem' ? 'XMODEM' : 'Raw';
+            showNotification(`Starting ${modeLabel} transfer: ${scriptName}...`, 'success');
+
+            socket.emit('replay:start', options);
         }
 
         // Listen for script select changes
