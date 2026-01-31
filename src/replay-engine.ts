@@ -65,11 +65,13 @@ export class ReplayEngine extends EventEmitter {
 
     this.running = true;
     this.cancelled = false;
+    let bytesSent = 0;
+    let totalBytes = 0;
 
     try {
       // Read entire file into buffer
       const fileBuffer = await fs.readFile(options.filePath);
-      const totalBytes = fileBuffer.length;
+      totalBytes = fileBuffer.length;
 
       if (totalBytes === 0) {
         this.emitProgress({
@@ -82,11 +84,11 @@ export class ReplayEngine extends EventEmitter {
         return;
       }
 
-      let bytesSent = 0;
       let lastEmittedPercent = -1;
       let lastEmitTime = Date.now();
+      let offset = 0;
 
-      for (let offset = 0; offset < totalBytes; offset += chunkSize) {
+      while (offset < totalBytes) {
         // Check cancellation
         if (this.cancelled) {
           this.emitProgress({
@@ -99,31 +101,43 @@ export class ReplayEngine extends EventEmitter {
           return;
         }
 
-        // Extract chunk
-        const end = Math.min(offset + chunkSize, totalBytes);
-        const chunk = fileBuffer.subarray(offset, end);
+        // Determine chunk end, splitting at newline boundaries so the
+        // receiver gets inter-line delay before post-newline data arrives
+        let end = Math.min(offset + chunkSize, totalBytes);
+        let hitNewline = false;
+
+        for (let i = offset; i < end; i++) {
+          if (fileBuffer[i] === 0x0A) {
+            // LF: include it, then pause for inter-line delay
+            end = i + 1;
+            hitNewline = true;
+            break;
+          } else if (fileBuffer[i] === 0x0D) {
+            // CR: check for CRLF pair — treat as single line ending
+            if (i + 1 < totalBytes && fileBuffer[i + 1] === 0x0A) {
+              end = i + 2;
+            } else {
+              end = i + 1;
+            }
+            hitNewline = true;
+            break;
+          }
+        }
 
         // Write chunk with backpressure (write + drain)
+        const chunk = fileBuffer.subarray(offset, end);
         await this.terminalManager.write(chunk);
         bytesSent = end;
+        offset = end;
 
-        // Inter-byte delay
+        // Inter-byte/chunk delay
         if (interByteDelayMs > 0) {
           await delay(interByteDelayMs);
         }
 
-        // Inter-line delay: check if chunk contains CR or LF
-        if (interLineDelayMs > 0) {
-          let hasNewline = false;
-          for (let i = 0; i < chunk.length; i++) {
-            if (chunk[i] === 0x0D || chunk[i] === 0x0A) {
-              hasNewline = true;
-              break;
-            }
-          }
-          if (hasNewline) {
-            await delay(interLineDelayMs);
-          }
+        // Inter-line delay: applied after chunks ending with a newline
+        if (hitNewline && interLineDelayMs > 0) {
+          await delay(interLineDelayMs);
         }
 
         // Throttled progress emission: every 1% change or every 100ms
@@ -154,9 +168,9 @@ export class ReplayEngine extends EventEmitter {
       const errorMessage = (err as Error).message || 'Unknown error';
       this.emitProgress({
         state: 'error',
-        bytesSent: 0,
-        totalBytes: 0,
-        percentComplete: 0,
+        bytesSent,
+        totalBytes,
+        percentComplete: totalBytes > 0 ? Math.round((bytesSent / totalBytes) * 100) : 0,
         fileName: options.fileName,
         error: errorMessage,
       });

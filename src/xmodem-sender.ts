@@ -35,7 +35,7 @@ export interface XmodemSendOptions {
 /**
  * CRC-16/XMODEM calculation (polynomial 0x1021, init 0x0000)
  */
-function crc16xmodem(data: Buffer): number {
+export function crc16xmodem(data: Buffer): number {
   let crc = 0x0000;
   for (let i = 0; i < data.length; i++) {
     crc ^= data[i] << 8;
@@ -50,7 +50,7 @@ function crc16xmodem(data: Buffer): number {
 /**
  * Simple checksum: sum of all bytes mod 256
  */
-function checksumXmodem(data: Buffer): number {
+export function checksumXmodem(data: Buffer): number {
   let sum = 0;
   for (let i = 0; i < data.length; i++) {
     sum = (sum + data[i]) & 0xFF;
