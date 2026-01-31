@@ -33,14 +33,16 @@ import { TerminalSerialManager } from '../src/terminal-serial';
  */
 function createMockTerminalManager() {
   const writtenChunks: Buffer[] = [];
-  const mockWrite = jest.fn(async (data: Buffer | string) => {
+  const mockWrite = jest.fn(async (data: Buffer | string, _drain?: boolean) => {
     writtenChunks.push(Buffer.isBuffer(data) ? Buffer.from(data) : Buffer.from(data as string));
   });
   const mockIsOpen = jest.fn().mockReturnValue(true);
+  const mockDrain = jest.fn(async () => true);
 
   const manager = {
     isOpen: mockIsOpen,
     write: mockWrite,
+    drain: mockDrain,
     setDataInterceptor: jest.fn(),
     clearDataInterceptor: jest.fn(),
     getConfig: jest.fn().mockReturnValue({
@@ -52,7 +54,7 @@ function createMockTerminalManager() {
     }),
   } as unknown as TerminalSerialManager;
 
-  return { manager, writtenChunks, mockWrite, mockIsOpen };
+  return { manager, writtenChunks, mockWrite, mockIsOpen, mockDrain };
 }
 
 describe('ReplayEngine', () => {
@@ -781,6 +783,113 @@ describe('ReplayEngine', () => {
       // Should be ~200ms (one delay), not ~400ms (double delay)
       expect(elapsed).toBeGreaterThanOrEqual(150);
       expect(elapsed).toBeLessThan(350);
+    });
+  });
+
+  describe('drain behavior', () => {
+    test('should call drain at line boundaries', async () => {
+      const content = Buffer.from('AB\nCD\n');
+      mockedFs.readFile.mockResolvedValue(content);
+
+      await engine.replay({
+        filePath: '/test/file.txt',
+        fileName: 'file.txt',
+        chunkSize: 8,
+        interByteDelayMs: 0,
+        interLineDelayMs: 0,
+      });
+
+      // Two newlines → two drain calls
+      expect(mock.mockDrain).toHaveBeenCalledTimes(2);
+    });
+
+    test('should not call drain for chunks without newlines', async () => {
+      const content = Buffer.from('ABCDEF');
+      mockedFs.readFile.mockResolvedValue(content);
+
+      await engine.replay({
+        filePath: '/test/file.txt',
+        fileName: 'file.txt',
+        chunkSize: 8,
+        interByteDelayMs: 0,
+        interLineDelayMs: 0,
+      });
+
+      expect(mock.mockDrain).not.toHaveBeenCalled();
+    });
+
+    test('should call drain with timeout based on interLineDelayMs', async () => {
+      const content = Buffer.from('A\nB');
+      mockedFs.readFile.mockResolvedValue(content);
+
+      await engine.replay({
+        filePath: '/test/file.txt',
+        fileName: 'file.txt',
+        chunkSize: 8,
+        interByteDelayMs: 0,
+        interLineDelayMs: 500,
+      });
+
+      // drain timeout should be max(interLineDelayMs, 100) = 500
+      expect(mock.mockDrain).toHaveBeenCalledWith(500);
+    });
+
+    test('should use minimum drain timeout of 100ms', async () => {
+      const content = Buffer.from('A\nB');
+      mockedFs.readFile.mockResolvedValue(content);
+
+      await engine.replay({
+        filePath: '/test/file.txt',
+        fileName: 'file.txt',
+        chunkSize: 8,
+        interByteDelayMs: 0,
+        interLineDelayMs: 0,
+      });
+
+      // drain timeout should be max(0, 100) = 100
+      expect(mock.mockDrain).toHaveBeenCalledWith(100);
+    });
+
+    test('should continue replay even if drain returns false (timeout)', async () => {
+      const content = Buffer.from('A\nB\nC');
+      mockedFs.readFile.mockResolvedValue(content);
+
+      // Simulate drain timeout
+      mock.mockDrain.mockResolvedValue(false);
+
+      const progressEvents: ReplayProgress[] = [];
+      engine.on('progress', (p: ReplayProgress) => progressEvents.push(p));
+
+      await engine.replay({
+        filePath: '/test/file.txt',
+        fileName: 'file.txt',
+        chunkSize: 8,
+        interByteDelayMs: 0,
+        interLineDelayMs: 0,
+      });
+
+      // Should complete despite drain timeouts
+      const lastEvent = progressEvents[progressEvents.length - 1];
+      expect(lastEvent.state).toBe('completed');
+      expect(lastEvent.bytesSent).toBe(content.length);
+    });
+
+    test('should write without drain (drain=false) for all chunks', async () => {
+      const content = Buffer.from('AB\nCD');
+      mockedFs.readFile.mockResolvedValue(content);
+
+      await engine.replay({
+        filePath: '/test/file.txt',
+        fileName: 'file.txt',
+        chunkSize: 8,
+        interByteDelayMs: 0,
+        interLineDelayMs: 0,
+      });
+
+      // All write calls should pass drain=false
+      for (const call of mock.mockWrite.mock.calls) {
+        expect(call[1]).toBe(false);
+      }
     });
   });
 });

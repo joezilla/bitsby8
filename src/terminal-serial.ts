@@ -43,6 +43,7 @@ export class TerminalSerialManager {
   private dataInterceptor: ((data: Buffer) => void) | null;
   private errorCallback: ((error: Error) => void) | null;
   private closeCallback: (() => void) | null;
+  private drainInProgress: boolean;
 
   constructor() {
     this.port = null;
@@ -54,6 +55,7 @@ export class TerminalSerialManager {
     this.dataInterceptor = null;
     this.errorCallback = null;
     this.closeCallback = null;
+    this.drainInProgress = false;
   }
 
   /**
@@ -226,6 +228,42 @@ export class TerminalSerialManager {
           });
         } else {
           resolve();
+        }
+      });
+    });
+  }
+
+  /**
+   * Drain the serial port output buffer with a timeout.
+   * Calls tcdrain() to signal the OS/USB driver to flush pending data.
+   * Only one drain may be in-flight at a time to prevent worker thread
+   * exhaustion (tcdrain blocks a libuv worker thread until complete).
+   * Returns true if drain completed, false if timed out or skipped.
+   */
+  async drain(timeoutMs: number = 5000): Promise<boolean> {
+    if (!this.port || !this.port.isOpen) return false;
+    if (this.drainInProgress) return false;
+
+    this.drainInProgress = true;
+
+    return new Promise<boolean>((resolve) => {
+      let completed = false;
+
+      const timer = setTimeout(() => {
+        if (!completed) {
+          completed = true;
+          // drain is still running in background — drainInProgress stays
+          // true until the underlying tcdrain() finishes
+          resolve(false);
+        }
+      }, timeoutMs);
+
+      this.port!.drain((error) => {
+        this.drainInProgress = false;
+        if (!completed) {
+          completed = true;
+          clearTimeout(timer);
+          resolve(!error);
         }
       });
     });

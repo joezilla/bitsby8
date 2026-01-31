@@ -84,11 +84,7 @@ export class ReplayEngine extends EventEmitter {
         return;
       }
 
-      // Calculate baud-rate pacing to prevent overwhelming the receiver.
-      // drain() may return before data has been physically transmitted
-      // (common with USB serial adapters whose internal TX FIFO absorbs
-      // data faster than the baud rate clocks it out), so we enforce
-      // minimum transmission time based on baud rate and serial framing.
+      // Calculate baud-rate pacing based on serial framing.
       const { baudRate, dataBits, stopBits, parity } = this.terminalManager.getConfig();
       const bitsPerByte = 1 + dataBits + (parity !== 'none' ? 1 : 0) + stopBits;
       const msPerByte = (bitsPerByte * 1000) / baudRate;
@@ -133,20 +129,10 @@ export class ReplayEngine extends EventEmitter {
           }
         }
 
-        // Write chunk without drain — baud-rate pacing below handles timing.
-        // drain() can stall indefinitely on USB serial adapters when the
-        // driver stops polling the device's TX buffer between writes.
+        // Write chunk without drain — drain is called at line boundaries
+        // below to flush data to the USB hardware.
         const chunk = fileBuffer.subarray(offset, end);
-        const writeStart = Date.now();
         await this.terminalManager.write(chunk, false);
-
-        // Enforce minimum transmission time at baud rate to prevent
-        // overrunning the receiver's input buffer.
-        const transmitMs = chunk.length * msPerByte;
-        const writeElapsed = Date.now() - writeStart;
-        if (writeElapsed < transmitMs) {
-          await delay(Math.ceil(transmitMs - writeElapsed));
-        }
 
         bytesSent = end;
         offset = end;
@@ -156,9 +142,29 @@ export class ReplayEngine extends EventEmitter {
           await delay(interByteDelayMs);
         }
 
-        // Inter-line delay: applied after chunks ending with a newline
-        if (hitNewline && interLineDelayMs > 0) {
-          await delay(interLineDelayMs);
+        // At line boundaries: drain + inter-line delay.
+        // macOS USB serial drivers may stop actively polling the kernel
+        // TX buffer when it has been empty for a few cycles.  Periodic
+        // tcdrain() calls (via drain()) re-activate the driver's output
+        // handling, preventing data from accumulating unsent in the
+        // kernel buffer.  The drain runs during the inter-line delay
+        // window so it adds no extra latency in the normal case.
+        if (hitNewline) {
+          const drainTimeout = Math.max(interLineDelayMs, 100);
+          const drainStart = Date.now();
+          await this.terminalManager.drain(drainTimeout);
+          const drainElapsed = Date.now() - drainStart;
+
+          if (interLineDelayMs > 0 && drainElapsed < interLineDelayMs) {
+            await delay(interLineDelayMs - drainElapsed);
+          }
+        } else {
+          // Mid-line: enforce minimum transmission time at baud rate to
+          // prevent overrunning the receiver's input buffer.
+          const transmitMs = chunk.length * msPerByte;
+          if (interByteDelayMs <= 0 && transmitMs > 1) {
+            await delay(Math.ceil(transmitMs));
+          }
         }
 
         // Throttled progress emission: every 1% change or every 100ms
