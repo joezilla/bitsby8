@@ -40,8 +40,10 @@ export class TerminalSerialManager {
   private persistentPaths: { byId?: string; byPath?: string };
   private config: TerminalConfig;
   private dataCallback: ((data: Buffer) => void) | null;
+  private dataInterceptor: ((data: Buffer) => void) | null;
   private errorCallback: ((error: Error) => void) | null;
   private closeCallback: (() => void) | null;
+  private drainInProgress: boolean;
 
   constructor() {
     this.port = null;
@@ -50,8 +52,10 @@ export class TerminalSerialManager {
     this.persistentPaths = {};
     this.config = { ...DEFAULT_TERMINAL_CONFIG };
     this.dataCallback = null;
+    this.dataInterceptor = null;
     this.errorCallback = null;
     this.closeCallback = null;
+    this.drainInProgress = false;
   }
 
   /**
@@ -144,12 +148,14 @@ export class TerminalSerialManager {
         }
       );
 
-      // Setup data handler - forward all incoming data to callback
+      // Setup data handler - forward incoming data to interceptor or callback
       this.port.on('data', (data: Buffer) => {
         // Blink RX LED
         getGpioLedController().updateTerminalRx();
 
-        if (this.dataCallback) {
+        if (this.dataInterceptor) {
+          this.dataInterceptor(data);
+        } else if (this.dataCallback) {
           this.dataCallback(data);
         }
       });
@@ -194,9 +200,13 @@ export class TerminalSerialManager {
   }
 
   /**
-   * Write data to serial port
+   * Write data to serial port.
+   * @param drain  Wait for the OS transmit buffer to empty before resolving.
+   *               Defaults to true.  Pass false when the caller handles its
+   *               own pacing (e.g. baud-rate-timed replay) — some USB serial
+   *               drivers stall on drain() when no new data is being written.
    */
-  async write(data: Buffer | string): Promise<void> {
+  async write(data: Buffer | string, drain: boolean = true): Promise<void> {
     if (!this.port || !this.port.isOpen) {
       throw new Error('Serial port not open');
     }
@@ -204,18 +214,89 @@ export class TerminalSerialManager {
     // Blink TX LED
     getGpioLedController().updateTerminalTx();
 
+    const len = Buffer.isBuffer(data) ? data.length : data.length;
+    const t0 = Date.now();
+
     return new Promise((resolve, reject) => {
-      this.port!.write(data, (error) => {
+      const streamOk = this.port!.write(data, (error) => {
+        const cbMs = Date.now() - t0;
         if (error) {
+          console.log(`[SERIAL ${Date.now()}] WRITE-CB len=${len} drain=${drain} err=${error.message} took=${cbMs}ms`);
           reject(error);
-        } else {
+        } else if (drain) {
+          const drainT0 = Date.now();
           this.port!.drain((drainError) => {
+            const drainMs = Date.now() - drainT0;
             if (drainError) {
+              console.log(`[SERIAL ${Date.now()}] WRITE-DRAIN-ERR len=${len} writeCb=${cbMs}ms drainErr=${drainError.message} drainTook=${drainMs}ms`);
               reject(drainError);
             } else {
+              console.log(`[SERIAL ${Date.now()}] WRITE-DRAIN-OK len=${len} writeCb=${cbMs}ms drainTook=${drainMs}ms`);
               resolve();
             }
           });
+        } else {
+          if (cbMs > 50) {
+            console.log(`[SERIAL ${Date.now()}] WRITE-CB-SLOW len=${len} drain=false took=${cbMs}ms streamOk=${streamOk}`);
+          }
+          resolve();
+        }
+      });
+
+      if (!streamOk) {
+        console.log(`[SERIAL ${Date.now()}] WRITE-BACKPRESSURE len=${len} drain=${drain} — stream returned false`);
+      }
+    });
+  }
+
+  /**
+   * Drain the serial port output buffer with a timeout.
+   * Calls tcdrain() to signal the OS/USB driver to flush pending data.
+   * Only one drain may be in-flight at a time to prevent worker thread
+   * exhaustion (tcdrain blocks a libuv worker thread until complete).
+   * Returns true if drain completed, false if timed out or skipped.
+   */
+  async drain(timeoutMs: number = 5000): Promise<boolean> {
+    if (!this.port || !this.port.isOpen) {
+      console.log(`[SERIAL ${Date.now()}] DRAIN-SKIP port not open`);
+      return false;
+    }
+    if (this.drainInProgress) {
+      console.log(`[SERIAL ${Date.now()}] DRAIN-SKIP already in progress`);
+      return false;
+    }
+
+    this.drainInProgress = true;
+    const t0 = Date.now();
+
+    return new Promise<boolean>((resolve) => {
+      let completed = false;
+
+      const timer = setTimeout(() => {
+        if (!completed) {
+          completed = true;
+          console.log(`[SERIAL ${Date.now()}] DRAIN-TIMEOUT timeout=${timeoutMs}ms elapsed=${Date.now() - t0}ms`);
+          // drain is still running in background — drainInProgress stays
+          // true until the underlying tcdrain() finishes
+          resolve(false);
+        }
+      }, timeoutMs);
+
+      this.port!.drain((error) => {
+        const elapsed = Date.now() - t0;
+        this.drainInProgress = false;
+        if (!completed) {
+          completed = true;
+          clearTimeout(timer);
+          if (error) {
+            console.log(`[SERIAL ${Date.now()}] DRAIN-ERR err=${error.message} took=${elapsed}ms`);
+          } else {
+            console.log(`[SERIAL ${Date.now()}] DRAIN-OK took=${elapsed}ms`);
+          }
+          resolve(!error);
+        } else {
+          // Drain completed after timeout
+          console.log(`[SERIAL ${Date.now()}] DRAIN-LATE-COMPLETE took=${elapsed}ms (timed out at ${timeoutMs}ms)`);
         }
       });
     });
@@ -258,6 +339,21 @@ export class TerminalSerialManager {
    */
   onClose(callback: () => void): void {
     this.closeCallback = callback;
+  }
+
+  /**
+   * Set a data interceptor that captures incoming serial data instead of the normal callback.
+   * Used by XMODEM sender to read ACK/NAK responses during file transfer.
+   */
+  setDataInterceptor(fn: (data: Buffer) => void): void {
+    this.dataInterceptor = fn;
+  }
+
+  /**
+   * Clear the data interceptor, restoring normal data callback behavior.
+   */
+  clearDataInterceptor(): void {
+    this.dataInterceptor = null;
   }
 
   /**
