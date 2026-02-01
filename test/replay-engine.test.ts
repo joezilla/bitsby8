@@ -25,7 +25,7 @@ jest.mock('../src/port-resolver', () => ({
   listPortsWithPersistent: jest.fn(),
 }));
 
-import { ReplayEngine, ReplayProgress } from '../src/replay-engine';
+import { ReplayEngine, ReplayProgress, convertLineEndings } from '../src/replay-engine';
 import { TerminalSerialManager } from '../src/terminal-serial';
 
 /**
@@ -783,6 +783,151 @@ describe('ReplayEngine', () => {
       // Should be ~200ms (one delay), not ~400ms (double delay)
       expect(elapsed).toBeGreaterThanOrEqual(150);
       expect(elapsed).toBeLessThan(350);
+    });
+  });
+
+  describe('line ending conversion', () => {
+    describe('convertLineEndings utility', () => {
+      test('raw mode returns buffer unchanged', () => {
+        const buf = Buffer.from('A\nB\r\nC\rD');
+        const result = convertLineEndings(buf, 'raw');
+        expect(result).toBe(buf); // same reference
+      });
+
+      test('converts LF to CR', () => {
+        const buf = Buffer.from('line1\nline2\nline3');
+        const result = convertLineEndings(buf, 'cr');
+        expect(result).toEqual(Buffer.from('line1\rline2\rline3'));
+      });
+
+      test('converts CRLF to CR', () => {
+        const buf = Buffer.from('line1\r\nline2\r\n');
+        const result = convertLineEndings(buf, 'cr');
+        expect(result).toEqual(Buffer.from('line1\rline2\r'));
+      });
+
+      test('converts CR to LF', () => {
+        const buf = Buffer.from('line1\rline2\r');
+        const result = convertLineEndings(buf, 'lf');
+        expect(result).toEqual(Buffer.from('line1\nline2\n'));
+      });
+
+      test('converts LF to CRLF', () => {
+        const buf = Buffer.from('line1\nline2\n');
+        const result = convertLineEndings(buf, 'crlf');
+        expect(result).toEqual(Buffer.from('line1\r\nline2\r\n'));
+      });
+
+      test('handles mixed line endings (LF, CRLF, bare CR) converting to CR', () => {
+        const buf = Buffer.from('A\nB\r\nC\rD');
+        const result = convertLineEndings(buf, 'cr');
+        expect(result).toEqual(Buffer.from('A\rB\rC\rD'));
+      });
+
+      test('handles consecutive newlines', () => {
+        const buf = Buffer.from('A\n\nB');
+        const result = convertLineEndings(buf, 'cr');
+        expect(result).toEqual(Buffer.from('A\r\rB'));
+      });
+
+      test('handles empty buffer', () => {
+        const buf = Buffer.alloc(0);
+        const result = convertLineEndings(buf, 'cr');
+        expect(result).toEqual(Buffer.alloc(0));
+      });
+
+      test('handles buffer with no line endings', () => {
+        const buf = Buffer.from('ABCDEF');
+        const result = convertLineEndings(buf, 'cr');
+        expect(result).toEqual(Buffer.from('ABCDEF'));
+      });
+
+      test('handles buffer that is only newlines', () => {
+        const buf = Buffer.from('\n\r\n\r');
+        const result = convertLineEndings(buf, 'cr');
+        expect(result).toEqual(Buffer.from('\r\r\r'));
+      });
+
+      test('preserves non-newline bytes exactly', () => {
+        const buf = Buffer.from([0x00, 0x0A, 0xFF, 0x0D, 0x0A, 0x42]);
+        const result = convertLineEndings(buf, 'cr');
+        expect(result).toEqual(Buffer.from([0x00, 0x0D, 0xFF, 0x0D, 0x42]));
+      });
+    });
+
+    describe('replay with lineEnding option', () => {
+      test('should convert LF to CR when lineEnding=cr', async () => {
+        const content = Buffer.from('10 PRINT\n20 GOTO 10\n');
+        mockedFs.readFile.mockResolvedValue(content);
+
+        await engine.replay({
+          filePath: '/test/basic.txt',
+          fileName: 'basic.txt',
+          chunkSize: 16,
+          interByteDelayMs: 0,
+          interLineDelayMs: 0,
+          lineEnding: 'cr',
+        });
+
+        const allWritten = Buffer.concat(mock.writtenChunks);
+        expect(allWritten).toEqual(Buffer.from('10 PRINT\r20 GOTO 10\r'));
+      });
+
+      test('should send bytes as-is when lineEnding=raw', async () => {
+        const content = Buffer.from('A\nB\r\nC');
+        mockedFs.readFile.mockResolvedValue(content);
+
+        await engine.replay({
+          filePath: '/test/file.txt',
+          fileName: 'file.txt',
+          chunkSize: 16,
+          interByteDelayMs: 0,
+          interLineDelayMs: 0,
+          lineEnding: 'raw',
+        });
+
+        const allWritten = Buffer.concat(mock.writtenChunks);
+        expect(allWritten).toEqual(content);
+      });
+
+      test('should default to raw when lineEnding not specified', async () => {
+        const content = Buffer.from('A\nB');
+        mockedFs.readFile.mockResolvedValue(content);
+
+        await engine.replay({
+          filePath: '/test/file.txt',
+          fileName: 'file.txt',
+          chunkSize: 16,
+          interByteDelayMs: 0,
+          interLineDelayMs: 0,
+        });
+
+        const allWritten = Buffer.concat(mock.writtenChunks);
+        expect(allWritten).toEqual(content); // LF preserved
+      });
+
+      test('should report converted size in progress events', async () => {
+        // CRLF→CR reduces file size: "AB\r\n" (4 bytes) → "AB\r" (3 bytes)
+        const content = Buffer.from('AB\r\n');
+        mockedFs.readFile.mockResolvedValue(content);
+
+        const progressEvents: ReplayProgress[] = [];
+        engine.on('progress', (p: ReplayProgress) => progressEvents.push(p));
+
+        await engine.replay({
+          filePath: '/test/file.txt',
+          fileName: 'file.txt',
+          chunkSize: 16,
+          interByteDelayMs: 0,
+          interLineDelayMs: 0,
+          lineEnding: 'cr',
+        });
+
+        const lastEvent = progressEvents[progressEvents.length - 1];
+        expect(lastEvent.state).toBe('completed');
+        expect(lastEvent.totalBytes).toBe(3); // converted size
+        expect(lastEvent.bytesSent).toBe(3);
+      });
     });
   });
 

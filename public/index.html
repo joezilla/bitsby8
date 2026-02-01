@@ -2754,7 +2754,14 @@
                 </div>
                 <div id="replaySettingsBar" style="display:none; padding: 2px 12px; background: var(--md-sys-color-surface-variant); border-bottom: 1px solid var(--md-sys-color-outline-variant); font-size: 12px; align-items: center; gap: 12px; flex-wrap: wrap;">
                     <div class="config-group" id="rawReplaySettings">
-                        <span class="config-label">Chunk:</span>
+                        <span class="config-label">Line endings:</span>
+                        <select id="replayLineEnding" class="md-select" style="min-width: 70px;">
+                            <option value="cr" selected>CR</option>
+                            <option value="lf">LF</option>
+                            <option value="crlf">CR+LF</option>
+                            <option value="raw">Raw</option>
+                        </select>
+                        <span class="config-label" style="margin-left: 8px;">Chunk:</span>
                         <input type="number" id="replayChunkSize" class="md-select" style="width: 50px;" value="1" min="1" max="16">
                         <span class="config-label" style="margin-left: 8px;">Byte delay (ms):</span>
                         <input type="number" id="replayByteDelay" class="md-select" style="width: 60px;" value="0" min="0" max="1000">
@@ -6827,6 +6834,7 @@
             const options = { scriptName, mode };
 
             if (mode === 'raw') {
+                options.lineEnding = document.getElementById('replayLineEnding').value || 'cr';
                 options.chunkSize = parseInt(document.getElementById('replayChunkSize').value) || 1;
                 options.interByteDelayMs = parseInt(document.getElementById('replayByteDelay').value) || 0;
                 options.interLineDelayMs = parseInt(document.getElementById('replayLineDelay').value) || 200;

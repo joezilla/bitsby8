@@ -1232,7 +1232,7 @@ export class WebServer {
     // Start raw replay or XMODEM send
     this.app.post('/api/replay/start', async (req: Request, res: Response): Promise<void> => {
       try {
-        const { scriptName, mode, chunkSize, interByteDelayMs, interLineDelayMs, useCrc } = req.body;
+        const { scriptName, mode, chunkSize, interByteDelayMs, interLineDelayMs, lineEnding, useCrc } = req.body;
 
         if (!scriptName) {
           res.status(400).json({ error: 'scriptName is required' });
@@ -1261,7 +1261,7 @@ export class WebServer {
         if (mode === 'xmodem') {
           this.startXmodemSend(filePath, scriptName, useCrc);
         } else {
-          this.startRawReplay(filePath, scriptName, chunkSize, interByteDelayMs, interLineDelayMs);
+          this.startRawReplay(filePath, scriptName, chunkSize, interByteDelayMs, interLineDelayMs, lineEnding);
         }
 
         res.json({ success: true, mode: mode || 'raw', scriptName });
@@ -1375,10 +1375,11 @@ export class WebServer {
         chunkSize?: number;
         interByteDelayMs?: number;
         interLineDelayMs?: number;
+        lineEnding?: string;
         useCrc?: boolean;
       }) => {
         try {
-          const { scriptName, mode, chunkSize, interByteDelayMs, interLineDelayMs, useCrc } = data;
+          const { scriptName, mode, chunkSize, interByteDelayMs, interLineDelayMs, lineEnding, useCrc } = data;
 
           if (!scriptName) {
             socket.emit('replay:progress', {
@@ -1419,7 +1420,7 @@ export class WebServer {
           if (mode === 'xmodem') {
             this.startXmodemSend(filePath, scriptName, useCrc);
           } else {
-            this.startRawReplay(filePath, scriptName, chunkSize, interByteDelayMs, interLineDelayMs);
+            this.startRawReplay(filePath, scriptName, chunkSize, interByteDelayMs, interLineDelayMs, lineEnding);
           }
         } catch (error) {
           socket.emit('replay:progress', {
@@ -1747,6 +1748,7 @@ export class WebServer {
     chunkSize?: number,
     interByteDelayMs?: number,
     interLineDelayMs?: number,
+    lineEnding?: string,
   ): void {
     if (!this.replayEngine) {
       this.replayEngine = new ReplayEngine(this.terminalManager);
@@ -1761,6 +1763,7 @@ export class WebServer {
       chunkSize,
       interByteDelayMs,
       interLineDelayMs,
+      lineEnding: lineEnding as 'cr' | 'lf' | 'crlf' | 'raw' | undefined,
     }).catch((err) => {
       console.error('Replay error:', err);
     });

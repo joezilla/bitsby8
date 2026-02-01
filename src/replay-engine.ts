@@ -21,6 +21,15 @@ export interface ReplayProgress {
 }
 
 /**
+ * Line ending format for replay output.
+ * 'cr'   — Convert all line endings to CR (0x0D).  Most vintage BASIC interpreters.
+ * 'lf'   — Convert all line endings to LF (0x0A).  Unix systems.
+ * 'crlf' — Convert all line endings to CR+LF (0x0D 0x0A).  DOS / Windows / some terminals.
+ * 'raw'  — Send bytes exactly as stored on disk (no conversion).
+ */
+export type LineEnding = 'cr' | 'lf' | 'crlf' | 'raw';
+
+/**
  * Options for raw file replay
  */
 export interface ReplayOptions {
@@ -29,6 +38,44 @@ export interface ReplayOptions {
   chunkSize?: number;
   interByteDelayMs?: number;
   interLineDelayMs?: number;
+  lineEnding?: LineEnding;
+}
+
+/**
+ * Convert all line endings (CRLF, bare CR, bare LF) in a buffer to the
+ * target format.  Returns the original buffer unchanged when target is 'raw'.
+ */
+export function convertLineEndings(buffer: Buffer, target: LineEnding): Buffer {
+  if (target === 'raw') return buffer;
+
+  const targetBytes = target === 'cr'   ? Buffer.from([0x0D])
+                    : target === 'lf'   ? Buffer.from([0x0A])
+                    :                      Buffer.from([0x0D, 0x0A]);
+
+  const chunks: Buffer[] = [];
+  let lastEnd = 0;
+
+  for (let i = 0; i < buffer.length; i++) {
+    if (buffer[i] === 0x0D) {
+      chunks.push(buffer.subarray(lastEnd, i));
+      chunks.push(targetBytes);
+      // Skip LF in CRLF pair
+      if (i + 1 < buffer.length && buffer[i + 1] === 0x0A) {
+        i++;
+      }
+      lastEnd = i + 1;
+    } else if (buffer[i] === 0x0A) {
+      chunks.push(buffer.subarray(lastEnd, i));
+      chunks.push(targetBytes);
+      lastEnd = i + 1;
+    }
+  }
+
+  if (lastEnd < buffer.length) {
+    chunks.push(buffer.subarray(lastEnd));
+  }
+
+  return Buffer.concat(chunks);
 }
 
 function delay(ms: number): Promise<void> {
@@ -57,6 +104,7 @@ export class ReplayEngine extends EventEmitter {
     const chunkSize = Math.min(Math.max(options.chunkSize || 1, 1), 16);
     const interByteDelayMs = options.interByteDelayMs ?? 0;
     const interLineDelayMs = options.interLineDelayMs ?? 200;
+    const lineEnding: LineEnding = options.lineEnding ?? 'raw';
 
     // Validate terminal port is open
     if (!this.terminalManager.isOpen()) {
@@ -71,11 +119,12 @@ export class ReplayEngine extends EventEmitter {
     const dbg = (msg: string) => console.log(`[REPLAY ${Date.now()}] ${msg}`);
 
     try {
-      // Read entire file into buffer
-      const fileBuffer = await fs.readFile(options.filePath);
+      // Read file and apply line ending conversion
+      const rawBuffer = await fs.readFile(options.filePath);
+      const fileBuffer = convertLineEndings(rawBuffer, lineEnding);
       totalBytes = fileBuffer.length;
 
-      dbg(`START file=${options.fileName} size=${totalBytes} chunkSize=${chunkSize} interByte=${interByteDelayMs} interLine=${interLineDelayMs}`);
+      dbg(`START file=${options.fileName} rawSize=${rawBuffer.length} size=${totalBytes} lineEnding=${lineEnding} chunkSize=${chunkSize} interByte=${interByteDelayMs} interLine=${interLineDelayMs}`);
 
       if (totalBytes === 0) {
         this.emitProgress({
