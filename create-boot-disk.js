@@ -319,5 +319,10 @@ function main() {
     }
 }
 
-// Run main function
-main();
+// Export functions for testing
+module.exports = { parseIntelHex, createDiskImage, parseArgs, main, TRACK_SIZE, TRACKS_8INCH, TRACKS_MINIDISK, MAX_TRACKS };
+
+// Run main function when executed directly (not when require()'d)
+if (require.main === module) {
+    main();
+}
