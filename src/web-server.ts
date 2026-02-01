@@ -102,6 +102,11 @@ export class WebServer {
       },
     });
 
+    // Propagate verbose setting to terminal serial manager
+    if (this.runtimeConfig?.verbose) {
+      this.terminalManager.setVerbose(true);
+    }
+
     this.setupMiddleware();
     this.setupRoutes();
     this.setupWebSocket();
@@ -183,6 +188,7 @@ export class WebServer {
             if (this.server) {
               this.server.toggleVerbose();
             }
+            this.terminalManager.setVerbose(!!updates.verbose);
           }
 
           // Other options require restart, just notify the user
@@ -1764,6 +1770,7 @@ export class WebServer {
       interByteDelayMs,
       interLineDelayMs,
       lineEnding: lineEnding as 'cr' | 'lf' | 'crlf' | 'raw' | undefined,
+      verbose: this.runtimeConfig?.verbose || false,
     }).catch((err) => {
       console.error('Replay error:', err);
     });

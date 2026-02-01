@@ -3673,7 +3673,7 @@
 
         // Socket event handlers
         socket.on('connect', () => {
-            console.log('[SOCKET] Connected to server, id=' + socket.id);
+            console.log('Connected to server');
             socket.emit('request-status');
             loadAvailableImages();
             loadPrimaryPorts();
@@ -3703,71 +3703,21 @@
             }
         });
 
-        // --- DEBUG: terminal:data instrumentation ---
-        let _dbgTermDataCount = 0;
-        let _dbgTermDataBytes = 0;
-        let _dbgTermDataLastLog = Date.now();
-        let _dbgTermDataLastReceived = 0;
-        let _dbgTermDataStallLogged = false;
-
         socket.on('terminal:data', (data) => {
-            _dbgTermDataCount++;
-            _dbgTermDataBytes += data.length;
-            _dbgTermDataLastReceived = Date.now();
-            _dbgTermDataStallLogged = false;
-
-            // Log summary every 2 seconds
-            const now = Date.now();
-            if (now - _dbgTermDataLastLog >= 2000) {
-                console.log(`[TERM-DATA] events=${_dbgTermDataCount} bytes=${_dbgTermDataBytes} last ${now - _dbgTermDataLastLog}ms  (sample len=${data.length})`);
-                _dbgTermDataCount = 0;
-                _dbgTermDataBytes = 0;
-                _dbgTermDataLastLog = now;
-            }
-
             if (term) {
-                try {
-                    term.write(new Uint8Array(data));
-                } catch (e) {
-                    console.error('[TERM-DATA] term.write threw:', e);
-                }
-            } else {
-                console.warn('[TERM-DATA] term is null, dropping data');
+                term.write(new Uint8Array(data));
             }
         });
-
-        // Detect stall: if no terminal:data for 3s during replay, log it
-        setInterval(() => {
-            if (isReplaying && _dbgTermDataLastReceived > 0 && !_dbgTermDataStallLogged) {
-                const gap = Date.now() - _dbgTermDataLastReceived;
-                if (gap > 3000) {
-                    console.warn(`[TERM-DATA STALL] No terminal:data for ${gap}ms during replay. Socket connected=${socket.connected}`);
-                    _dbgTermDataStallLogged = true;
-                }
-            }
-        }, 1000);
-        // --- END DEBUG ---
 
         socket.on('terminal:error', (error) => {
             showNotification(`Terminal error: ${error.message}`, 'error');
         });
-
-        // --- DEBUG: replay:progress instrumentation ---
-        let _dbgProgressCount = 0;
-        let _dbgProgressLastLog = Date.now();
 
         // Replay progress updates from server
         // Deferred to rAF so DOM updates don't starve xterm.js canvas rendering.
         let _pendingProgress = null;
         let _progressRafId = 0;
         socket.on('replay:progress', (progress) => {
-            _dbgProgressCount++;
-            const now = Date.now();
-            if (now - _dbgProgressLastLog >= 2000) {
-                console.log(`[REPLAY-PROGRESS] events=${_dbgProgressCount} last 2s  state=${progress.state} ${progress.bytesSent}/${progress.totalBytes} (${progress.percentComplete}%)`);
-                _dbgProgressCount = 0;
-                _dbgProgressLastLog = now;
-            }
             // Terminal state changes (completed/cancelled/error) are applied
             // immediately so UI buttons update without a frame delay.
             if (progress.state !== 'running') {
@@ -3788,7 +3738,6 @@
                 }
             }
         });
-        // --- END DEBUG ---
 
         // Replay status on reconnect (if transfer was active)
         socket.on('replay:status', (data) => {

@@ -19,10 +19,13 @@ const fs = require('fs');
 const path = require('path');
 
 // FDC+ disk parameters (from protocol.ts)
-const TRACK_SIZE = 137 * 32;  // 4,384 bytes per track
-const TRACKS_8INCH = 77;       // Standard 8-inch floppy
-const TRACKS_MINIDISK = 17;    // 5.25-inch minidisk
-const MAX_TRACKS = 1863;       // 8MB format maximum
+const SECTOR_SIZE = 137;         // Total bytes per sector record
+const SECTORS_PER_TRACK = 32;    // Sectors per track (8-inch / FDC+)
+const DATA_PER_SECTOR = 128;     // Usable data bytes per sector
+const TRACK_SIZE = SECTOR_SIZE * SECTORS_PER_TRACK;  // 4,384 bytes per track
+const TRACKS_8INCH = 77;         // Standard 8-inch floppy
+const TRACKS_MINIDISK = 17;      // 5.25-inch minidisk
+const MAX_TRACKS = 1863;         // 8MB format maximum
 
 /**
  * Parse Intel HEX format file
@@ -114,7 +117,19 @@ function parseIntelHex(hexContent) {
 }
 
 /**
- * Create a bootable disk image
+ * Create a bootable disk image with proper Altair boot-track sector format.
+ *
+ * Each 137-byte sector is formatted per the CDBL specification:
+ *   Byte 0       Track number | 0x80 (sync bit)
+ *   Bytes 1-2    File byte count (16-bit LE, total boot code size)
+ *   Bytes 3-130  Sector data (128 bytes)
+ *   Byte 131     Marker byte (0xFF)
+ *   Byte 132     Checksum (8-bit sum of 128 data bytes)
+ *   Bytes 133-136 Spare (zeros)
+ *
+ * Sectors are interleaved 2:1: even sectors (0,2,4,...) are loaded
+ * first, then odd sectors (1,3,5,...) on each track.
+ *
  * @param {Buffer} bootCode - Binary boot code
  * @param {number} trackCount - Number of tracks in the disk image
  * @returns {Buffer} - Complete disk image
@@ -123,21 +138,54 @@ function createDiskImage(bootCode, trackCount) {
     const diskSize = TRACK_SIZE * trackCount;
     const disk = Buffer.alloc(diskSize, 0);
 
-    if (bootCode.length > TRACK_SIZE) {
-        const tracksNeeded = Math.ceil(bootCode.length / TRACK_SIZE);
-        console.log(`Warning: Boot code (${bootCode.length} bytes) exceeds track size (${TRACK_SIZE} bytes)`);
-        console.log(`         Will use ${tracksNeeded} tracks for boot code`);
+    const dataPerTrack = DATA_PER_SECTOR * SECTORS_PER_TRACK;
+    const dataCapacity = dataPerTrack * trackCount;
 
-        if (tracksNeeded > trackCount) {
-            throw new Error(`Boot code requires ${tracksNeeded} tracks but disk only has ${trackCount} tracks`);
+    if (bootCode.length > dataCapacity) {
+        const tracksNeeded = Math.ceil(bootCode.length / dataPerTrack);
+        throw new Error(`Boot code requires ${tracksNeeded} tracks but disk only has ${trackCount} tracks`);
+    }
+
+    const fileByteCount = bootCode.length;
+    let bootOffset = 0;
+
+    for (let track = 0; track < trackCount; track++) {
+        // CDBL reads sectors in 2:1 interleave order:
+        // even sectors first (0,2,4,...,30) then odd (1,3,5,...,31)
+        for (let pass = 0; pass < 2; pass++) {
+            for (let s = pass; s < SECTORS_PER_TRACK; s += 2) {
+                const imgOffset = (track * SECTORS_PER_TRACK + s) * SECTOR_SIZE;
+
+                // Byte 0: Track number with MSB set (sync bit)
+                disk[imgOffset] = track | 0x80;
+
+                // Bytes 1-2: File byte count (16-bit little-endian)
+                disk[imgOffset + 1] = fileByteCount & 0xFF;
+                disk[imgOffset + 2] = (fileByteCount >> 8) & 0xFF;
+
+                // Bytes 3-130: Sector data (128 bytes) + compute checksum
+                let checksum = 0;
+                for (let i = 0; i < DATA_PER_SECTOR; i++) {
+                    const dataByte = bootOffset < bootCode.length ? bootCode[bootOffset] : 0;
+                    disk[imgOffset + 3 + i] = dataByte;
+                    checksum = (checksum + dataByte) & 0xFF;
+                    bootOffset++;
+                }
+
+                // Byte 131: Marker byte (must be 0xFF / 377 octal)
+                disk[imgOffset + 131] = 0xFF;
+
+                // Byte 132: Checksum (8-bit sum of all 128 data bytes)
+                disk[imgOffset + 132] = checksum;
+
+                // Bytes 133-136: Spare (already 0 from Buffer.alloc)
+            }
         }
     }
 
-    // Copy boot code to track 0 (and subsequent tracks if needed)
-    bootCode.copy(disk, 0);
-
+    const sectorsUsed = Math.ceil(bootCode.length / DATA_PER_SECTOR) || 0;
     console.log(`Created disk image: ${trackCount} tracks, ${diskSize} bytes`);
-    console.log(`  Boot code: ${bootCode.length} bytes (${((bootCode.length / TRACK_SIZE) * 100).toFixed(1)}% of track 0)`);
+    console.log(`  Boot code: ${bootCode.length} bytes (${sectorsUsed} sector${sectorsUsed !== 1 ? 's' : ''})`);
 
     return disk;
 }
@@ -319,5 +367,14 @@ function main() {
     }
 }
 
-// Run main function
-main();
+// Export functions for testing
+module.exports = {
+    parseIntelHex, createDiskImage, parseArgs, main,
+    SECTOR_SIZE, SECTORS_PER_TRACK, DATA_PER_SECTOR,
+    TRACK_SIZE, TRACKS_8INCH, TRACKS_MINIDISK, MAX_TRACKS,
+};
+
+// Run main function when executed directly (not when require()'d)
+if (require.main === module) {
+    main();
+}
