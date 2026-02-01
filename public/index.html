@@ -3750,6 +3750,9 @@
         let _dbgProgressLastLog = Date.now();
 
         // Replay progress updates from server
+        // Deferred to rAF so DOM updates don't starve xterm.js canvas rendering.
+        let _pendingProgress = null;
+        let _progressRafId = 0;
         socket.on('replay:progress', (progress) => {
             _dbgProgressCount++;
             const now = Date.now();
@@ -3758,7 +3761,25 @@
                 _dbgProgressCount = 0;
                 _dbgProgressLastLog = now;
             }
-            updateReplayProgress(progress);
+            // Terminal state changes (completed/cancelled/error) are applied
+            // immediately so UI buttons update without a frame delay.
+            if (progress.state !== 'running') {
+                _pendingProgress = null;
+                if (_progressRafId) { cancelAnimationFrame(_progressRafId); _progressRafId = 0; }
+                updateReplayProgress(progress);
+            } else {
+                // Coalesce rapid 'running' updates into one DOM write per frame.
+                _pendingProgress = progress;
+                if (!_progressRafId) {
+                    _progressRafId = requestAnimationFrame(() => {
+                        _progressRafId = 0;
+                        if (_pendingProgress) {
+                            updateReplayProgress(_pendingProgress);
+                            _pendingProgress = null;
+                        }
+                    });
+                }
+            }
         });
         // --- END DEBUG ---
 
@@ -6652,61 +6673,69 @@
         }
 
         // Update replay progress display
+        // DOM refs cached to avoid getElementById on every frame.
+        let _progressContainer, _progressBar, _progressText;
         function updateReplayProgress(progress) {
-            const container = document.getElementById('replayProgressContainer');
-            const bar = document.getElementById('replayProgressBar');
-            const text = document.getElementById('replayProgressText');
+            if (!_progressContainer) {
+                _progressContainer = document.getElementById('replayProgressContainer');
+                _progressBar = document.getElementById('replayProgressBar');
+                _progressText = document.getElementById('replayProgressText');
+            }
 
             if (!progress) {
-                container.style.display = 'none';
+                _progressContainer.style.display = 'none';
                 return;
             }
 
+            const wasReplaying = isReplaying;
+
             if (progress.state === 'running') {
-                container.style.display = '';
-                bar.value = progress.percentComplete / 100;
-                text.textContent = `${formatFileSize(progress.bytesSent)} / ${formatFileSize(progress.totalBytes)} (${progress.percentComplete}%)`;
+                _progressContainer.style.display = '';
+                _progressBar.value = progress.percentComplete / 100;
+                _progressText.textContent = `${formatFileSize(progress.bytesSent)} / ${formatFileSize(progress.totalBytes)} (${progress.percentComplete}%)`;
                 isReplaying = true;
-                updateReplayButton();
-                updateRecordButton();
+                // Only update buttons on state transition to avoid DOM thrashing
+                if (!wasReplaying) {
+                    updateReplayButton();
+                    updateRecordButton();
+                }
             } else if (progress.state === 'completed') {
-                container.style.display = '';
-                bar.value = 1;
-                text.textContent = `Complete — ${formatFileSize(progress.totalBytes)}`;
+                _progressContainer.style.display = '';
+                _progressBar.value = 1;
+                _progressText.textContent = `Complete — ${formatFileSize(progress.totalBytes)}`;
                 isReplaying = false;
                 updateReplayButton();
                 updateRecordButton();
                 showNotification(`Transfer complete: ${progress.fileName}`, 'success');
-                // Hide progress bar after a delay
                 setTimeout(() => {
                     if (!isReplaying) {
-                        container.style.display = 'none';
+                        _progressContainer.style.display = 'none';
                     }
                 }, 3000);
             } else if (progress.state === 'cancelled') {
-                container.style.display = '';
-                bar.value = progress.percentComplete / 100;
-                text.textContent = 'Cancelled';
+                _progressContainer.style.display = '';
+                _progressBar.value = progress.percentComplete / 100;
+                _progressText.textContent = 'Cancelled';
                 isReplaying = false;
                 updateReplayButton();
                 updateRecordButton();
                 showNotification(`Transfer cancelled: ${progress.fileName}`, 'info');
                 setTimeout(() => {
                     if (!isReplaying) {
-                        container.style.display = 'none';
+                        _progressContainer.style.display = 'none';
                     }
                 }, 3000);
             } else if (progress.state === 'error') {
-                container.style.display = '';
-                bar.value = progress.percentComplete / 100;
-                text.textContent = `Error: ${progress.error || 'Unknown'}`;
+                _progressContainer.style.display = '';
+                _progressBar.value = progress.percentComplete / 100;
+                _progressText.textContent = `Error: ${progress.error || 'Unknown'}`;
                 isReplaying = false;
                 updateReplayButton();
                 updateRecordButton();
                 showNotification(`Transfer error: ${progress.error || 'Unknown error'}`, 'error');
                 setTimeout(() => {
                     if (!isReplaying) {
-                        container.style.display = 'none';
+                        _progressContainer.style.display = 'none';
                     }
                 }, 5000);
             }
