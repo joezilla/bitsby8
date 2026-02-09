@@ -2200,6 +2200,68 @@
             padding: 8px 12px;
         }
 
+        /* CP/M File Browser */
+        .cpm-file-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: 'Roboto Mono', monospace;
+            font-size: 0.85em;
+        }
+        .cpm-file-table th {
+            text-align: left;
+            padding: 8px 12px;
+            border-bottom: 2px solid var(--border-color);
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-size: 0.85em;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .cpm-file-table td {
+            padding: 6px 12px;
+            border-bottom: 1px solid var(--border-color);
+            vertical-align: middle;
+        }
+        .cpm-file-table tr:hover td {
+            background: var(--md-sys-color-surface-container);
+        }
+        .cpm-info-bar {
+            display: flex;
+            gap: 24px;
+            padding: 12px 16px;
+            background: var(--md-sys-color-surface-container);
+            border-radius: 12px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .cpm-info-item {
+            font-size: 0.9em;
+            color: var(--text-secondary);
+        }
+        .cpm-info-item strong {
+            color: var(--text-primary);
+        }
+        .cpm-upload-bar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            padding: 12px 0;
+            flex-wrap: wrap;
+        }
+        .cpm-browse-modal .modal {
+            max-width: 750px;
+        }
+        .cpm-empty {
+            text-align: center;
+            color: var(--text-secondary);
+            padding: 24px;
+            font-style: italic;
+        }
+        .cpm-file-attr {
+            color: var(--text-secondary);
+            font-size: 0.85em;
+        }
+
         /* Progress bars now using md-linear-progress */
 
         /* Modal */
@@ -3297,6 +3359,33 @@
             <div class="modal-actions">
                 <md-text-button onclick="closeCreateDiskModal()">Cancel</md-text-button>
                 <md-filled-button id="createDiskBtn" onclick="createNewDisk()">Create Disk</md-filled-button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CP/M File Browser Modal -->
+    <div class="modal-overlay cpm-browse-modal" id="cpmBrowseModal" onclick="closeCpmBrowseModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div class="modal-title" id="cpmBrowseTitle">CP/M File Browser</div>
+                <button class="modal-close" onclick="closeCpmBrowseModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="cpm-info-bar" id="cpmInfoBar">
+                    <!-- Disk info populated by JS -->
+                </div>
+                <div id="cpmFileList">
+                    <p class="cpm-empty">Loading...</p>
+                </div>
+                <div class="cpm-upload-bar" id="cpmUploadBar" style="display:none;">
+                    <div class="file-input-wrapper">
+                        <input type="file" id="cpmUploadFile" onchange="handleCpmFileSelect(event)">
+                        <label for="cpmUploadFile" class="file-input-label">Choose File</label>
+                    </div>
+                    <span class="file-name-display" id="cpmUploadFileName">No file selected</span>
+                    <input type="text" id="cpmUploadName" placeholder="CP/M name (optional)" style="width: 150px; padding: 6px 10px; border: 2px solid var(--input-border); border-radius: 5px; background: var(--input-bg); color: var(--text-primary); font-family: 'Roboto Mono', monospace;">
+                    <md-filled-button id="cpmUploadBtn" onclick="uploadCpmFile()" disabled>Upload</md-filled-button>
+                </div>
             </div>
         </div>
     </div>
@@ -5903,6 +5992,7 @@
                             </div>
                         </div>
                         <div class="disk-item-actions">
+                            <md-tonal-button class="btn-small" onclick="browseCpmFiles('${escapedName}')">Browse</md-tonal-button>
                             <md-filled-button class="clone-button btn-small" onclick="cloneDiskImage('${escapedName}')">Clone</md-filled-button>
                             <md-filled-button class="edit-button btn-small" onclick="editDiskNotes('${escapedName}', '${escapeHtml(description)}', '${escapeHtml(notes)}')">Edit</md-filled-button>
                             <md-filled-button class="error-button btn-small" onclick="deleteDiskImage('${escapedName}')">Delete</md-filled-button>
@@ -5933,6 +6023,173 @@
                 loadCassetteList();
             }
         });
+
+        // ===== CP/M File Browser =====
+
+        let cpmCurrentDisk = null;
+        let cpmSelectedFile = null;
+
+        async function browseCpmFiles(diskName) {
+            cpmCurrentDisk = diskName;
+            document.getElementById('cpmBrowseTitle').textContent = `CP/M Files: ${diskName}`;
+            document.getElementById('cpmFileList').innerHTML = '<p class="cpm-empty">Loading...</p>';
+            document.getElementById('cpmInfoBar').innerHTML = '';
+            document.getElementById('cpmUploadBar').style.display = 'none';
+            cpmSelectedFile = null;
+            document.getElementById('cpmUploadFile').value = '';
+            document.getElementById('cpmUploadFileName').textContent = 'No file selected';
+            document.getElementById('cpmUploadBtn').disabled = true;
+            document.getElementById('cpmUploadName').value = '';
+            document.getElementById('cpmBrowseModal').classList.add('show');
+
+            try {
+                const [infoRes, filesRes] = await Promise.all([
+                    fetch(`/api/images/${encodeURIComponent(diskName)}/cpm/info`),
+                    fetch(`/api/images/${encodeURIComponent(diskName)}/cpm/files`)
+                ]);
+
+                if (!infoRes.ok) {
+                    const err = await infoRes.json();
+                    document.getElementById('cpmFileList').innerHTML = `<p class="cpm-empty">Not a CP/M disk or error: ${escapeHtml(err.error || 'Unknown')}</p>`;
+                    return;
+                }
+
+                const info = await infoRes.json();
+                const filesData = await filesRes.json();
+                const isMounted = info.mounted !== false;
+
+                // Info bar
+                document.getElementById('cpmInfoBar').innerHTML = `
+                    <div class="cpm-info-item"><strong>${info.fileCount}</strong> files</div>
+                    <div class="cpm-info-item"><strong>${formatFileSize(info.freeSpace.freeBytes)}</strong> free</div>
+                    <div class="cpm-info-item"><strong>${info.freeSpace.directoryEntriesFree}</strong>/${info.freeSpace.directoryEntriesTotal} dir entries free</div>
+                    <div class="cpm-info-item">Block size: <strong>${info.params.blocksize}</strong></div>
+                    <div class="cpm-info-item">Boot tracks: <strong>${info.params.boottrk}</strong></div>
+                    ${isMounted ? '<div class="cpm-info-item" style="color: var(--md-sys-color-error);"><strong>Mounted (read-only)</strong></div>' : ''}
+                `;
+
+                // Show upload bar only if not mounted
+                document.getElementById('cpmUploadBar').style.display = isMounted ? 'none' : 'flex';
+
+                // File table
+                if (filesData.files.length === 0) {
+                    document.getElementById('cpmFileList').innerHTML = '<p class="cpm-empty">No CP/M files found on this disk.</p>';
+                    return;
+                }
+
+                let html = `<table class="cpm-file-table">
+                    <thead><tr>
+                        <th>User</th><th>Filename</th><th>Ext</th><th>Size</th><th>Attr</th><th></th>
+                    </tr></thead><tbody>`;
+
+                filesData.files.forEach(f => {
+                    const fullName = `${f.filename.trim()}.${f.extension.trim()}`;
+                    const userPrefix = f.user > 0 ? `${f.user}:` : '';
+                    const dlParam = encodeURIComponent(userPrefix + fullName);
+                    const attrs = [];
+                    if (f.readonly) attrs.push('R/O');
+                    if (f.system) attrs.push('SYS');
+                    const attrStr = attrs.length ? attrs.join(' ') : '';
+
+                    html += `<tr>
+                        <td>${f.user}</td>
+                        <td>${escapeHtml(f.filename.trim())}</td>
+                        <td>${escapeHtml(f.extension.trim())}</td>
+                        <td>${formatFileSize(f.size)}</td>
+                        <td class="cpm-file-attr">${attrStr}</td>
+                        <td style="text-align:right; white-space:nowrap;">
+                            <md-text-button onclick="downloadCpmFile('${escapeHtml(cpmCurrentDisk)}', '${dlParam}', '${escapeHtml(fullName)}')">Download</md-text-button>
+                            ${!isMounted ? `<md-text-button style="color: var(--md-sys-color-error);" onclick="deleteCpmFile('${escapeHtml(cpmCurrentDisk)}', '${dlParam}', '${escapeHtml(fullName)}')">Delete</md-text-button>` : ''}
+                        </td>
+                    </tr>`;
+                });
+
+                html += '</tbody></table>';
+                document.getElementById('cpmFileList').innerHTML = html;
+            } catch (error) {
+                document.getElementById('cpmFileList').innerHTML = `<p class="cpm-empty">Error loading files: ${escapeHtml(error.message)}</p>`;
+            }
+        }
+
+        function closeCpmBrowseModal(event) {
+            if (event && event.target !== event.currentTarget) return;
+            document.getElementById('cpmBrowseModal').classList.remove('show');
+            cpmCurrentDisk = null;
+        }
+
+        function downloadCpmFile(diskName, cpmFileParam, displayName) {
+            const url = `/api/images/${encodeURIComponent(diskName)}/cpm/files/${cpmFileParam}`;
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = displayName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        async function deleteCpmFile(diskName, cpmFileParam, displayName) {
+            if (!confirm(`Delete ${displayName} from ${diskName}?`)) return;
+            try {
+                const res = await fetch(`/api/images/${encodeURIComponent(diskName)}/cpm/files/${cpmFileParam}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (res.ok) {
+                    showNotification(`Deleted ${displayName}`, 'success');
+                    browseCpmFiles(diskName);
+                } else {
+                    showNotification(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        function handleCpmFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                cpmSelectedFile = file;
+                document.getElementById('cpmUploadFileName').textContent = file.name;
+                document.getElementById('cpmUploadBtn').disabled = false;
+            } else {
+                cpmSelectedFile = null;
+                document.getElementById('cpmUploadFileName').textContent = 'No file selected';
+                document.getElementById('cpmUploadBtn').disabled = true;
+            }
+        }
+
+        async function uploadCpmFile() {
+            if (!cpmSelectedFile || !cpmCurrentDisk) return;
+            const formData = new FormData();
+            formData.append('file', cpmSelectedFile);
+            const overrideName = document.getElementById('cpmUploadName').value.trim();
+            if (overrideName) {
+                formData.append('cpmFilename', overrideName);
+            }
+
+            const btn = document.getElementById('cpmUploadBtn');
+            btn.disabled = true;
+
+            try {
+                const res = await fetch(`/api/images/${encodeURIComponent(cpmCurrentDisk)}/cpm/files`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showNotification(`Uploaded ${data.filename} (${formatFileSize(data.size)})`, 'success');
+                    document.getElementById('cpmUploadFile').value = '';
+                    cpmSelectedFile = null;
+                    document.getElementById('cpmUploadFileName').textContent = 'No file selected';
+                    document.getElementById('cpmUploadName').value = '';
+                    browseCpmFiles(cpmCurrentDisk);
+                } else {
+                    showNotification(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Error: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = !cpmSelectedFile;
+            }
+        }
 
         // ===== Cassette Management =====
 
