@@ -20,6 +20,7 @@ import { FdcServer } from './server';
 import { Database } from './database';
 import { ReplayEngine, ReplayProgress } from './replay-engine';
 import { XmodemSender } from './xmodem-sender';
+import { CpmFilesystem } from './cpm-filesystem';
 import playSound from 'play-sound';
 
 export interface WebServerConfig {
@@ -702,6 +703,200 @@ export class WebServer {
         res.json({ success: true, filename });
       } catch (error) {
         res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // CP/M file browser endpoints
+
+    // Helper: validate filename and check disk exists
+    const validateDiskFilename = (filename: string, res: Response): string | null => {
+      if (!filename) {
+        res.status(400).json({ error: 'Filename is required' });
+        return null;
+      }
+      if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+        res.status(400).json({ error: 'Invalid filename' });
+        return null;
+      }
+      const filePath = path.join(this.config.disksDir, filename);
+      if (!existsSync(filePath)) {
+        res.status(404).json({ error: 'Disk image not found' });
+        return null;
+      }
+      return filePath;
+    };
+
+    // Helper: check if a disk image is currently mounted on any drive
+    const isDiskMounted = (filename: string): number | false => {
+      for (let i = 0; i < MAX_DRIVES; i++) {
+        const driveState = this.driveManager.getDriveState(i);
+        if (driveState && driveState.mounted && driveState.filename) {
+          if (path.basename(driveState.filename) === filename) {
+            return i;
+          }
+        }
+      }
+      return false;
+    };
+
+    // GET /api/images/:filename/cpm/info - Disk info (params, free space, file count)
+    this.app.get('/api/images/:filename/cpm/info', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const filePath = validateDiskFilename(req.params.filename, res);
+        if (!filePath) return;
+
+        const imageData = await fs.readFile(filePath);
+        const cpm = new CpmFilesystem(imageData);
+        const params = cpm.getParams();
+        const freeSpace = cpm.getFreeSpace();
+        const files = cpm.listFiles();
+
+        res.json({
+          params,
+          freeSpace,
+          fileCount: files.length,
+          mounted: isDiskMounted(req.params.filename),
+        });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // GET /api/images/:filename/cpm/files - List all CP/M files
+    this.app.get('/api/images/:filename/cpm/files', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const filePath = validateDiskFilename(req.params.filename, res);
+        if (!filePath) return;
+
+        const imageData = await fs.readFile(filePath);
+        const cpm = new CpmFilesystem(imageData);
+        const files = cpm.listFiles();
+
+        res.json({
+          files: files.map(f => ({
+            user: f.user,
+            filename: f.filename,
+            extension: f.extension,
+            size: f.size,
+            readonly: f.readonly,
+            system: f.system,
+            extents: f.extents.length,
+          })),
+        });
+      } catch (error) {
+        res.status(500).json({ error: (error as Error).message });
+      }
+    });
+
+    // GET /api/images/:filename/cpm/files/:cpmFile - Download a CP/M file
+    this.app.get('/api/images/:filename/cpm/files/:cpmFile', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const filePath = validateDiskFilename(req.params.filename, res);
+        if (!filePath) return;
+
+        const parsed = CpmFilesystem.parseFilenameParam(req.params.cpmFile);
+        const imageData = await fs.readFile(filePath);
+        const cpm = new CpmFilesystem(imageData);
+        const fileData = cpm.readFile(parsed.filename, parsed.extension, parsed.user);
+
+        const dlName = `${parsed.filename.trimEnd()}.${parsed.extension.trimEnd()}`;
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Content-Disposition', `attachment; filename="${dlName}"`);
+        res.setHeader('Content-Length', fileData.length.toString());
+        res.send(fileData);
+      } catch (error) {
+        if ((error as Error).message.includes('not found')) {
+          res.status(404).json({ error: (error as Error).message });
+        } else {
+          res.status(500).json({ error: (error as Error).message });
+        }
+      }
+    });
+
+    // Configure multer for CP/M file uploads (memory storage - small files)
+    const cpmUpload = multer({
+      storage: multer.memoryStorage(),
+      limits: { fileSize: 256 * 1024 }, // 256KB max (CP/M file limit)
+    });
+
+    // POST /api/images/:filename/cpm/files - Upload a file into the disk image
+    this.app.post(
+      '/api/images/:filename/cpm/files',
+      cpmUpload.single('file'),
+      async (req: Request, res: Response): Promise<void> => {
+        try {
+          const filePath = validateDiskFilename(req.params.filename, res);
+          if (!filePath) return;
+
+          // Refuse write if disk is mounted
+          const mountedDrive = isDiskMounted(req.params.filename);
+          if (mountedDrive !== false) {
+            res.status(409).json({
+              error: `Cannot modify: disk image is mounted on drive ${mountedDrive}`,
+            });
+            return;
+          }
+
+          if (!req.file) {
+            res.status(400).json({ error: 'No file uploaded' });
+            return;
+          }
+
+          // Use override name from body, or original filename
+          const cpmName = (req.body && req.body.cpmFilename) || req.file.originalname;
+          const parsed = CpmFilesystem.parseFilenameParam(cpmName);
+
+          const imageData = await fs.readFile(filePath);
+          const cpm = new CpmFilesystem(imageData);
+          cpm.writeFile(parsed.filename, parsed.extension, req.file.buffer, parsed.user);
+
+          // Write modified image back atomically
+          await fs.writeFile(filePath, cpm.getImageData());
+
+          res.json({
+            success: true,
+            filename: `${parsed.filename.trimEnd()}.${parsed.extension.trimEnd()}`,
+            size: req.file.buffer.length,
+          });
+        } catch (error) {
+          res.status(500).json({ error: (error as Error).message });
+        }
+      }
+    );
+
+    // DELETE /api/images/:filename/cpm/files/:cpmFile - Delete a CP/M file
+    this.app.delete('/api/images/:filename/cpm/files/:cpmFile', async (req: Request, res: Response): Promise<void> => {
+      try {
+        const filePath = validateDiskFilename(req.params.filename, res);
+        if (!filePath) return;
+
+        // Refuse write if disk is mounted
+        const mountedDrive = isDiskMounted(req.params.filename);
+        if (mountedDrive !== false) {
+          res.status(409).json({
+            error: `Cannot modify: disk image is mounted on drive ${mountedDrive}`,
+          });
+          return;
+        }
+
+        const parsed = CpmFilesystem.parseFilenameParam(req.params.cpmFile);
+        const imageData = await fs.readFile(filePath);
+        const cpm = new CpmFilesystem(imageData);
+        cpm.deleteFile(parsed.filename, parsed.extension, parsed.user);
+
+        // Write modified image back atomically
+        await fs.writeFile(filePath, cpm.getImageData());
+
+        res.json({
+          success: true,
+          filename: `${parsed.filename.trimEnd()}.${parsed.extension.trimEnd()}`,
+        });
+      } catch (error) {
+        if ((error as Error).message.includes('not found')) {
+          res.status(404).json({ error: (error as Error).message });
+        } else {
+          res.status(500).json({ error: (error as Error).message });
+        }
       }
     });
 
