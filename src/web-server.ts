@@ -22,6 +22,9 @@ import { ReplayEngine, ReplayProgress } from './replay-engine';
 import { XmodemSender } from './xmodem-sender';
 import { CpmFilesystem } from './cpm-filesystem';
 import playSound from 'play-sound';
+import swaggerJsdoc from 'swagger-jsdoc';
+import swaggerUi from 'swagger-ui-express';
+import { openapiDefinition } from './openapi-def';
 
 export interface WebServerConfig {
   port: number;
@@ -131,23 +134,132 @@ export class WebServer {
       // If both paths fail, still continue to allow APIs/websocket use
       console.warn('Warning: public assets directory not found');
     }
+
+    // Swagger UI
+    const swaggerSpec = swaggerJsdoc(openapiDefinition);
+    this.app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+    this.app.get('/api/docs.json', (_req, res) => res.json(swaggerSpec));
   }
 
   /**
    * Setup REST API routes
    */
   private setupRoutes(): void {
-    // Health check
+    /**
+     * @openapi
+     * /api/health:
+     *   get:
+     *     tags: [Health]
+     *     summary: Health check
+     *     description: Returns server health status and current timestamp.
+     *     responses:
+     *       200:
+     *         description: Server is running
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 status:
+     *                   type: string
+     *                   example: ok
+     *                 timestamp:
+     *                   type: string
+     *                   format: date-time
+     */
     this.app.get('/api/health', (_req: Request, res: Response) => {
       res.json({ status: 'ok', timestamp: new Date().toISOString() });
     });
 
-    // Get server status
+    /**
+     * @openapi
+     * /api/status:
+     *   get:
+     *     tags: [Health]
+     *     summary: Full server status
+     *     description: Returns serial connection state, disk serving state, drive statuses, and timestamp.
+     *     responses:
+     *       200:
+     *         description: Current server status
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 serial:
+     *                   type: object
+     *                   properties:
+     *                     connected:
+     *                       type: boolean
+     *                     device:
+     *                       type: string
+     *                       nullable: true
+     *                     baudRate:
+     *                       type: integer
+     *                     configuredPort:
+     *                       type: string
+     *                     configuredBaudRate:
+     *                       type: integer
+     *                 diskServing:
+     *                   type: object
+     *                   properties:
+     *                     enabled:
+     *                       type: boolean
+     *                     running:
+     *                       type: boolean
+     *                 drives:
+     *                   type: array
+     *                   items:
+     *                     $ref: '#/components/schemas/DriveState'
+     *                 timestamp:
+     *                   type: string
+     *                   format: date-time
+     */
     this.app.get('/api/status', (_req: Request, res: Response) => {
       res.json(this.getStatus());
     });
 
-    // Get current configuration
+    /**
+     * @openapi
+     * /api/config:
+     *   get:
+     *     tags: [Config]
+     *     summary: Get current configuration
+     *     description: Returns current runtime configuration including serial, web, terminal, and display options.
+     *     responses:
+     *       200:
+     *         description: Current configuration
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 port:
+     *                   type: string
+     *                   description: Serial port device path
+     *                 baud:
+     *                   type: integer
+     *                 web:
+     *                   type: boolean
+     *                 webPort:
+     *                   type: integer
+     *                 webHost:
+     *                   type: string
+     *                 terminalPort:
+     *                   type: string
+     *                 terminalBaud:
+     *                   type: integer
+     *                 terminalAutoconnect:
+     *                   type: boolean
+     *                 verbose:
+     *                   type: boolean
+     *                 debug:
+     *                   type: boolean
+     *                 logFile:
+     *                   type: string
+     *                 gpioLeds:
+     *                   type: boolean
+     */
     this.app.get('/api/config', (_req: Request, res: Response) => {
       // Return current runtime configuration
       const config: any = {
@@ -176,7 +288,42 @@ export class WebServer {
       res.json(config);
     });
 
-    // Update configuration
+    /**
+     * @openapi
+     * /api/config:
+     *   post:
+     *     tags: [Config]
+     *     summary: Update configuration
+     *     description: Update runtime configuration. Currently only `verbose` takes effect without restart.
+     *     requestBody:
+     *       required: true
+     *       content:
+     *         application/json:
+     *           schema:
+     *             type: object
+     *             properties:
+     *               verbose:
+     *                 type: boolean
+     *                 description: Enable/disable verbose logging
+     *     responses:
+     *       200:
+     *         description: Configuration updated
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 message:
+     *                   type: string
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.post('/api/config', async (req: Request, res: Response): Promise<void> => {
       try {
         const updates = req.body;
@@ -202,7 +349,32 @@ export class WebServer {
       }
     });
 
-    // List available serial ports for the primary connection
+    /**
+     * @openapi
+     * /api/serial/ports:
+     *   get:
+     *     tags: [Serial]
+     *     summary: List available serial ports
+     *     description: Enumerates serial ports on the host, including persistent device paths.
+     *     responses:
+     *       200:
+     *         description: List of serial ports
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 ports:
+     *                   type: array
+     *                   items:
+     *                     $ref: '#/components/schemas/SerialPortInfo'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.get('/api/serial/ports', async (_req: Request, res: Response): Promise<void> => {
       try {
         const ports = await TerminalSerialManager.listPorts();
@@ -227,7 +399,61 @@ export class WebServer {
       }
     });
 
-    // Update primary serial configuration (device + baud)
+    /**
+     * @openapi
+     * /api/serial/config:
+     *   put:
+     *     tags: [Serial]
+     *     summary: Update primary serial configuration
+     *     description: Change the serial device and baud rate for the primary FDC connection. Will close and reopen the port if needed.
+     *     requestBody:
+     *       required: true
+     *       content:
+     *         application/json:
+     *           schema:
+     *             type: object
+     *             required: [device, baudRate]
+     *             properties:
+     *               device:
+     *                 type: string
+     *                 description: Serial port device path
+     *                 example: /dev/ttyUSB0
+     *               baudRate:
+     *                 type: integer
+     *                 description: Baud rate
+     *                 enum: [300, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600]
+     *     responses:
+     *       200:
+     *         description: Serial configuration updated
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 serial:
+     *                   type: object
+     *                   properties:
+     *                     device:
+     *                       type: string
+     *                     baudRate:
+     *                       type: integer
+     *                     connected:
+     *                       type: boolean
+     *       400:
+     *         description: Missing or invalid parameters
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.put('/api/serial/config', async (req: Request, res: Response): Promise<void> => {
       const { device, baudRate } = req.body || {};
 
@@ -282,7 +508,34 @@ export class WebServer {
       }
     });
 
-    // Enable disk serving
+    /**
+     * @openapi
+     * /api/disk-serving/enable:
+     *   post:
+     *     tags: [Disk Serving]
+     *     summary: Enable disk serving
+     *     description: Start the FDC server to serve disk images over serial. Opens serial port and begins listening for Altair commands.
+     *     responses:
+     *       200:
+     *         description: Disk serving enabled
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 message:
+     *                   type: string
+     *                 enabled:
+     *                   type: boolean
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.post('/api/disk-serving/enable', async (_req: Request, res: Response): Promise<void> => {
       try {
         if (this.diskServingEnabled) {
@@ -297,7 +550,34 @@ export class WebServer {
       }
     });
 
-    // Disable disk serving
+    /**
+     * @openapi
+     * /api/disk-serving/disable:
+     *   post:
+     *     tags: [Disk Serving]
+     *     summary: Disable disk serving
+     *     description: Stop the FDC server and close the primary serial port.
+     *     responses:
+     *       200:
+     *         description: Disk serving disabled
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 message:
+     *                   type: string
+     *                 enabled:
+     *                   type: boolean
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.post('/api/disk-serving/disable', async (_req: Request, res: Response): Promise<void> => {
       try {
         if (!this.diskServingEnabled) {
@@ -312,12 +592,82 @@ export class WebServer {
       }
     });
 
-    // Get drive status
+    /**
+     * @openapi
+     * /api/drives:
+     *   get:
+     *     tags: [Drives]
+     *     summary: Get drive status
+     *     description: Returns mount status, filename, read-only flag, head-loaded state, and current track for each drive.
+     *     responses:
+     *       200:
+     *         description: Array of drive states
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: array
+     *               items:
+     *                 $ref: '#/components/schemas/DriveState'
+     */
     this.app.get('/api/drives', (_req: Request, res: Response) => {
       res.json(this.getDrivesStatus());
     });
 
-    // Mount disk image to drive
+    /**
+     * @openapi
+     * /api/drives/{id}/mount:
+     *   post:
+     *     tags: [Drives]
+     *     summary: Mount disk image to drive
+     *     description: Mount a disk image file onto the specified drive slot.
+     *     parameters:
+     *       - in: path
+     *         name: id
+     *         required: true
+     *         schema:
+     *           type: integer
+     *           minimum: 0
+     *           maximum: 15
+     *         description: Drive number (0-15)
+     *     requestBody:
+     *       required: true
+     *       content:
+     *         application/json:
+     *           schema:
+     *             type: object
+     *             required: [filename]
+     *             properties:
+     *               filename:
+     *                 type: string
+     *                 description: Disk image filename (in disks directory)
+     *                 example: cpm63k.dsk
+     *     responses:
+     *       200:
+     *         description: Drive mounted
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 drive:
+     *                   type: integer
+     *                 filename:
+     *                   type: string
+     *       400:
+     *         description: Missing filename or invalid drive ID
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.post('/api/drives/:id/mount', async (req: Request, res: Response): Promise<void> => {
       try {
         const driveId = parseInt(req.params.id);
@@ -357,7 +707,47 @@ export class WebServer {
       }
     });
 
-    // Unmount drive
+    /**
+     * @openapi
+     * /api/drives/{id}/unmount:
+     *   post:
+     *     tags: [Drives]
+     *     summary: Unmount drive
+     *     description: Unmount the disk image from the specified drive slot.
+     *     parameters:
+     *       - in: path
+     *         name: id
+     *         required: true
+     *         schema:
+     *           type: integer
+     *           minimum: 0
+     *           maximum: 15
+     *         description: Drive number (0-15)
+     *     responses:
+     *       200:
+     *         description: Drive unmounted
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 drive:
+     *                   type: integer
+     *       400:
+     *         description: Invalid drive ID
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.post('/api/drives/:id/unmount', async (req: Request, res: Response): Promise<void> => {
       try {
         const driveId = parseInt(req.params.id);
@@ -386,7 +776,60 @@ export class WebServer {
       }
     });
 
-    // Set drive read-only status
+    /**
+     * @openapi
+     * /api/drives/{id}/readonly:
+     *   put:
+     *     tags: [Drives]
+     *     summary: Set drive read-only status
+     *     description: Toggle write protection on a mounted drive. May remount the file with the correct mode.
+     *     parameters:
+     *       - in: path
+     *         name: id
+     *         required: true
+     *         schema:
+     *           type: integer
+     *           minimum: 0
+     *           maximum: 15
+     *         description: Drive number (0-15)
+     *     requestBody:
+     *       required: true
+     *       content:
+     *         application/json:
+     *           schema:
+     *             type: object
+     *             required: [readonly]
+     *             properties:
+     *               readonly:
+     *                 type: boolean
+     *                 description: Write-protect the drive
+     *     responses:
+     *       200:
+     *         description: Read-only status updated
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 drive:
+     *                   type: integer
+     *                 readonly:
+     *                   type: boolean
+     *       400:
+     *         description: Invalid drive ID
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.put('/api/drives/:id/readonly', async (req: Request, res: Response): Promise<void> => {
       try {
         const driveId = parseInt(req.params.id);
@@ -421,7 +864,32 @@ export class WebServer {
       }
     });
 
-    // List available disk images
+    /**
+     * @openapi
+     * /api/images:
+     *   get:
+     *     tags: [Images]
+     *     summary: List disk images
+     *     description: Returns filenames of all disk images (.dsk, .img, .ima) in the disks directory.
+     *     responses:
+     *       200:
+     *         description: List of disk image filenames
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 images:
+     *                   type: array
+     *                   items:
+     *                     type: string
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.get('/api/images', async (_req: Request, res: Response): Promise<void> => {
       try {
         const images = await this.listDiskImages();
@@ -431,7 +899,32 @@ export class WebServer {
       }
     });
 
-    // Get detailed disk image information (with file sizes)
+    /**
+     * @openapi
+     * /api/images/details:
+     *   get:
+     *     tags: [Images]
+     *     summary: List disk images with details
+     *     description: Returns all disk images with file size, description, and notes.
+     *     responses:
+     *       200:
+     *         description: Detailed disk image list
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 images:
+     *                   type: array
+     *                   items:
+     *                     $ref: '#/components/schemas/DiskImageInfo'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.get('/api/images/details', async (_req: Request, res: Response): Promise<void> => {
       try {
         const images = await this.listDiskImagesWithDetails();
@@ -468,7 +961,52 @@ export class WebServer {
       },
     });
 
-    // Upload disk image
+    /**
+     * @openapi
+     * /api/images/upload:
+     *   post:
+     *     tags: [Images]
+     *     summary: Upload disk image
+     *     description: Upload a disk image file (.dsk, .img, .ima). Max 10MB.
+     *     requestBody:
+     *       required: true
+     *       content:
+     *         multipart/form-data:
+     *           schema:
+     *             type: object
+     *             required: [diskImage]
+     *             properties:
+     *               diskImage:
+     *                 type: string
+     *                 format: binary
+     *                 description: Disk image file
+     *     responses:
+     *       200:
+     *         description: Upload successful
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 filename:
+     *                   type: string
+     *                 size:
+     *                   type: integer
+     *       400:
+     *         description: No file or invalid type
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.post(
       '/api/images/upload',
       upload.single('diskImage'),
@@ -490,7 +1028,52 @@ export class WebServer {
       }
     );
 
-    // Clone disk image
+    /**
+     * @openapi
+     * /api/images/{filename}/clone:
+     *   post:
+     *     tags: [Images]
+     *     summary: Clone disk image
+     *     description: Create a copy of an existing disk image with a "-copy" suffix.
+     *     parameters:
+     *       - in: path
+     *         name: filename
+     *         required: true
+     *         schema:
+     *           type: string
+     *         description: Source disk image filename
+     *     responses:
+     *       200:
+     *         description: Clone successful
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 filename:
+     *                   type: string
+     *                   description: New filename of the clone
+     *       400:
+     *         description: Invalid filename
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       404:
+     *         description: Source file not found
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.post('/api/images/:filename/clone', async (req: Request, res: Response): Promise<void> => {
       try {
         const filename = req.params.filename;
@@ -537,7 +1120,68 @@ export class WebServer {
       }
     });
 
-    // Create new blank disk image
+    /**
+     * @openapi
+     * /api/images/create:
+     *   post:
+     *     tags: [Images]
+     *     summary: Create blank disk image
+     *     description: Create a new empty disk image in the specified format.
+     *     requestBody:
+     *       required: true
+     *       content:
+     *         application/json:
+     *           schema:
+     *             type: object
+     *             required: [filename, format, extension]
+     *             properties:
+     *               filename:
+     *                 type: string
+     *                 description: Base filename (alphanumeric, underscores, hyphens, periods, spaces)
+     *                 example: newdisk
+     *               format:
+     *                 type: string
+     *                 enum: [8inch, minidisk, 8mb]
+     *                 description: "Disk format: 8inch (77 tracks, 330K), minidisk (17 tracks, 75K), 8mb (1863 tracks)"
+     *               extension:
+     *                 type: string
+     *                 enum: [.dsk, .img, .ima]
+     *                 description: File extension
+     *     responses:
+     *       200:
+     *         description: Disk image created
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 filename:
+     *                   type: string
+     *                 size:
+     *                   type: integer
+     *                 format:
+     *                   type: string
+     *       400:
+     *         description: Missing or invalid parameters
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       409:
+     *         description: File already exists
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.post('/api/images/create', async (req: Request, res: Response): Promise<void> => {
       try {
         const { filename, format, extension } = req.body;
@@ -619,7 +1263,57 @@ export class WebServer {
       }
     });
 
-    // Delete disk image
+    /**
+     * @openapi
+     * /api/images/{filename}:
+     *   delete:
+     *     tags: [Images]
+     *     summary: Delete disk image
+     *     description: Delete a disk image file. Fails if the image is currently mounted on any drive.
+     *     parameters:
+     *       - in: path
+     *         name: filename
+     *         required: true
+     *         schema:
+     *           type: string
+     *         description: Disk image filename
+     *     responses:
+     *       200:
+     *         description: File deleted
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 filename:
+     *                   type: string
+     *       400:
+     *         description: Invalid filename
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       404:
+     *         description: File not found
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       409:
+     *         description: File is mounted on a drive
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.delete('/api/images/:filename', async (req: Request, res: Response): Promise<void> => {
       try {
         const filename = req.params.filename;
@@ -669,7 +1363,64 @@ export class WebServer {
       }
     });
 
-    // Update disk image notes/description
+    /**
+     * @openapi
+     * /api/images/{filename}/notes:
+     *   put:
+     *     tags: [Images]
+     *     summary: Update disk image notes
+     *     description: Set or update the description and notes for a disk image.
+     *     parameters:
+     *       - in: path
+     *         name: filename
+     *         required: true
+     *         schema:
+     *           type: string
+     *         description: Disk image filename
+     *     requestBody:
+     *       required: true
+     *       content:
+     *         application/json:
+     *           schema:
+     *             type: object
+     *             properties:
+     *               description:
+     *                 type: string
+     *                 description: Short description
+     *               notes:
+     *                 type: string
+     *                 description: Extended notes
+     *     responses:
+     *       200:
+     *         description: Notes updated
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 filename:
+     *                   type: string
+     *       400:
+     *         description: Invalid filename
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       404:
+     *         description: File not found
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.put('/api/images/:filename/notes', async (req: Request, res: Response): Promise<void> => {
       try {
         const filename = req.params.filename;
@@ -739,7 +1490,60 @@ export class WebServer {
       return false;
     };
 
-    // GET /api/images/:filename/cpm/info - Disk info (params, free space, file count)
+    /**
+     * @openapi
+     * /api/images/{filename}/cpm/info:
+     *   get:
+     *     tags: [CP/M]
+     *     summary: Get CP/M disk info
+     *     description: Returns CP/M disk parameters, free space, file count, and mount status.
+     *     parameters:
+     *       - in: path
+     *         name: filename
+     *         required: true
+     *         schema:
+     *           type: string
+     *         description: Disk image filename
+     *     responses:
+     *       200:
+     *         description: CP/M disk information
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 params:
+     *                   type: object
+     *                   description: CP/M disk parameter block
+     *                 freeSpace:
+     *                   type: integer
+     *                   description: Free space in bytes
+     *                 fileCount:
+     *                   type: integer
+     *                 mounted:
+     *                   oneOf:
+     *                     - type: integer
+     *                     - type: boolean
+     *                   description: Drive number if mounted, false otherwise
+     *       400:
+     *         description: Invalid filename
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       404:
+     *         description: Disk image not found
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.get('/api/images/:filename/cpm/info', async (req: Request, res: Response): Promise<void> => {
       try {
         const filePath = validateDiskFilename(req.params.filename, res);
@@ -762,7 +1566,51 @@ export class WebServer {
       }
     });
 
-    // GET /api/images/:filename/cpm/files - List all CP/M files
+    /**
+     * @openapi
+     * /api/images/{filename}/cpm/files:
+     *   get:
+     *     tags: [CP/M]
+     *     summary: List CP/M files
+     *     description: List all files on the CP/M disk image.
+     *     parameters:
+     *       - in: path
+     *         name: filename
+     *         required: true
+     *         schema:
+     *           type: string
+     *         description: Disk image filename
+     *     responses:
+     *       200:
+     *         description: List of CP/M files
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 files:
+     *                   type: array
+     *                   items:
+     *                     $ref: '#/components/schemas/CpmFileInfo'
+     *       400:
+     *         description: Invalid filename
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       404:
+     *         description: Disk image not found
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.get('/api/images/:filename/cpm/files', async (req: Request, res: Response): Promise<void> => {
       try {
         const filePath = validateDiskFilename(req.params.filename, res);
@@ -788,7 +1636,54 @@ export class WebServer {
       }
     });
 
-    // GET /api/images/:filename/cpm/files/:cpmFile - Download a CP/M file
+    /**
+     * @openapi
+     * /api/images/{filename}/cpm/files/{cpmFile}:
+     *   get:
+     *     tags: [CP/M]
+     *     summary: Download a CP/M file
+     *     description: Extract and download a single file from the CP/M disk image. The cpmFile param format is "USER:NAME.EXT" (e.g. "0:ASM.COM").
+     *     parameters:
+     *       - in: path
+     *         name: filename
+     *         required: true
+     *         schema:
+     *           type: string
+     *         description: Disk image filename
+     *       - in: path
+     *         name: cpmFile
+     *         required: true
+     *         schema:
+     *           type: string
+     *         description: "CP/M file identifier in format USER:NAME.EXT"
+     *         example: "0:ASM.COM"
+     *     responses:
+     *       200:
+     *         description: File content
+     *         content:
+     *           application/octet-stream:
+     *             schema:
+     *               type: string
+     *               format: binary
+     *       400:
+     *         description: Invalid filename
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       404:
+     *         description: Disk image or CP/M file not found
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.get('/api/images/:filename/cpm/files/:cpmFile', async (req: Request, res: Response): Promise<void> => {
       try {
         const filePath = validateDiskFilename(req.params.filename, res);
@@ -819,7 +1714,74 @@ export class WebServer {
       limits: { fileSize: 256 * 1024 }, // 256KB max (CP/M file limit)
     });
 
-    // POST /api/images/:filename/cpm/files - Upload a file into the disk image
+    /**
+     * @openapi
+     * /api/images/{filename}/cpm/files:
+     *   post:
+     *     tags: [CP/M]
+     *     summary: Upload file to CP/M disk image
+     *     description: Write a file into the CP/M filesystem on the disk image. Fails if the disk is currently mounted. Max 256KB.
+     *     parameters:
+     *       - in: path
+     *         name: filename
+     *         required: true
+     *         schema:
+     *           type: string
+     *         description: Disk image filename
+     *     requestBody:
+     *       required: true
+     *       content:
+     *         multipart/form-data:
+     *           schema:
+     *             type: object
+     *             required: [file]
+     *             properties:
+     *               file:
+     *                 type: string
+     *                 format: binary
+     *                 description: File to upload
+     *               cpmFilename:
+     *                 type: string
+     *                 description: "Override CP/M filename (format: USER:NAME.EXT)"
+     *     responses:
+     *       200:
+     *         description: File written to disk image
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 filename:
+     *                   type: string
+     *                 size:
+     *                   type: integer
+     *       400:
+     *         description: No file uploaded or invalid filename
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       404:
+     *         description: Disk image not found
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       409:
+     *         description: Disk image is mounted
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.post(
       '/api/images/:filename/cpm/files',
       cpmUpload.single('file'),
@@ -864,7 +1826,64 @@ export class WebServer {
       }
     );
 
-    // DELETE /api/images/:filename/cpm/files/:cpmFile - Delete a CP/M file
+    /**
+     * @openapi
+     * /api/images/{filename}/cpm/files/{cpmFile}:
+     *   delete:
+     *     tags: [CP/M]
+     *     summary: Delete a CP/M file
+     *     description: Remove a file from the CP/M filesystem on the disk image. Fails if the disk is currently mounted.
+     *     parameters:
+     *       - in: path
+     *         name: filename
+     *         required: true
+     *         schema:
+     *           type: string
+     *         description: Disk image filename
+     *       - in: path
+     *         name: cpmFile
+     *         required: true
+     *         schema:
+     *           type: string
+     *         description: "CP/M file identifier in format USER:NAME.EXT"
+     *         example: "0:ASM.COM"
+     *     responses:
+     *       200:
+     *         description: File deleted from disk image
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 filename:
+     *                   type: string
+     *       400:
+     *         description: Invalid filename
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       404:
+     *         description: Disk image or CP/M file not found
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       409:
+     *         description: Disk image is mounted
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.delete('/api/images/:filename/cpm/files/:cpmFile', async (req: Request, res: Response): Promise<void> => {
       try {
         const filePath = validateDiskFilename(req.params.filename, res);
@@ -902,7 +1921,32 @@ export class WebServer {
 
     // Cassette API endpoints
 
-    // Get detailed cassette information (with file sizes)
+    /**
+     * @openapi
+     * /api/cassettes/details:
+     *   get:
+     *     tags: [Cassettes]
+     *     summary: List cassettes with details
+     *     description: Returns all cassette WAV files with size, description, and notes.
+     *     responses:
+     *       200:
+     *         description: Detailed cassette list
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 cassettes:
+     *                   type: array
+     *                   items:
+     *                     $ref: '#/components/schemas/CassetteInfo'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.get('/api/cassettes/details', async (_req: Request, res: Response): Promise<void> => {
       try {
         const cassettes = await this.listCassettesWithDetails();
@@ -939,7 +1983,52 @@ export class WebServer {
       },
     });
 
-    // Upload cassette
+    /**
+     * @openapi
+     * /api/cassettes/upload:
+     *   post:
+     *     tags: [Cassettes]
+     *     summary: Upload cassette
+     *     description: Upload a cassette WAV file. Max 100MB.
+     *     requestBody:
+     *       required: true
+     *       content:
+     *         multipart/form-data:
+     *           schema:
+     *             type: object
+     *             required: [cassette]
+     *             properties:
+     *               cassette:
+     *                 type: string
+     *                 format: binary
+     *                 description: WAV audio file
+     *     responses:
+     *       200:
+     *         description: Upload successful
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 filename:
+     *                   type: string
+     *                 size:
+     *                   type: integer
+     *       400:
+     *         description: No file or invalid type
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.post(
       '/api/cassettes/upload',
       cassetteUpload.single('cassette'),
@@ -961,7 +2050,51 @@ export class WebServer {
       }
     );
 
-    // Delete cassette
+    /**
+     * @openapi
+     * /api/cassettes/{filename}:
+     *   delete:
+     *     tags: [Cassettes]
+     *     summary: Delete cassette
+     *     description: Delete a cassette WAV file.
+     *     parameters:
+     *       - in: path
+     *         name: filename
+     *         required: true
+     *         schema:
+     *           type: string
+     *         description: Cassette filename
+     *     responses:
+     *       200:
+     *         description: File deleted
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 filename:
+     *                   type: string
+     *       400:
+     *         description: Invalid filename
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       404:
+     *         description: File not found
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.delete('/api/cassettes/:filename', async (req: Request, res: Response): Promise<void> => {
       try {
         const filename = req.params.filename;
@@ -997,7 +2130,64 @@ export class WebServer {
       }
     });
 
-    // Update cassette notes/description
+    /**
+     * @openapi
+     * /api/cassettes/{filename}/notes:
+     *   put:
+     *     tags: [Cassettes]
+     *     summary: Update cassette notes
+     *     description: Set or update the description and notes for a cassette file.
+     *     parameters:
+     *       - in: path
+     *         name: filename
+     *         required: true
+     *         schema:
+     *           type: string
+     *         description: Cassette filename
+     *     requestBody:
+     *       required: true
+     *       content:
+     *         application/json:
+     *           schema:
+     *             type: object
+     *             properties:
+     *               description:
+     *                 type: string
+     *                 description: Short description
+     *               notes:
+     *                 type: string
+     *                 description: Extended notes
+     *     responses:
+     *       200:
+     *         description: Notes updated
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 filename:
+     *                   type: string
+     *       400:
+     *         description: Invalid filename
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       404:
+     *         description: File not found
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.put('/api/cassettes/:filename/notes', async (req: Request, res: Response): Promise<void> => {
       try {
         const filename = req.params.filename;
@@ -1034,7 +2224,47 @@ export class WebServer {
       }
     });
 
-    // Stream cassette file for client-side playback
+    /**
+     * @openapi
+     * /api/cassettes/{filename}/stream:
+     *   get:
+     *     tags: [Cassettes]
+     *     summary: Stream cassette audio
+     *     description: Stream the cassette WAV file for client-side playback.
+     *     parameters:
+     *       - in: path
+     *         name: filename
+     *         required: true
+     *         schema:
+     *           type: string
+     *         description: Cassette filename
+     *     responses:
+     *       200:
+     *         description: WAV audio stream
+     *         content:
+     *           audio/wav:
+     *             schema:
+     *               type: string
+     *               format: binary
+     *       400:
+     *         description: Invalid filename
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       404:
+     *         description: File not found
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.get('/api/cassettes/:filename/stream', (req: Request, res: Response) => {
       try {
         const filename = req.params.filename;
@@ -1076,7 +2306,53 @@ export class WebServer {
       }
     });
 
-    // Play cassette server-side
+    /**
+     * @openapi
+     * /api/cassettes/{filename}/play:
+     *   post:
+     *     tags: [Cassettes]
+     *     summary: Play cassette server-side
+     *     description: Play the cassette WAV file through the server's audio output. Stops any currently playing audio first.
+     *     parameters:
+     *       - in: path
+     *         name: filename
+     *         required: true
+     *         schema:
+     *           type: string
+     *         description: Cassette filename
+     *     responses:
+     *       200:
+     *         description: Playback started
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 message:
+     *                   type: string
+     *                 filename:
+     *                   type: string
+     *       400:
+     *         description: Invalid filename
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       404:
+     *         description: File not found
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.post('/api/cassettes/:filename/play', (req: Request, res: Response) => {
       try {
         const filename = req.params.filename;
@@ -1123,7 +2399,32 @@ export class WebServer {
       }
     });
 
-    // Stop server-side playback
+    /**
+     * @openapi
+     * /api/cassettes/stop:
+     *   post:
+     *     tags: [Cassettes]
+     *     summary: Stop server-side playback
+     *     description: Stop any currently playing cassette audio on the server.
+     *     responses:
+     *       200:
+     *         description: Playback stopped
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 message:
+     *                   type: string
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.post('/api/cassettes/stop', (_req: Request, res: Response) => {
       try {
         if (this.currentAudioProcess && this.currentAudioProcess.kill) {
@@ -1140,12 +2441,66 @@ export class WebServer {
 
     // Terminal API endpoints
 
-    // Get terminal status
+    /**
+     * @openapi
+     * /api/terminal/status:
+     *   get:
+     *     tags: [Terminal]
+     *     summary: Get terminal status
+     *     description: Returns terminal serial port connection state, device, config, and preferred settings.
+     *     responses:
+     *       200:
+     *         description: Terminal status
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 connected:
+     *                   type: boolean
+     *                 device:
+     *                   type: string
+     *                   nullable: true
+     *                 config:
+     *                   type: object
+     *                 preferred:
+     *                   type: object
+     *                   properties:
+     *                     port:
+     *                       type: string
+     *                     baud:
+     *                       type: integer
+     */
     this.app.get('/api/terminal/status', (_req: Request, res: Response) => {
       res.json(this.getTerminalStatus());
     });
 
-    // List available serial ports
+    /**
+     * @openapi
+     * /api/terminal/ports:
+     *   get:
+     *     tags: [Terminal]
+     *     summary: List serial ports for terminal
+     *     description: Enumerates serial ports available for the terminal connection.
+     *     responses:
+     *       200:
+     *         description: List of serial ports
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 ports:
+     *                   type: array
+     *                   items:
+     *                     $ref: '#/components/schemas/SerialPortInfo'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.get('/api/terminal/ports', async (_req: Request, res: Response): Promise<void> => {
       try {
         const ports = await TerminalSerialManager.listPorts();
@@ -1170,7 +2525,53 @@ export class WebServer {
       }
     });
 
-    // Open terminal serial port
+    /**
+     * @openapi
+     * /api/terminal/open:
+     *   post:
+     *     tags: [Terminal]
+     *     summary: Open terminal serial port
+     *     description: Open a serial port for the terminal connection.
+     *     requestBody:
+     *       required: true
+     *       content:
+     *         application/json:
+     *           schema:
+     *             type: object
+     *             required: [device]
+     *             properties:
+     *               device:
+     *                 type: string
+     *                 description: Serial port device path
+     *                 example: /dev/ttyUSB1
+     *               config:
+     *                 type: object
+     *                 description: Serial port configuration (baud, dataBits, stopBits, parity)
+     *     responses:
+     *       200:
+     *         description: Port opened
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 device:
+     *                   type: string
+     *       400:
+     *         description: Missing device path
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.post('/api/terminal/open', async (req: Request, res: Response): Promise<void> => {
       try {
         const { device, config } = req.body;
@@ -1191,7 +2592,30 @@ export class WebServer {
       }
     });
 
-    // Close terminal serial port
+    /**
+     * @openapi
+     * /api/terminal/close:
+     *   post:
+     *     tags: [Terminal]
+     *     summary: Close terminal serial port
+     *     description: Close the terminal serial port connection.
+     *     responses:
+     *       200:
+     *         description: Port closed
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.post('/api/terminal/close', async (_req: Request, res: Response): Promise<void> => {
       try {
         await this.terminalManager.closePort();
@@ -1205,7 +2629,49 @@ export class WebServer {
       }
     });
 
-    // Update terminal configuration
+    /**
+     * @openapi
+     * /api/terminal/config:
+     *   put:
+     *     tags: [Terminal]
+     *     summary: Update terminal configuration
+     *     description: Update serial port configuration (baud, data bits, stop bits, parity) for an open terminal connection.
+     *     requestBody:
+     *       required: true
+     *       content:
+     *         application/json:
+     *           schema:
+     *             type: object
+     *             required: [config]
+     *             properties:
+     *               config:
+     *                 type: object
+     *                 description: Serial port configuration
+     *     responses:
+     *       200:
+     *         description: Configuration updated
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 config:
+     *                   type: object
+     *       400:
+     *         description: Missing configuration
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.put('/api/terminal/config', async (req: Request, res: Response): Promise<void> => {
       try {
         const { config } = req.body;
@@ -1228,7 +2694,32 @@ export class WebServer {
 
     // Script API endpoints
 
-    // List all scripts (all files in scripts dir)
+    /**
+     * @openapi
+     * /api/scripts:
+     *   get:
+     *     tags: [Scripts]
+     *     summary: List scripts
+     *     description: Returns all files in the scripts directory with name and size.
+     *     responses:
+     *       200:
+     *         description: List of scripts
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 scripts:
+     *                   type: array
+     *                   items:
+     *                     $ref: '#/components/schemas/ScriptInfo'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.get('/api/scripts', async (_req: Request, res: Response): Promise<void> => {
       try {
         await fs.mkdir(this.config.scriptsDir, { recursive: true });
@@ -1251,7 +2742,56 @@ export class WebServer {
       }
     });
 
-    // Get script content
+    /**
+     * @openapi
+     * /api/scripts/{name}:
+     *   get:
+     *     tags: [Scripts]
+     *     summary: Get script content
+     *     description: Returns script metadata and content. Text files (.txt) include content; binary files return metadata only.
+     *     parameters:
+     *       - in: path
+     *         name: name
+     *         required: true
+     *         schema:
+     *           type: string
+     *         description: Script filename
+     *     responses:
+     *       200:
+     *         description: Script content
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 name:
+     *                   type: string
+     *                 content:
+     *                   type: string
+     *                   description: File content (text files only)
+     *                 size:
+     *                   type: integer
+     *                 binary:
+     *                   type: boolean
+     *       400:
+     *         description: Invalid script name
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       404:
+     *         description: Script not found
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.get('/api/scripts/:name', async (req: Request, res: Response): Promise<void> => {
       try {
         const name = req.params.name;
@@ -1288,7 +2828,59 @@ export class WebServer {
       }
     });
 
-    // Create new text script
+    /**
+     * @openapi
+     * /api/scripts:
+     *   post:
+     *     tags: [Scripts]
+     *     summary: Create new text script
+     *     description: Create a new script file. Fails if the file already exists.
+     *     requestBody:
+     *       required: true
+     *       content:
+     *         application/json:
+     *           schema:
+     *             type: object
+     *             required: [name]
+     *             properties:
+     *               name:
+     *                 type: string
+     *                 description: Script filename
+     *                 example: hello.txt
+     *               content:
+     *                 type: string
+     *                 description: Initial file content
+     *     responses:
+     *       200:
+     *         description: Script created
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 name:
+     *                   type: string
+     *       400:
+     *         description: Invalid script name
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       409:
+     *         description: Script already exists
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.post('/api/scripts', async (req: Request, res: Response): Promise<void> => {
       try {
         const { name, content } = req.body;
@@ -1320,7 +2912,61 @@ export class WebServer {
       }
     });
 
-    // Update script
+    /**
+     * @openapi
+     * /api/scripts/{name}:
+     *   put:
+     *     tags: [Scripts]
+     *     summary: Update script
+     *     description: Overwrite the content of an existing script file.
+     *     parameters:
+     *       - in: path
+     *         name: name
+     *         required: true
+     *         schema:
+     *           type: string
+     *         description: Script filename
+     *     requestBody:
+     *       required: true
+     *       content:
+     *         application/json:
+     *           schema:
+     *             type: object
+     *             properties:
+     *               content:
+     *                 type: string
+     *                 description: New file content
+     *     responses:
+     *       200:
+     *         description: Script updated
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 name:
+     *                   type: string
+     *       400:
+     *         description: Invalid script name
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       404:
+     *         description: Script not found
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.put('/api/scripts/:name', async (req: Request, res: Response): Promise<void> => {
       try {
         const name = req.params.name;
@@ -1351,7 +2997,51 @@ export class WebServer {
       }
     });
 
-    // Delete script
+    /**
+     * @openapi
+     * /api/scripts/{name}:
+     *   delete:
+     *     tags: [Scripts]
+     *     summary: Delete script
+     *     description: Delete a script file.
+     *     parameters:
+     *       - in: path
+     *         name: name
+     *         required: true
+     *         schema:
+     *           type: string
+     *         description: Script filename
+     *     responses:
+     *       200:
+     *         description: Script deleted
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 name:
+     *                   type: string
+     *       400:
+     *         description: Invalid script name
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       404:
+     *         description: Script not found
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.delete('/api/scripts/:name', async (req: Request, res: Response): Promise<void> => {
       try {
         const name = req.params.name;
@@ -1407,6 +3097,52 @@ export class WebServer {
       },
     });
 
+    /**
+     * @openapi
+     * /api/scripts/upload:
+     *   post:
+     *     tags: [Scripts]
+     *     summary: Upload script file
+     *     description: Upload any file to the scripts directory. Max 1MB.
+     *     requestBody:
+     *       required: true
+     *       content:
+     *         multipart/form-data:
+     *           schema:
+     *             type: object
+     *             required: [file]
+     *             properties:
+     *               file:
+     *                 type: string
+     *                 format: binary
+     *                 description: Script file to upload
+     *     responses:
+     *       200:
+     *         description: Upload successful
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 name:
+     *                   type: string
+     *                 size:
+     *                   type: integer
+     *       400:
+     *         description: No file uploaded
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.post(
       '/api/scripts/upload',
       scriptUpload.single('file'),
@@ -1430,7 +3166,84 @@ export class WebServer {
 
     // Replay API endpoints
 
-    // Start raw replay or XMODEM send
+    /**
+     * @openapi
+     * /api/replay/start:
+     *   post:
+     *     tags: [Replay]
+     *     summary: Start replay or XMODEM send
+     *     description: Start a raw text replay or XMODEM binary transfer of a script file over the terminal serial port.
+     *     requestBody:
+     *       required: true
+     *       content:
+     *         application/json:
+     *           schema:
+     *             type: object
+     *             required: [scriptName]
+     *             properties:
+     *               scriptName:
+     *                 type: string
+     *                 description: Script filename to send
+     *               mode:
+     *                 type: string
+     *                 enum: [raw, xmodem]
+     *                 default: raw
+     *                 description: Transfer mode
+     *               chunkSize:
+     *                 type: integer
+     *                 description: Bytes per chunk (raw mode)
+     *               interByteDelayMs:
+     *                 type: integer
+     *                 description: Delay between bytes in ms (raw mode)
+     *               interLineDelayMs:
+     *                 type: integer
+     *                 description: Delay between lines in ms (raw mode)
+     *               lineEnding:
+     *                 type: string
+     *                 enum: [cr, lf, crlf, raw]
+     *                 description: Line ending conversion (raw mode)
+     *               useCrc:
+     *                 type: boolean
+     *                 description: Use CRC-16 instead of checksum (xmodem mode)
+     *     responses:
+     *       200:
+     *         description: Transfer started
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 mode:
+     *                   type: string
+     *                 scriptName:
+     *                   type: string
+     *       400:
+     *         description: Missing scriptName or invalid name
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       404:
+     *         description: Script file not found
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       409:
+     *         description: Transfer already in progress
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     *       500:
+     *         description: Server error
+     *         content:
+     *           application/json:
+     *             schema:
+     *               $ref: '#/components/schemas/ErrorResponse'
+     */
     this.app.post('/api/replay/start', async (req: Request, res: Response): Promise<void> => {
       try {
         const { scriptName, mode, chunkSize, interByteDelayMs, interLineDelayMs, lineEnding, useCrc } = req.body;
@@ -1471,7 +3284,26 @@ export class WebServer {
       }
     });
 
-    // Cancel active replay/xmodem
+    /**
+     * @openapi
+     * /api/replay/cancel:
+     *   post:
+     *     tags: [Replay]
+     *     summary: Cancel active transfer
+     *     description: Cancel a running raw replay or XMODEM transfer.
+     *     responses:
+     *       200:
+     *         description: Cancel result
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 message:
+     *                   type: string
+     */
     this.app.post('/api/replay/cancel', (_req: Request, res: Response) => {
       if (this.replayEngine && this.replayEngine.isRunning()) {
         this.replayEngine.cancel();
@@ -1484,7 +3316,30 @@ export class WebServer {
       }
     });
 
-    // Get current transfer state
+    /**
+     * @openapi
+     * /api/replay/status:
+     *   get:
+     *     tags: [Replay]
+     *     summary: Get transfer status
+     *     description: Returns whether a transfer is active, its mode, and the last progress update.
+     *     responses:
+     *       200:
+     *         description: Transfer status
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 active:
+     *                   type: boolean
+     *                 mode:
+     *                   type: string
+     *                   enum: [raw, xmodem]
+     *                 progress:
+     *                   nullable: true
+     *                   $ref: '#/components/schemas/ReplayProgress'
+     */
     this.app.get('/api/replay/status', (_req: Request, res: Response) => {
       if (this.replayEngine && this.replayEngine.isRunning()) {
         res.json({ active: true, mode: 'raw', progress: this.replayEngine.getLastProgress() });

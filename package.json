@@ -8,7 +8,8 @@
     "create-boot-disk": "./create-boot-disk.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run docs",
+    "docs": "ts-node scripts/generate-openapi.ts",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "test": "jest",
@@ -35,7 +36,9 @@
     "play-sound": "^1.1.6",
     "serialport": "^12.0.0",
     "socket.io": "^4.6.0",
-    "sqlite3": "^5.1.7"
+    "sqlite3": "^5.1.7",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1"
   },
   "optionalDependencies": {
     "onoff": "^6.0.3"
@@ -46,6 +49,8 @@
     "@types/express": "^4.17.25",
     "@types/jest": "^29.0.0",
     "@types/node": "^20.0.0",
+    "@types/swagger-jsdoc": "^6.0.4",
+    "@types/swagger-ui-express": "^4.1.8",
     "jest": "^29.0.0",
     "ts-jest": "^29.0.0",
     "ts-node": "^10.9.0",
