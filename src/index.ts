@@ -463,7 +463,7 @@ async function main(): Promise<void> {
       }
     }
   } catch (error) {
-    console.error('Failed to initialize database:', error);
+    console.error(`Failed to initialize database at ${dbPath}:`, error);
     console.log('Continuing without database support');
   }
 

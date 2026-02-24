@@ -35,6 +35,10 @@ export class Database {
     this.dbPath = dbPath;
   }
 
+  getPath(): string {
+    return this.dbPath;
+  }
+
   /**
    * Initialize database and create tables if they don't exist
    */
