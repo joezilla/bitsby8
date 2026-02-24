@@ -406,10 +406,12 @@ async function main(): Promise<void> {
   // Initialize database and load saved drive assignments
   const { Database } = await import('./database');
   const dbPath = path.join(dataDir, 'fdcplus.db');
-  const database = new Database(dbPath);
+  let database: InstanceType<typeof Database> | undefined;
 
   try {
-    await database.initialize();
+    const db = new Database(dbPath);
+    await db.initialize();
+    database = db;
     console.log('Database initialized successfully');
 
     // Load saved drive assignments (only if web server will be enabled)

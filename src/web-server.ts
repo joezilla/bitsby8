@@ -3880,7 +3880,7 @@ export class WebServer {
         await this.database.initialize();
       } catch (error) {
         console.error('Failed to initialize database:', error);
-        throw error;
+        console.log('Continuing without database support');
       }
     }
 
