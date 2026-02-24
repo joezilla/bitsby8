@@ -19,7 +19,7 @@ import { getSerialPortManager } from './serial';
 import { getTerminalSerialManager } from './terminal-serial';
 import { FdcServer } from './server';
 import { WebServer } from './web-server';
-import { loadConfigFile, mergeConfig, getExampleConfig, DEFAULT_CONFIG_LOCATIONS } from './config';
+import { loadConfigFile, mergeConfig, getExampleConfig, DEFAULT_CONFIG_LOCATIONS, resolveDataDir, resolveDrivePath } from './config';
 import { getGpioLedController, DEFAULT_GPIO_CONFIG } from './gpio';
 import { getLogger } from './logger';
 import { resolvePortPath, listPortsWithPersistent } from './port-resolver';
@@ -59,6 +59,7 @@ function printHelp(): void {
   console.log('  --gpio-leds               Enable GPIO LED status indicators (Raspberry Pi)');
   console.log('  --no-gpio-leds            Disable GPIO LED status indicators');
   console.log('  --gpio-active-low         Use active-low logic for LEDs');
+  console.log('  --data-dir <path>         Data directory for dynamic content');
   console.log('  -c, --config <file>       Configuration file path (default: .fdcsds.config)');
   console.log('  --example-config          Print example configuration file and exit');
   console.log('  --show-persistent-paths   Show persistent path alternatives for configured ports');
@@ -102,6 +103,7 @@ async function main(): Promise<void> {
     .option('--no-gpio-leds', 'Disable GPIO LED status indicators')
     .option('--gpio-active-low', 'Use active-low logic for LEDs')
     .option('-c, --config <file>', 'Configuration file path')
+    .option('--data-dir <path>', 'Data directory for disks, cassettes, scripts, uploads, and database')
     .option('--example-config', 'Print example configuration file and exit')
     .option('--show-persistent-paths', 'Show persistent path alternatives for configured ports')
     .helpOption('-h, --help', 'Display help information');
@@ -224,7 +226,13 @@ async function main(): Promise<void> {
   // Merge config file with command line options (CLI takes precedence)
   const mergedOptions = mergeConfig(configFile, options);
 
+  // Resolve data directory
+  const dataDir = resolveDataDir(mergedOptions.dataDir);
+
   console.log('Final configuration after merge:');
+  if (mergedOptions.dataDir) {
+    console.log(`  DataDir: ${dataDir}`);
+  }
   console.log(`  Port: ${mergedOptions.port || '(not set)'}`);
   console.log(`  Baud: ${mergedOptions.baud || '(not set)'} (type: ${typeof mergedOptions.baud})`);
   console.log(`  Web: ${mergedOptions.web}`);
@@ -276,11 +284,11 @@ async function main(): Promise<void> {
   config.verbose = mergedOptions.verbose || false;
   config.debug = mergedOptions.debug || false;
 
-  // Parse drive mounts (skip empty strings)
-  if (mergedOptions.drive0 && mergedOptions.drive0.trim()) config.drives.set(0, mergedOptions.drive0);
-  if (mergedOptions.drive1 && mergedOptions.drive1.trim()) config.drives.set(1, mergedOptions.drive1);
-  if (mergedOptions.drive2 && mergedOptions.drive2.trim()) config.drives.set(2, mergedOptions.drive2);
-  if (mergedOptions.drive3 && mergedOptions.drive3.trim()) config.drives.set(3, mergedOptions.drive3);
+  // Parse drive mounts (skip empty strings, resolve relative paths against dataDir)
+  if (mergedOptions.drive0 && mergedOptions.drive0.trim()) config.drives.set(0, resolveDrivePath(mergedOptions.drive0, dataDir));
+  if (mergedOptions.drive1 && mergedOptions.drive1.trim()) config.drives.set(1, resolveDrivePath(mergedOptions.drive1, dataDir));
+  if (mergedOptions.drive2 && mergedOptions.drive2.trim()) config.drives.set(2, resolveDrivePath(mergedOptions.drive2, dataDir));
+  if (mergedOptions.drive3 && mergedOptions.drive3.trim()) config.drives.set(3, resolveDrivePath(mergedOptions.drive3, dataDir));
 
   // Parse read-only drives
   if (mergedOptions.readonly && Array.isArray(mergedOptions.readonly)) {
@@ -397,7 +405,7 @@ async function main(): Promise<void> {
 
   // Initialize database and load saved drive assignments
   const { Database } = await import('./database');
-  const dbPath = path.join(process.cwd(), 'fdcplus.db');
+  const dbPath = path.join(dataDir, 'fdcplus.db');
   const database = new Database(dbPath);
 
   try {
@@ -412,7 +420,7 @@ async function main(): Promise<void> {
 
         for (const assignment of savedAssignments) {
           try {
-            const fullPath = path.join(process.cwd(), 'disks', assignment.filename);
+            const fullPath = path.join(dataDir, 'disks', assignment.filename);
 
             // Check if file exists before mounting
             const fs = await import('fs');
@@ -473,10 +481,11 @@ async function main(): Promise<void> {
     const webConfig = {
       port: parseInt(mergedOptions.webPort || '3000'),
       host: mergedOptions.webHost || 'localhost',
-      disksDir: path.join(process.cwd(), 'disks'),
-      cassettesDir: path.join(process.cwd(), 'cassettes'),
-      scriptsDir: path.join(process.cwd(), 'scripts'),
-      uploadsDir: path.join(process.cwd(), 'uploads'),
+      disksDir: path.join(dataDir, 'disks'),
+      cassettesDir: path.join(dataDir, 'cassettes'),
+      scriptsDir: path.join(dataDir, 'scripts'),
+      uploadsDir: path.join(dataDir, 'uploads'),
+      dataDir: dataDir,
     };
 
     // Pass preferred terminal settings from config
@@ -524,7 +533,7 @@ async function main(): Promise<void> {
 
       // Clean up temp upload files
       try {
-        const uploadsReplayDir = path.join(process.cwd(), 'uploads', 'replay');
+        const uploadsReplayDir = path.join(dataDir, 'uploads', 'replay');
         await fs.rm(uploadsReplayDir, { recursive: true, force: true });
       } catch {
         // Best effort cleanup

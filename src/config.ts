@@ -39,6 +39,9 @@ export interface ConfigFile {
   terminalBaud?: number;
   terminalAutoconnect?: boolean;
 
+  // Data directory
+  dataDir?: string;
+
   // GPIO LED options
   gpioLeds?: GpioLedConfig;
 }
@@ -213,6 +216,14 @@ function validateConfig(config: any): ConfigFile {
     validated.terminalAutoconnect = config.terminalAutoconnect;
   }
 
+  // Data directory
+  if (config.dataDir !== undefined) {
+    if (typeof config.dataDir !== 'string') {
+      throw new Error('Config error: "dataDir" must be a string');
+    }
+    validated.dataDir = config.dataDir;
+  }
+
   // GPIO LED options
   if (config.gpioLeds !== undefined) {
     if (typeof config.gpioLeds !== 'object' || config.gpioLeds === null) {
@@ -233,6 +244,7 @@ export function mergeConfig(configFile: ConfigFile | null, cmdLineOptions: any):
   const merged = { ...configFile };
 
   // Override with command line options if provided
+  if (cmdLineOptions.dataDir !== undefined) merged.dataDir = cmdLineOptions.dataDir;
   if (cmdLineOptions.port !== undefined) merged.port = cmdLineOptions.port;
   if (cmdLineOptions.baud !== undefined) merged.baud = cmdLineOptions.baud;
 
@@ -279,6 +291,11 @@ export function mergeConfig(configFile: ConfigFile | null, cmdLineOptions: any):
  */
 export function getExampleConfig(): string {
   const example = {
+    // Data directory for disks, cassettes, scripts, uploads, and database
+    // When set, all dynamic content paths resolve relative to this directory
+    // When null/unset, defaults to the current working directory
+    dataDir: null as string | null,
+
     // Serial port for FDC+ controller (required)
     // Volatile path (may change after reboot):
     port: "/dev/ttyUSB0",
@@ -348,4 +365,26 @@ export function getExampleConfig(): string {
   };
 
   return JSON.stringify(example, null, 2);
+}
+
+/**
+ * Resolve the data directory path.
+ * Returns path.resolve(dataDir) if set, otherwise process.cwd().
+ */
+export function resolveDataDir(dataDir?: string): string {
+  if (dataDir) {
+    return path.resolve(dataDir);
+  }
+  return process.cwd();
+}
+
+/**
+ * Resolve a drive image path relative to the data directory.
+ * Absolute paths are returned as-is; relative paths resolve against dataDir.
+ */
+export function resolveDrivePath(drivePath: string, dataDir: string): string {
+  if (path.isAbsolute(drivePath)) {
+    return drivePath;
+  }
+  return path.resolve(dataDir, drivePath);
 }

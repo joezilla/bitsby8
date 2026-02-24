@@ -2,6 +2,11 @@
   "// Comment": "Example FDC+ Serial Drive Server Configuration File",
   "// Instructions": "Copy this file to .fdcsds.config or .config/fdcsds.json and customize",
 
+  "// Data directory for disks, cassettes, scripts, uploads, and database": "",
+  "// When set, all dynamic content paths resolve relative to this directory": "",
+  "// When null/unset, defaults to the current working directory": "",
+  "dataDir": null,
+
   "// Serial port for FDC+ controller (required)": "",
   "port": "/dev/ttyUSB0",
   "baud": 230400,

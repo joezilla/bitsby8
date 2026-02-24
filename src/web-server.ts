@@ -33,6 +33,7 @@ export interface WebServerConfig {
   cassettesDir: string;
   scriptsDir: string;
   uploadsDir?: string;
+  dataDir?: string;
 }
 
 export interface PreferredTerminalSettings {
@@ -87,7 +88,7 @@ export class WebServer {
     if (options?.database) {
       this.database = options.database;
     } else {
-      const dbPath = path.join(process.cwd(), 'fdcplus.db');
+      const dbPath = path.join(this.config.dataDir || process.cwd(), 'fdcplus.db');
       this.database = new Database(dbPath);
     }
 
