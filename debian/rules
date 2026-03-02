@@ -64,6 +64,10 @@ override_dh_auto_install:
 
 	# Create runtime directories
 	mkdir -p debian/fdcsds/var/lib/fdcsds
+	mkdir -p debian/fdcsds/var/lib/fdcsds/disks
+	mkdir -p debian/fdcsds/var/lib/fdcsds/scripts
+	mkdir -p debian/fdcsds/var/lib/fdcsds/uploads
+	mkdir -p debian/fdcsds/var/lib/fdcsds/cassettes
 	mkdir -p debian/fdcsds/var/log/fdcsds
 
 	# Install systemd service file

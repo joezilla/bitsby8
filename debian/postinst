@@ -35,13 +35,31 @@ case "$1" in
         chmod 755 /var/lib/fdcsds
         chmod 755 /var/log/fdcsds
 
+        # Create data subdirectories
+        for dir in disks scripts uploads cassettes; do
+            mkdir -p /var/lib/fdcsds/$dir
+        done
+        chown -R fdcsds:fdcsds /var/lib/fdcsds
+
+        # Copy sample disk images to writable data directory (skip if already present)
+        if [ -d /usr/share/fdcsds/disks ]; then
+            for img in /usr/share/fdcsds/disks/*; do
+                [ -f "$img" ] || continue
+                base=$(basename "$img")
+                if [ ! -f "/var/lib/fdcsds/disks/$base" ]; then
+                    cp "$img" "/var/lib/fdcsds/disks/$base"
+                    chown fdcsds:fdcsds "/var/lib/fdcsds/disks/$base"
+                fi
+            done
+        fi
+
         # Create default configuration file if it doesn't exist
         if [ ! -f /etc/fdcsds/fdcsds.config.json ]; then
             cat > /etc/fdcsds/fdcsds.config.json <<'EOF'
 {
   "port": "/dev/ttyUSB0",
   "baud": 230400,
-  "drive0": "/usr/share/fdcsds/disks/cpm22.dsk",
+  "drive0": "disks/cpm22.dsk",
   "drive1": null,
   "drive2": null,
   "drive3": null,
