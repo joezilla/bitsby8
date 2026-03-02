@@ -134,8 +134,9 @@ export class App {
     // Request initial status
     this.client.requestStatus();
 
-    // Handle terminal resize
-    process.stdout.on('resize', () => {
+    // Handle terminal resize — use SIGWINCH directly since the stdout
+    // 'resize' event can fail to fire in alternate-screen / raw-stdin mode.
+    process.on('SIGWINCH', () => {
       this.screen.onResize();
       this.renderStatusBar();
       this.inputLine.render();
@@ -212,25 +213,16 @@ export class App {
   }
 
   private renderStatusBar(): void {
-    if (this.latestStatus && this.latestTerminalStatus) {
-      this.statusBar.render(
-        this.latestStatus,
-        this.latestTerminalStatus,
-        this.latestReplay ?? undefined,
-      );
-    } else if (this.latestStatus) {
-      // Use a default terminal status if we haven't received one yet
-      const defaultTermStatus: TerminalStatus = {
+    if (this.latestStatus) {
+      const termStatus = this.latestTerminalStatus ?? {
         connected: false,
         device: '',
         config: {},
         preferred: {},
       };
-      this.statusBar.render(
-        this.latestStatus,
-        defaultTermStatus,
-        this.latestReplay ?? undefined,
-      );
+      this.statusBar.render(this.latestStatus, termStatus, this.latestReplay ?? undefined);
+    } else {
+      this.statusBar.renderDisconnected(this.serverUrl);
     }
     // Ensure input line cursor is restored after status bar update
     this.inputLine.render();
