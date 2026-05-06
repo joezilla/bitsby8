@@ -15,8 +15,8 @@
   "// Use null for empty drives": "",
   "drive0": "disks/cpm22.dsk",
   "drive1": "disks/games.dsk",
-  "drive2": "",
-  "drive3": "",
+  "drive2": null,
+  "drive3": null,
 
   "// Read-only drives (array of drive numbers 0-3)": "",
   "// Protect drives from accidental writes": "",

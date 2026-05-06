@@ -12,6 +12,8 @@ override_dh_auto_build:
 	npm ci
 	# Compile TypeScript
 	npm run build
+	# Build Svelte frontend
+	cd frontend && npm ci && npm run build
 	# Remove devDependencies to reduce package size
 	# Set NODE_ENV=production before pruning to ensure only production deps remain
 	NODE_ENV=production npm prune --production
@@ -23,14 +25,15 @@ override_dh_auto_test:
 
 override_dh_auto_clean:
 	# Clean build artifacts
-	rm -rf dist node_modules
+	rm -rf dist node_modules frontend/dist frontend/node_modules
 	dh_auto_clean
 
 override_dh_auto_install:
 	# Install application files to /usr/lib/fdcsds
 	mkdir -p debian/fdcsds/usr/lib/fdcsds
 	cp -r dist debian/fdcsds/usr/lib/fdcsds/
-	cp -r public debian/fdcsds/usr/lib/fdcsds/
+	mkdir -p debian/fdcsds/usr/lib/fdcsds/frontend
+	cp -r frontend/dist debian/fdcsds/usr/lib/fdcsds/frontend/dist
 	cp -r node_modules debian/fdcsds/usr/lib/fdcsds/
 	cp package.json debian/fdcsds/usr/lib/fdcsds/
 	cp package-lock.json debian/fdcsds/usr/lib/fdcsds/

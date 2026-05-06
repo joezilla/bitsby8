@@ -87,9 +87,9 @@ describe('Configuration Module', () => {
       await expect(loadConfigFile('test.config')).rejects.toThrow('"baud" must be a number');
     });
 
-    test('should validate drive paths as strings', async () => {
+    test('should validate drive paths as strings or null', async () => {
       mockReadFile.mockResolvedValue(JSON.stringify({ drive0: 123 }));
-      await expect(loadConfigFile('test.config')).rejects.toThrow('"drive0" must be a string');
+      await expect(loadConfigFile('test.config')).rejects.toThrow('"drive0" must be a string or null');
     });
 
     test('should validate readonly as array', async () => {
@@ -107,14 +107,42 @@ describe('Configuration Module', () => {
       await expect(loadConfigFile('test.config')).rejects.toThrow('"verbose" must be a boolean');
     });
 
-    test('should validate logFile as string', async () => {
+    test('should validate logFile as string or null', async () => {
       mockReadFile.mockResolvedValue(JSON.stringify({ logFile: 123 }));
-      await expect(loadConfigFile('test.config')).rejects.toThrow('"logFile" must be a string');
+      await expect(loadConfigFile('test.config')).rejects.toThrow('"logFile" must be a string or null');
     });
 
-    test('should validate dataDir as string', async () => {
+    test('should validate dataDir as string or null', async () => {
       mockReadFile.mockResolvedValue(JSON.stringify({ dataDir: 123 }));
-      await expect(loadConfigFile('test.config')).rejects.toThrow('"dataDir" must be a string');
+      await expect(loadConfigFile('test.config')).rejects.toThrow('"dataDir" must be a string or null');
+    });
+
+    test('should accept null for drive paths', async () => {
+      mockReadFile.mockResolvedValue(JSON.stringify({ drive2: null, drive3: null }));
+      const config = await loadConfigFile('test.config');
+      expect(config).toEqual({ drive2: null, drive3: null });
+    });
+
+    test('should accept null for dataDir', async () => {
+      mockReadFile.mockResolvedValue(JSON.stringify({ dataDir: null }));
+      const config = await loadConfigFile('test.config');
+      expect(config).toEqual({ dataDir: null });
+    });
+
+    test('should accept null for logFile', async () => {
+      mockReadFile.mockResolvedValue(JSON.stringify({ logFile: null }));
+      const config = await loadConfigFile('test.config');
+      expect(config).toEqual({ logFile: null });
+    });
+
+    test('should successfully parse the output of getExampleConfig()', async () => {
+      const exampleJson = getExampleConfig();
+      mockReadFile.mockResolvedValue(exampleJson);
+      const config = await loadConfigFile('test.config');
+      expect(config).toBeDefined();
+      expect(config!.dataDir).toBeNull();
+      expect(config!.drive2).toBeNull();
+      expect(config!.drive3).toBeNull();
     });
 
     test('should validate webPort as number', async () => {
@@ -358,6 +386,10 @@ describe('Configuration Module', () => {
   describe('resolveDataDir', () => {
     test('should return process.cwd() when dataDir is undefined', () => {
       expect(resolveDataDir(undefined)).toBe(process.cwd());
+    });
+
+    test('should return process.cwd() when dataDir is null', () => {
+      expect(resolveDataDir(null)).toBe(process.cwd());
     });
 
     test('should return process.cwd() when dataDir is empty string', () => {

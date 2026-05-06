@@ -10,24 +10,21 @@ import swaggerUi from 'swagger-ui-express';
 import { openapiDefinition } from '../openapi-def';
 
 export function setupStaticMiddleware(app: express.Application): void {
-  // Prefer Svelte frontend build (frontend/dist/), fall back to legacy public/
+  // Svelte frontend build output
   const frontendDist = path.resolve(process.cwd(), 'frontend', 'dist');
-  const repoPublic = path.resolve(process.cwd(), 'public');
-  const distPublic = path.resolve(__dirname, '../../public');
+  const distFrontend = path.resolve(__dirname, '../../frontend/dist');
 
   let publicDir: string;
   if (existsSync(frontendDist)) {
     publicDir = frontendDist;
-  } else if (existsSync(repoPublic)) {
-    publicDir = repoPublic;
   } else {
-    publicDir = distPublic;
+    publicDir = distFrontend;
   }
 
   if (existsSync(publicDir)) {
     app.use(express.static(publicDir));
   } else {
-    console.warn('Warning: public assets directory not found');
+    console.warn('Warning: frontend build not found — run "cd frontend && npm run build"');
   }
 
   // Swagger UI
@@ -40,7 +37,7 @@ export function setupStaticMiddleware(app: express.Application): void {
     if (existsSync(publicDir)) {
       res.sendFile(path.join(publicDir, 'index.html'));
     } else {
-      res.status(404).send('Web interface not found');
+      res.status(404).send('Web interface not found — run "cd frontend && npm run build"');
     }
   });
 }

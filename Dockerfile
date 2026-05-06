@@ -11,6 +11,12 @@ COPY tsconfig.json ./
 COPY src/ ./src/
 RUN npm run build
 
+# Build Svelte frontend
+COPY frontend/package*.json ./frontend/
+RUN cd frontend && npm ci
+COPY frontend/ ./frontend/
+RUN cd frontend && npm run build
+
 # Production stage
 FROM node:18-bookworm-slim
 
@@ -27,7 +33,7 @@ RUN npm ci --omit=dev
 
 # Copy built application
 COPY --from=build /app/dist ./dist
-COPY public/ ./public/
+COPY --from=build /app/frontend/dist ./frontend/dist
 
 # Create directories for data
 RUN mkdir -p /data/disks /data/cassettes /data/scripts

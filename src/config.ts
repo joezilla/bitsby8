@@ -15,11 +15,11 @@ export interface ConfigFile {
   port?: string;
   baud?: number;
 
-  // Drive mounts
-  drive0?: string;
-  drive1?: string;
-  drive2?: string;
-  drive3?: string;
+  // Drive mounts (null means empty/no disk)
+  drive0?: string | null;
+  drive1?: string | null;
+  drive2?: string | null;
+  drive3?: string | null;
 
   // Read-only drives
   readonly?: number[];
@@ -27,7 +27,7 @@ export interface ConfigFile {
   // Display options
   verbose?: boolean;
   debug?: boolean;
-  logFile?: string;   // Log file path (for file-based logging)
+  logFile?: string | null;   // Log file path (null means no log file)
 
   // Web interface options
   web?: boolean;
@@ -39,11 +39,11 @@ export interface ConfigFile {
   terminalBaud?: number;
   terminalAutoconnect?: boolean;
 
-  // Data directory
-  dataDir?: string;
+  // Data directory (null means current working directory)
+  dataDir?: string | null;
 
-  // API key for optional authentication
-  apiKey?: string;
+  // API key for optional authentication (null means no auth)
+  apiKey?: string | null;
 
   // GPIO LED options
   gpioLeds?: GpioLedConfig;
@@ -131,14 +131,17 @@ function validateConfig(config: any): ConfigFile {
     validated.baud = config.baud;
   }
 
-  // Drive mounts
+  // Drive mounts (null means empty/no disk)
   for (let i = 0; i <= 3; i++) {
     const key = `drive${i}` as keyof ConfigFile;
     if (config[key] !== undefined) {
-      if (typeof config[key] !== 'string') {
-        throw new Error(`Config error: "${key}" must be a string`);
+      if (config[key] === null) {
+        (validated as any)[key] = null;
+      } else if (typeof config[key] !== 'string') {
+        throw new Error(`Config error: "${key}" must be a string or null`);
+      } else {
+        (validated as any)[key] = config[key];
       }
-      (validated as any)[key] = config[key];
     }
   }
 
@@ -169,10 +172,13 @@ function validateConfig(config: any): ConfigFile {
   }
 
   if (config.logFile !== undefined) {
-    if (typeof config.logFile !== 'string') {
-      throw new Error('Config error: "logFile" must be a string');
+    if (config.logFile === null) {
+      validated.logFile = null;
+    } else if (typeof config.logFile !== 'string') {
+      throw new Error('Config error: "logFile" must be a string or null');
+    } else {
+      validated.logFile = config.logFile;
     }
-    validated.logFile = config.logFile;
   }
 
   // Web interface options
@@ -219,20 +225,26 @@ function validateConfig(config: any): ConfigFile {
     validated.terminalAutoconnect = config.terminalAutoconnect;
   }
 
-  // Data directory
+  // Data directory (null means current working directory)
   if (config.dataDir !== undefined) {
-    if (typeof config.dataDir !== 'string') {
-      throw new Error('Config error: "dataDir" must be a string');
+    if (config.dataDir === null) {
+      validated.dataDir = null;
+    } else if (typeof config.dataDir !== 'string') {
+      throw new Error('Config error: "dataDir" must be a string or null');
+    } else {
+      validated.dataDir = config.dataDir;
     }
-    validated.dataDir = config.dataDir;
   }
 
-  // API key
+  // API key (null means no auth)
   if (config.apiKey !== undefined) {
-    if (typeof config.apiKey !== 'string') {
-      throw new Error('Config error: "apiKey" must be a string');
+    if (config.apiKey === null) {
+      validated.apiKey = null;
+    } else if (typeof config.apiKey !== 'string') {
+      throw new Error('Config error: "apiKey" must be a string or null');
+    } else {
+      validated.apiKey = config.apiKey;
     }
-    validated.apiKey = config.apiKey;
   }
 
   // GPIO LED options
@@ -386,7 +398,7 @@ export function getExampleConfig(): string {
  * Resolve the data directory path.
  * Returns path.resolve(dataDir) if set, otherwise process.cwd().
  */
-export function resolveDataDir(dataDir?: string): string {
+export function resolveDataDir(dataDir?: string | null): string {
   if (dataDir) {
     return path.resolve(dataDir);
   }

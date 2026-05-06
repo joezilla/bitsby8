@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 - Source lives in `src/` with discrete modules per concern: `index.ts` (CLI entry), `server.ts` (command handling), `drive.ts` (disk I/O), `serial.ts` (FDC+ comms), `web-server.ts` (Express + Socket.IO), `ui/` (terminal UI), and `gpio/` (LED control). Compiled output lands in `dist/` via `tsc`.
-- Tests sit in `test/` and target modules via `*.test.ts`. Web assets and demo disks live under `public/` and `disks/`; hardware docs and KiCad artifacts stay under `kicad/` and `images/`.
+- Tests sit in `test/` and target modules via `*.test.ts`. The Svelte frontend lives in `frontend/` (build output in `frontend/dist/`); demo disks live under `disks/`; hardware docs and KiCad artifacts stay under `kicad/` and `images/`.
 - Configuration examples: copy `fdcsds.config.example` or pipe `fdcsds --example-config` to `.fdcsds.config` at the repo root.
 
 ## Build, Test, and Development Commands

@@ -12,46 +12,94 @@ TypeScript port of the FDC+ Serial Drive Server - A Serial Disk Server compatibl
 
 This is a complete TypeScript rewrite of the original C implementation. The TypeScript version provides:
 
-- Modern async/await architecture
+- Modern async/await architecture with modular Express backend
 - Type-safe protocol implementation
-- Better error handling
+- Better error handling and structured logging (pino)
 - Cross-platform support (Linux, macOS)
-- **Web interface with real-time status updates**
-- **VT102 terminal emulator for second serial port**
-- **GPIO LED status indicators for Raspberry Pi**
-- Easier maintenance and extensibility
+- **Svelte 5 + Tailwind 4 web interface** with real-time status updates
+- **VT102 terminal emulator** for second serial port
+- **MCP server** with 29 tools for AI assistant integration
+- **GPIO LED status indicators** for Raspberry Pi
+- **OpenAPI/Swagger documentation** at `/api/docs`
+- SQLite database with WAL mode for persistent state
+- Docker and Debian package deployment support
 
 ---
 
 ## Architecture
 
-The codebase is organized into modular TypeScript components:
+The codebase is organized into a modular backend and a Svelte single-page application frontend:
 
 ```
 src/
-├── index.ts            # Entry point with CLI parsing
-├── server.ts           # Main server loop & command processing
-├── drive.ts            # Drive management & disk I/O
-├── serial.ts           # FDC+ serial port communication
-├── terminal-serial.ts  # Terminal serial port manager
-├── web-server.ts       # Web interface & REST API
-├── protocol.ts         # FDC+ protocol definitions & types
-└── gpio/               # GPIO LED status indicators
-    ├── gpio-manager.ts      # Low-level GPIO control
-    └── gpio-controller.ts   # High-level LED state management
+├── index.ts              # Entry point with CLI parsing
+├── server.ts             # Main server loop & command processing
+├── drive.ts              # Drive management & disk I/O
+├── serial.ts             # FDC+ serial port communication
+├── terminal-serial.ts    # Terminal serial port manager
+├── web-server.ts         # Express orchestrator (composes modules below)
+├── protocol.ts           # FDC+ protocol definitions & types
+├── config.ts             # Configuration file loading & validation
+├── database.ts           # SQLite database management
+├── mcp-server.ts         # MCP server (29 AI-accessible tools)
+├── openapi-def.ts        # OpenAPI/Swagger specification
+├── types.ts              # Shared TypeScript types
+├── routes/               # Express route handlers
+│   ├── cassettes.ts      # Cassette tape management
+│   ├── config.ts         # Runtime configuration
+│   ├── cpm.ts            # CP/M filesystem utilities
+│   ├── disk-serving.ts   # Disk image serving control
+│   ├── drives.ts         # Drive mount/unmount/status
+│   ├── health.ts         # Health check endpoints
+│   ├── images.ts         # Disk image library
+│   ├── replay.ts         # Script replay & XMODEM transfers
+│   ├── scripts.ts        # Script management
+│   ├── serial.ts         # Serial port management
+│   └── terminal.ts       # Terminal serial management
+├── services/             # Business logic
+│   ├── audio.ts          # Audio/cassette processing
+│   ├── disk-serving.ts   # Disk serving logic
+│   ├── file-listing.ts   # File/directory listing
+│   ├── status.ts         # Status broadcasting
+│   └── transfer.ts       # File transfer logic
+├── middleware/            # Express middleware
+│   ├── auth.ts           # API key authentication
+│   ├── security.ts       # CORS, CSP, rate limiting
+│   └── static.ts         # Static file serving & Swagger UI
+├── websocket/
+│   └── handlers.ts       # Socket.IO event handlers
+├── utils/
+│   └── safe-path.ts      # Path traversal prevention
+└── gpio/                 # GPIO LED status indicators
+    ├── gpio-manager.ts
+    └── gpio-controller.ts
+
+frontend/                  # Svelte 5 + Vite + Tailwind 4 SPA
+├── src/
+│   ├── App.svelte         # Root application component
+│   ├── lib/
+│   │   ├── components/    # Reusable UI components
+│   │   │   ├── chat/      # AI assistant panel
+│   │   │   └── shared/    # StatusLed, LedPanel, Toast
+│   │   ├── pages/         # Page components (Terminal, Disks, Cassettes, Scripts, Config)
+│   │   ├── services/      # API client & Socket.IO
+│   │   ├── stores/        # Svelte stores (state management)
+│   │   └── types/         # TypeScript type definitions
+│   └── main.ts
+└── vite.config.ts
 ```
 
 ### Key Modules
 
-- **protocol.ts**: Type definitions, constants, and protocol structures
-- **drive.ts**: Async file operations using Node.js fs/promises
-- **serial.ts**: FDC+ serial communication using the `serialport` package
-- **terminal-serial.ts**: Terminal serial port manager for VT102 emulation
-- **web-server.ts**: Express-based REST API and Socket.IO WebSocket server
-- **gpio-manager.ts**: Low-level GPIO pin control for LED indicators
-- **gpio-controller.ts**: High-level LED state management for drives and terminal
-- **server.ts**: Command processing (STAT, READ, WRIT)
-- **index.ts**: CLI argument parsing and initialization
+- **server.ts / protocol.ts**: FDC+ command processing (STAT, READ, WRIT) and protocol definitions
+- **drive.ts**: Async disk image I/O using Node.js fs/promises
+- **serial.ts / terminal-serial.ts**: Serial port communication for FDC+ controller and VT102 terminal
+- **web-server.ts**: Express orchestrator that composes route, service, and middleware modules
+- **routes/**: 11 Express route modules covering drives, images, cassettes, scripts, terminal, etc.
+- **services/**: Business logic separated from HTTP handling (status, transfers, audio, file listing)
+- **middleware/**: Security (Helmet, CORS, rate limiting), API key auth, and static file serving
+- **mcp-server.ts**: MCP server exposing 29 tools for AI assistant integration via stdio transport
+- **frontend/**: Modern Svelte 5 SPA with real-time Socket.IO updates, xterm.js terminal, and retro CRT mode
 
 ---
 
@@ -665,24 +713,31 @@ dd if=/dev/zero of=minidisk.dsk bs=4384 count=17
 ### Project Structure
 
 ```
-fds-ts/
-├── src/               # TypeScript source
-├── dist/              # Compiled JavaScript (generated)
+fdcplus-web/
+├── src/               # Backend TypeScript source
+├── frontend/          # Svelte 5 frontend source
+├── dist/              # Compiled backend JavaScript (generated)
+├── frontend/dist/     # Compiled frontend assets (generated)
 ├── disks/             # Disk image storage
-├── test/              # Unit tests (future)
-├── package.json       # Dependencies & scripts
+├── test/              # Unit tests (Jest)
+├── package.json       # Backend dependencies & scripts
 ├── tsconfig.json      # TypeScript configuration
-└── README-TS.md       # This file
+└── README.md          # This file
 ```
 
 ### NPM Scripts
 
 ```bash
-npm run build      # Compile TypeScript
+npm run build      # Compile TypeScript + generate OpenAPI docs
 npm run start      # Run compiled code
 npm run dev        # Run with ts-node (development)
 npm run clean      # Remove dist/
-npm test           # Run tests (future)
+npm test           # Run Jest tests
+
+# Frontend (from frontend/ directory)
+cd frontend
+npm run dev        # Vite dev server with HMR
+npm run build      # Production build to frontend/dist/
 ```
 
 ### Type Checking
@@ -693,26 +748,33 @@ npx tsc --noEmit
 
 ### Dependencies
 
-**Runtime:**
+**Backend Runtime:**
 - `serialport` ^12.0.0 - Serial port I/O
 - `commander` ^11.0.0 - CLI parsing
 - `express` ^4.18.0 - Web server
 - `socket.io` ^4.6.0 - WebSocket communication
+- `better-sqlite3` - SQLite database with WAL mode
 - `cors` ^2.8.5 - CORS support
+- `helmet` - Security headers
+- `pino` - Structured logging
+- `swagger-jsdoc` / `swagger-ui-express` - OpenAPI documentation
+- `@anthropic-ai/sdk` - MCP server SDK
 
 **Optional (Raspberry Pi only):**
-- `onoff` ^6.0.3 - GPIO control for LED indicators (optional dependency, only needed on Linux/Raspberry Pi)
+- `onoff` ^6.0.3 - GPIO control for LED indicators
 
-**Frontend:**
-- `xterm` ^5.3.0 - Terminal emulator (CDN)
-- `xterm-addon-fit` ^0.8.0 - Terminal resize addon (CDN)
+**Frontend (Svelte SPA):**
+- `svelte` ^5.0.0 - UI framework
+- `vite` ^6.0.0 - Build tool
+- `tailwindcss` ^4.0.0 - Utility-first CSS
+- `@xterm/xterm` ^6.0.0 - Terminal emulator (bundled)
+- `socket.io-client` ^4.6.0 - Real-time updates
+- `lucide-svelte` - Icon library
 
 **Development:**
 - `typescript` ^5.3.0
-- `@types/node` ^20.0.0
-- `@types/express` ^4.17.0
-- `ts-node` ^10.9.0
 - `jest` ^29.0.0
+- `ts-node` ^10.9.0
 
 ---
 
@@ -982,16 +1044,19 @@ fdcsds -p /dev/ttyUSB0 -0 disk.dsk -v -d
 ## Future Enhancements
 
 - [x] Unit tests with Jest
-- [x] Web-based UI option
+- [x] Web-based UI option (Svelte 5 SPA)
 - [x] REST API for remote management
 - [x] VT102 terminal emulator
 - [x] GPIO LED status indicators
+- [x] Disk image upload via web interface
+- [x] MCP server for AI assistant integration
+- [x] OpenAPI/Swagger documentation
+- [x] Modular backend architecture
 - [ ] Integration tests with mock serial port
 - [ ] Support for more drive types
 - [ ] Disk image conversion utilities
 - [ ] Performance benchmarking
 - [ ] Terminal recording/playback
-- [ ] Disk image upload via web interface
 - [ ] PWM brightness control for LEDs
 - [ ] GPIO button inputs for physical control
 
