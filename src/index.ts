@@ -106,6 +106,7 @@ async function main(): Promise<void> {
     .option('--data-dir <path>', 'Data directory for disks, cassettes, scripts, uploads, and database')
     .option('--example-config', 'Print example configuration file and exit')
     .option('--show-persistent-paths', 'Show persistent path alternatives for configured ports')
+    .option('--mcp', 'Start as MCP (Model Context Protocol) server over stdio')
     .helpOption('-h, --help', 'Display help information');
 
   program.parse(process.argv);
@@ -475,6 +476,51 @@ async function main(): Promise<void> {
       serialManager,
       config
     );
+  }
+
+  // Start MCP server if requested (mutually exclusive with web server)
+  if (mergedOptions.mcp) {
+    const { startMcpStdio } = await import('./mcp-server');
+    const { Server: SocketIOServer } = await import('socket.io');
+
+    // Build a minimal Dependencies object for MCP
+    // MCP doesn't need a real Socket.IO server, but the deps interface requires it
+    const http = await import('http');
+    const dummyHttpServer = http.createServer();
+    const dummyIo = new SocketIOServer(dummyHttpServer);
+
+    const mcpDeps = {
+      config: {
+        port: 0,
+        host: 'localhost',
+        disksDir: path.join(dataDir, 'disks'),
+        cassettesDir: path.join(dataDir, 'cassettes'),
+        scriptsDir: path.join(dataDir, 'scripts'),
+        uploadsDir: path.join(dataDir, 'uploads'),
+        dataDir: dataDir,
+      },
+      driveManager,
+      serialManager,
+      terminalManager,
+      preferredTerminalSettings: {
+        port: mergedOptions.terminalPort,
+        baud: mergedOptions.terminalBaud,
+      },
+      io: dummyIo,
+      database: database!,
+      runtimeConfig: mergedOptions,
+      server: server,
+      diskServingEnabled: server !== null,
+      serverTask: null,
+      replayEngine: null,
+      xmodemSender: null,
+      audioPlayer: null,
+      currentAudioProcess: null,
+    };
+
+    // Start MCP server over stdio (blocks until client disconnects)
+    await startMcpStdio(mcpDeps as any);
+    return;
   }
 
   // Create web server if enabled

@@ -1,36 +1,210 @@
 /**
- * Logger Module - File-based logging support
+ * Logger Module - Structured logging with pino
  *
- * Provides a simple logging system that can write to files
- * while also maintaining console output when appropriate.
+ * Creates a pino logger instance and optionally overrides console methods
+ * so all existing console.log/error/warn calls produce structured output.
+ *
+ * In development: pretty-printed, colorized output.
+ * In production: JSON structured logs (or file output if logFile is set).
  */
 
+import pino from 'pino';
 import * as fs from 'fs';
 import * as path from 'path';
 
+let rootLogger: pino.Logger | null = null;
+
+// Store original console methods for restore
+const originalConsole = {
+  log: console.log.bind(console),
+  error: console.error.bind(console),
+  warn: console.warn.bind(console),
+};
+
+export interface LoggerOptions {
+  logFile?: string | null;
+  consoleEnabled?: boolean;
+  level?: string;
+  pretty?: boolean;
+}
+
 /**
- * Logger class for managing log output
+ * Initialize the global pino logger.
+ *
+ * @param options.logFile - Path to log file (optional). If set, logs go to file.
+ * @param options.consoleEnabled - Whether to also output to console (default: true).
+ * @param options.level - Log level (default: 'info').
+ * @param options.pretty - Use pino-pretty for console output (default: true in dev).
  */
-export class Logger {
-  private static instance: Logger | null = null;
-  private logStream: fs.WriteStream | null = null;
-  private logFile: string | null = null;
-  private consoleEnabled: boolean = true;
+export async function initializeLogger(options: LoggerOptions = {}): Promise<void> {
+  const {
+    logFile = null,
+    consoleEnabled = true,
+    level = 'info',
+    pretty = process.env.NODE_ENV !== 'production',
+  } = options;
 
-  // Store original console methods
-  private originalConsoleLog: typeof console.log;
-  private originalConsoleError: typeof console.error;
-  private originalConsoleWarn: typeof console.warn;
+  // Build transport targets
+  const targets: pino.TransportTargetOptions[] = [];
 
-  private constructor() {
-    this.originalConsoleLog = console.log.bind(console);
-    this.originalConsoleError = console.error.bind(console);
-    this.originalConsoleWarn = console.warn.bind(console);
+  if (consoleEnabled) {
+    if (pretty) {
+      targets.push({
+        target: 'pino-pretty',
+        options: {
+          colorize: true,
+          translateTime: 'SYS:HH:MM:ss.l',
+          ignore: 'pid,hostname',
+        },
+        level,
+      });
+    } else {
+      targets.push({
+        target: 'pino/file',
+        options: { destination: 1 }, // stdout
+        level,
+      });
+    }
   }
 
-  /**
-   * Get singleton instance
-   */
+  if (logFile) {
+    const logDir = path.dirname(path.resolve(logFile));
+    try {
+      await fs.promises.mkdir(logDir, { recursive: true });
+    } catch { /* directory may exist */ }
+
+    targets.push({
+      target: 'pino/file',
+      options: { destination: path.resolve(logFile) },
+      level,
+    });
+  }
+
+  if (targets.length === 0) {
+    // No targets — create a silent logger
+    rootLogger = pino({ level: 'silent' });
+  } else if (targets.length === 1) {
+    rootLogger = pino({
+      level,
+      transport: targets[0],
+    });
+  } else {
+    rootLogger = pino({
+      level,
+      transport: { targets },
+    });
+  }
+
+  // Override console methods to route through pino
+  overrideConsole();
+}
+
+/**
+ * Get the root pino logger. Creates a default one if not initialized.
+ */
+export function getPinoLogger(): pino.Logger {
+  if (!rootLogger) {
+    // Create a simple default logger (pretty in dev, JSON in prod)
+    const pretty = process.env.NODE_ENV !== 'production';
+    if (pretty) {
+      rootLogger = pino({
+        level: 'info',
+        transport: {
+          target: 'pino-pretty',
+          options: {
+            colorize: true,
+            translateTime: 'SYS:HH:MM:ss.l',
+            ignore: 'pid,hostname',
+          },
+        },
+      });
+    } else {
+      rootLogger = pino({ level: 'info' });
+    }
+    overrideConsole();
+  }
+  return rootLogger;
+}
+
+/**
+ * Create a child logger with a module name.
+ * Usage: const log = createLogger('drives');
+ */
+export function createLogger(module: string): pino.Logger {
+  return getPinoLogger().child({ module });
+}
+
+/**
+ * Override console.log/error/warn to route through pino.
+ * This ensures all existing console calls across the codebase
+ * produce structured log output.
+ */
+function overrideConsole(): void {
+  if (!rootLogger) return;
+
+  const pinoInst = rootLogger;
+
+  console.log = (...args: any[]) => {
+    pinoInst.info(formatArgs(args));
+  };
+
+  console.error = (...args: any[]) => {
+    pinoInst.error(formatArgs(args));
+  };
+
+  console.warn = (...args: any[]) => {
+    pinoInst.warn(formatArgs(args));
+  };
+}
+
+/**
+ * Format console-style arguments into a single message string.
+ */
+function formatArgs(args: any[]): string {
+  return args.map(arg => {
+    if (typeof arg === 'object' && arg !== null) {
+      if (arg instanceof Error) {
+        return arg.stack || arg.message;
+      }
+      try {
+        return JSON.stringify(arg);
+      } catch {
+        return String(arg);
+      }
+    }
+    return String(arg);
+  }).join(' ');
+}
+
+/**
+ * Restore original console methods.
+ */
+export function restoreConsole(): void {
+  console.log = originalConsole.log;
+  console.error = originalConsole.error;
+  console.warn = originalConsole.warn;
+}
+
+/**
+ * Close the logger and restore console.
+ */
+export async function closeLogger(): Promise<void> {
+  restoreConsole();
+  if (rootLogger) {
+    // Flush pino
+    rootLogger.flush();
+    rootLogger = null;
+  }
+}
+
+// Legacy compatibility - the old Logger class API
+// Used by index.ts and potentially other code that imports Logger directly
+export class Logger {
+  private static instance: Logger | null = null;
+  private logFilePath: string | null = null;
+
+  private constructor() {}
+
   public static getInstance(): Logger {
     if (!Logger.instance) {
       Logger.instance = new Logger();
@@ -38,203 +212,43 @@ export class Logger {
     return Logger.instance;
   }
 
-  /**
-   * Initialize file-based logging
-   * @param logFilePath Path to log file
-   * @param consoleEnabled Whether to also output to console (default: true)
-   */
   public async initialize(logFilePath: string, consoleEnabled: boolean = true): Promise<void> {
-    if (this.logStream) {
-      throw new Error('Logger already initialized');
-    }
-
-    this.logFile = path.resolve(logFilePath);
-    this.consoleEnabled = consoleEnabled;
-
-    // Ensure log directory exists
-    const logDir = path.dirname(this.logFile);
-    try {
-      await fs.promises.mkdir(logDir, { recursive: true });
-    } catch (error) {
-      // Directory might already exist
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
-        throw new Error(`Failed to create log directory ${logDir}: ${(error as Error).message}`);
-      }
-    }
-
-    // Open log file for appending
-    try {
-      this.logStream = fs.createWriteStream(this.logFile, {
-        flags: 'a',  // append mode
-        encoding: 'utf8',
-      });
-
-      // Handle stream errors
-      this.logStream.on('error', (error) => {
-        this.originalConsoleError('Log file write error:', error);
-      });
-
-      // Write startup marker
-      const startupMessage = `\n${'='.repeat(80)}\n` +
-        `Log started: ${new Date().toISOString()}\n` +
-        `${'='.repeat(80)}\n`;
-      this.logStream.write(startupMessage);
-
-      // Override console methods
-      this.overrideConsoleMethods();
-
-      this.log(`Logging initialized: ${this.logFile}`);
-    } catch (error) {
-      throw new Error(`Failed to open log file ${this.logFile}: ${(error as Error).message}`);
-    }
+    this.logFilePath = logFilePath;
+    await initializeLogger({
+      logFile: logFilePath,
+      consoleEnabled,
+      level: 'info',
+    });
   }
 
-  /**
-   * Override console methods to write to log file
-   */
-  private overrideConsoleMethods(): void {
-    // Override console.log
-    console.log = (...args: any[]) => {
-      this.writeLog('LOG', args);
-      if (this.consoleEnabled) {
-        this.originalConsoleLog(...args);
-      }
-    };
-
-    // Override console.error
-    console.error = (...args: any[]) => {
-      this.writeLog('ERROR', args);
-      if (this.consoleEnabled) {
-        this.originalConsoleError(...args);
-      }
-    };
-
-    // Override console.warn
-    console.warn = (...args: any[]) => {
-      this.writeLog('WARN', args);
-      if (this.consoleEnabled) {
-        this.originalConsoleWarn(...args);
-      }
-    };
-  }
-
-  /**
-   * Write log entry to file
-   */
-  private writeLog(level: string, args: any[]): void {
-    if (!this.logStream) {
-      return;
-    }
-
-    const timestamp = new Date().toISOString();
-    const message = args.map(arg => {
-      if (typeof arg === 'object') {
-        try {
-          return JSON.stringify(arg);
-        } catch {
-          return String(arg);
-        }
-      }
-      return String(arg);
-    }).join(' ');
-
-    const logLine = `[${timestamp}] [${level}] ${message}\n`;
-    this.logStream.write(logLine);
-  }
-
-  /**
-   * Direct logging method (bypasses console override)
-   */
   public log(message: string): void {
-    if (this.logStream) {
-      const timestamp = new Date().toISOString();
-      this.logStream.write(`[${timestamp}] [INFO] ${message}\n`);
-    }
-    if (this.consoleEnabled) {
-      this.originalConsoleLog(message);
-    }
+    getPinoLogger().info(message);
   }
 
-  /**
-   * Direct error logging method
-   */
   public error(message: string, error?: Error): void {
-    const fullMessage = error ? `${message}: ${error.message}` : message;
-    if (this.logStream) {
-      const timestamp = new Date().toISOString();
-      this.logStream.write(`[${timestamp}] [ERROR] ${fullMessage}\n`);
-      if (error && error.stack) {
-        this.logStream.write(`[${timestamp}] [ERROR] Stack: ${error.stack}\n`);
-      }
-    }
-    if (this.consoleEnabled) {
-      this.originalConsoleError(fullMessage);
+    if (error) {
+      getPinoLogger().error({ err: error }, message);
+    } else {
+      getPinoLogger().error(message);
     }
   }
 
-  /**
-   * Flush log stream
-   */
   public async flush(): Promise<void> {
-    if (this.logStream) {
-      return new Promise((resolve, reject) => {
-        this.logStream!.write('', (error) => {
-          if (error) {
-            reject(error);
-          } else {
-            resolve();
-          }
-        });
-      });
-    }
+    getPinoLogger().flush();
   }
 
-  /**
-   * Close log file and restore console methods
-   */
   public async close(): Promise<void> {
-    if (this.logStream) {
-      // Write shutdown marker
-      const shutdownMessage = `${'='.repeat(80)}\n` +
-        `Log ended: ${new Date().toISOString()}\n` +
-        `${'='.repeat(80)}\n\n`;
-      this.logStream.write(shutdownMessage);
-
-      // Wait for writes to complete
-      await this.flush();
-
-      // Close stream
-      return new Promise((resolve) => {
-        this.logStream!.end(() => {
-          this.logStream = null;
-          resolve();
-        });
-      });
-    }
-
-    // Restore original console methods
-    console.log = this.originalConsoleLog;
-    console.error = this.originalConsoleError;
-    console.warn = this.originalConsoleWarn;
+    await closeLogger();
   }
 
-  /**
-   * Check if logger is initialized
-   */
   public isInitialized(): boolean {
-    return this.logStream !== null;
+    return rootLogger !== null;
   }
 
-  /**
-   * Get log file path
-   */
   public getLogFile(): string | null {
-    return this.logFile;
+    return this.logFilePath;
   }
 
-  /**
-   * Reset singleton (for testing)
-   */
   public static resetInstance(): void {
     if (Logger.instance) {
       Logger.instance.close().catch(() => {});
@@ -244,7 +258,8 @@ export class Logger {
 }
 
 /**
- * Get the singleton logger instance
+ * Get the singleton Logger instance (legacy API).
+ * Used by index.ts and other code that expects the old Logger class.
  */
 export function getLogger(): Logger {
   return Logger.getInstance();

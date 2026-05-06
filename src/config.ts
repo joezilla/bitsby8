@@ -42,6 +42,9 @@ export interface ConfigFile {
   // Data directory
   dataDir?: string;
 
+  // API key for optional authentication
+  apiKey?: string;
+
   // GPIO LED options
   gpioLeds?: GpioLedConfig;
 }
@@ -224,6 +227,14 @@ function validateConfig(config: any): ConfigFile {
     validated.dataDir = config.dataDir;
   }
 
+  // API key
+  if (config.apiKey !== undefined) {
+    if (typeof config.apiKey !== 'string') {
+      throw new Error('Config error: "apiKey" must be a string');
+    }
+    validated.apiKey = config.apiKey;
+  }
+
   // GPIO LED options
   if (config.gpioLeds !== undefined) {
     if (typeof config.gpioLeds !== 'object' || config.gpioLeds === null) {
@@ -328,6 +339,10 @@ export function getExampleConfig(): string {
     // terminalPort: "/dev/serial/by-id/usb-Prolific_USB-Serial_Controller-if00-port0",
     terminalBaud: 9600,
     terminalAutoconnect: false,
+
+    // API key for authentication (optional)
+    // When set, all API requests require Authorization: Bearer <key>
+    apiKey: null as string | null,
 
     // GPIO LED status indicators (Raspberry Pi only)
     gpioLeds: {

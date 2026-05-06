@@ -1,0 +1,11 @@
+node_modules
+dist
+coverage
+*.db
+.git
+.claude
+.config
+debian
+test
+*.md
+.env
