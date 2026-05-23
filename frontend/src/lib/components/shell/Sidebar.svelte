@@ -4,6 +4,14 @@
   import { serverStatus, connected } from '$lib/services/socket';
   import type { DriveState } from '$lib/types/api';
 
+  function formatUptime(seconds: number | undefined): string {
+    if (seconds === undefined || seconds < 0) return '—';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`;
+    return `${m}m`;
+  }
+
   type NavId = 'terminal' | 'disks' | 'cassettes' | 'scripts' | 'config';
 
   interface Props {
@@ -124,9 +132,9 @@
         "
       >
         <span class="fdc-label-strip">VER</span>
-        <span class="fdc-mono" style="font-size: 11px;">2.0.0</span>
-        <span class="fdc-label-strip">STATE</span>
-        <span class="fdc-mono" style="font-size: 11px;">{$connected ? 'live' : '—'}</span>
+        <span class="fdc-mono" style="font-size: 11px;">{$serverStatus?.system?.version ?? '—'}</span>
+        <span class="fdc-label-strip">UP</span>
+        <span class="fdc-mono" style="font-size: 11px;">{formatUptime($serverStatus?.system?.uptimeSeconds)}</span>
       </div>
     </div>
   </div>

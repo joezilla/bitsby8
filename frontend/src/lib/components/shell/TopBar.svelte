@@ -4,6 +4,7 @@
   import Led from '$lib/components/shared/Led.svelte';
   import { serverStatus, terminalStatus, connected } from '$lib/services/socket';
   import { theme, toggleTheme } from '$lib/stores/theme';
+  import { terminalHealth } from '$lib/stores/terminalHealth';
   import type { DriveState } from '$lib/types/api';
 
   interface Props {
@@ -26,10 +27,12 @@
   const diskServingRunning = $derived($serverStatus?.diskServing.running ?? false);
   const termConnected = $derived($terminalStatus?.connected ?? false);
 
+  const ACTIVITY_WINDOW_MS = 1500;
   type DriveLedState = { color: 'amber' | 'green' | 'off'; pulse: boolean };
   function driveLed(drive: DriveState | undefined): DriveLedState {
     if (!drive || !drive.mounted) return { color: 'off', pulse: false };
-    if (drive.headLoaded) return { color: 'amber', pulse: true };
+    const active = drive.lastIo !== null && Date.now() - drive.lastIo < ACTIVITY_WINDOW_MS;
+    if (active) return { color: 'amber', pulse: true };
     return { color: 'green', pulse: false };
   }
 </script>
@@ -116,7 +119,11 @@
     <span class="hidden lg:inline" style="width: 1px; height: 22px; background: var(--border-1);"></span>
 
     <div class="hidden md:flex" style="align-items: center; gap: 12px;">
-      <Led color={termConnected ? 'cyan' : 'off'} label="Term" />
+      <Led
+        color={termConnected ? ($terminalHealth === 'webgl-fallback' ? 'red' : 'cyan') : 'off'}
+        label="Term"
+        sublabel={$terminalHealth === 'webgl-fallback' ? 'canvas' : undefined}
+      />
     </div>
 
     <IconButton

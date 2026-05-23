@@ -13,6 +13,10 @@ export interface ServerStatus {
     running: boolean;
   };
   drives: DriveState[];
+  system: {
+    version: string;
+    uptimeSeconds: number;
+  };
   timestamp: string;
 }
 
@@ -24,6 +28,7 @@ export interface DriveState {
   readonly: boolean;
   headLoaded: boolean;
   track: number;
+  lastIo: number | null; // epoch ms of most recent successful r/w; null if never
 }
 
 export interface TerminalStatus {

@@ -21,7 +21,13 @@
   let editNotesText = $state('');
   let streamAudio: HTMLAudioElement | null = null;
   let streamingFile = $state<string | null>(null);
-  let uploadInput: HTMLInputElement;
+  let uploadInput: HTMLInputElement | undefined = $state();
+
+  let activeCassette = $derived(
+    cassettes.find((c) => c.name === playingFile) ??
+      cassettes.find((c) => c.name === streamingFile) ??
+      null
+  );
 
   function formatSize(bytes: number): string {
     if (bytes < 1024) return bytes + ' B';
@@ -156,7 +162,7 @@
 </script>
 
 {#snippet headerActions()}
-  <Button variant="filled" icon="upload" onclick={() => uploadInput.click()}>Upload .wav</Button>
+  <Button variant="filled" icon="upload" onclick={() => uploadInput?.click()}>Upload .wav</Button>
   <input
     bind:this={uploadInput}
     type="file"
@@ -174,6 +180,58 @@
 />
 
 <div style="padding: 0 28px 28px; display: flex; flex-direction: column; gap: 16px;">
+  {#if activeCassette}
+    <Card raised>
+      <div style="padding: 18px; display: flex; align-items: center; gap: 16px;">
+        <div
+          style="
+            padding: 12px;
+            background: var(--accent-bg);
+            border-radius: var(--radius-md);
+            flex: 0 0 auto;
+            display: inline-flex;
+          "
+        >
+          <Icon name="album" size={24} class="text-accent" />
+        </div>
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <LabelStrip>Current cassette</LabelStrip>
+            {#if playingFile === activeCassette.name}
+              <Chip color="amber" icon="play_arrow">Playing</Chip>
+            {/if}
+            {#if streamingFile === activeCassette.name}
+              <Chip color="cyan" icon="graphic_eq">Streaming</Chip>
+            {/if}
+          </div>
+          <div
+            class="fdc-mono"
+            style="font-size: 16px; color: var(--fg-1); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+            title={activeCassette.name}
+          >
+            {activeCassette.name}
+          </div>
+          {#if activeCassette.description}
+            <div
+              style="font: var(--text-body-sm); color: var(--fg-2); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+              title={activeCassette.description}
+            >
+              {activeCassette.description}
+            </div>
+          {/if}
+        </div>
+        <div style="display: flex; gap: 8px; flex: 0 0 auto;">
+          {#if playingFile === activeCassette.name}
+            <Button variant="ghost" icon="stop" danger onclick={stopCassette}>Stop</Button>
+          {/if}
+          {#if streamingFile === activeCassette.name}
+            <Button variant="ghost" icon="graphic_eq" onclick={() => streamCassette(activeCassette.name)}>Stop stream</Button>
+          {/if}
+        </div>
+      </div>
+    </Card>
+  {/if}
+
   {#if loading}
     <Card>
       <div style="padding: 24px; font: var(--text-body-sm); color: var(--fg-3);">

@@ -17,6 +17,7 @@
   let selectedPort = $state('');
   let selectedBaud = $state('230400');
   let diskServingEnabled = $state(false);
+  let diskServingInFlight = $state(false);
   let loading = $state(true);
 
   let serialConnected = $derived($serverStatus?.serial.connected ?? false);
@@ -62,6 +63,8 @@
   }
 
   async function toggleDiskServing() {
+    if (diskServingInFlight) return;
+    diskServingInFlight = true;
     try {
       if (diskServingEnabled) {
         await api.disableDiskServing();
@@ -72,10 +75,13 @@
       }
     } catch (e: any) {
       showToast(e.message || 'Failed to toggle disk serving', 'error');
+    } finally {
+      diskServingInFlight = false;
     }
   }
 
   async function toggleVerbose() {
+    if (!config) return;
     try {
       await api.updateConfig({ verbose: !config.verbose });
       config = { ...config, verbose: !config.verbose };
@@ -164,6 +170,7 @@
               type="checkbox"
               checked={diskServingEnabled}
               onchange={toggleDiskServing}
+              disabled={diskServingInFlight}
               class="peer"
               style="position: absolute; opacity: 0; pointer-events: none;"
             />

@@ -2,10 +2,12 @@
   import { onMount } from 'svelte';
   import { Terminal } from '@xterm/xterm';
   import { FitAddon } from '@xterm/addon-fit';
+  import { WebglAddon } from '@xterm/addon-webgl';
   import '@xterm/xterm/css/xterm.css';
   import { socket, terminalStatus } from '$lib/services/socket';
   import { api } from '$lib/services/api';
   import { showToast } from '$lib/stores/toast';
+  import { terminalHealth } from '$lib/stores/terminalHealth';
   import Icon from '$lib/components/shared/Icon.svelte';
   import IconButton from '$lib/components/shared/IconButton.svelte';
   import Button from '$lib/components/shared/Button.svelte';
@@ -71,8 +73,11 @@
 
   function setCrt(variant: CrtMode) {
     crtMode = variant;
-    if (term) {
+    if (!term) return;
+    try {
       term.options.theme = { ...term.options.theme, ...crtThemes[variant] };
+    } catch {
+      // term may be in the middle of dispose; mode will reapply on next mount.
     }
   }
 
@@ -115,6 +120,27 @@
     term.open(containerEl);
     fitAddon.fit();
 
+    // Reapply persisted CRT mode (state survives navigation away+back even
+    // though the terminal instance does not).
+    setCrt(crtMode);
+
+    // Try the webgl renderer; fall back to canvas with a one-line toast so
+    // the operator knows. The Term LED in the topbar flips to red via the
+    // terminalHealth store.
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => {
+        webgl.dispose();
+        terminalHealth.set('webgl-fallback');
+        showToast('Terminal lost WebGL context — using canvas renderer', 'warning');
+      });
+      term.loadAddon(webgl);
+      terminalHealth.set('ok');
+    } catch {
+      terminalHealth.set('webgl-fallback');
+      showToast('WebGL unavailable — terminal using canvas renderer', 'warning');
+    }
+
     term.onData((data) => {
       if ($terminalStatus?.connected) {
         socket.emit('terminal:write', data);
@@ -146,8 +172,11 @@
       socket.off('terminal:data', handleData);
       resizeObserver.disconnect();
       unsub();
-      term?.dispose();
+      // Null `term` BEFORE dispose so any in-flight handler (e.g. setCrt
+      // from a click that fires during teardown) sees `term === null`.
+      const t = term;
       term = null;
+      t?.dispose();
     };
   });
 
@@ -197,7 +226,7 @@
 
 {#snippet headerActions()}
   <Chip color="cyan" icon="cable">
-    {isConnected ? ($terminalStatus?.device ?? 'Connected') : 'Disconnected'} · {selectedBaud} 8N1
+    {isConnected ? ($terminalStatus?.device ?? 'Connected') : 'Disconnected'} · {selectedBaud} {selectedDataBits}{(selectedParity[0] ?? 'n').toUpperCase()}{selectedStopBits}
   </Chip>
   <span style="width: 1px; height: 22px; background: var(--border-1); align-self: center;"></span>
   <Button variant="ghost" size="sm" icon="refresh" onclick={loadPorts}>Refresh ports</Button>

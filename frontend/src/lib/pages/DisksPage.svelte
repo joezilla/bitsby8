@@ -55,6 +55,17 @@
     return { color: 'green', pulse: false };
   }
 
+  function emptyDrive(id: number): DriveState {
+    return {
+      id,
+      mounted: false,
+      headLoaded: false,
+      readonly: false,
+      filename: null,
+      track: 0,
+    };
+  }
+
   async function loadImages() {
     try {
       loading = true;
@@ -243,7 +254,7 @@
       "
     >
       {#each [0, 1, 2, 3] as id}
-        {@const drive = drives.find((d) => d.id === id) ?? { id, mounted: false, headLoaded: false, readonly: false, filename: null, track: 0 } as DriveState}
+        {@const drive = drives.find((d) => d.id === id) ?? emptyDrive(id)}
         {@const ledState = driveLed(drive)}
         <Card>
           <div style="padding: 16px; display: flex; flex-direction: column; gap: 10px;">
@@ -305,6 +316,7 @@
                     onclick={(e: MouseEvent) => {
                       e.stopPropagation();
                       mountingDrive = mountingDrive === id ? null : id;
+                      mountingImage = null;
                     }}
                   >
                     Mount…
@@ -456,7 +468,7 @@
               <tr style="border-bottom: 1px solid var(--border-1);">
                 <th class="fdc-label-strip" style="text-align: left; padding: 8px;">Name</th>
                 <th class="fdc-label-strip" style="text-align: right; padding: 8px;">Size</th>
-                <th class="fdc-label-strip" style="text-align: left; padding: 8px;" class:hidden={false}>Description</th>
+                <th class="fdc-label-strip hidden md:table-cell" style="text-align: left; padding: 8px;">Description</th>
                 <th class="fdc-label-strip" style="text-align: right; padding: 8px;">Actions</th>
               </tr>
             </thead>
@@ -474,7 +486,7 @@
                   <td class="fdc-mono" style="padding: 8px; text-align: right; color: var(--fg-2); font-size: 11px; white-space: nowrap;">
                     {formatSize(img.size)}
                   </td>
-                  <td style="padding: 8px; color: var(--fg-2); font: var(--text-body-sm);">
+                  <td class="hidden md:table-cell" style="padding: 8px; color: var(--fg-2); font: var(--text-body-sm);">
                     <span
                       style="display: inline-block; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;"
                       title={img.description ?? ''}

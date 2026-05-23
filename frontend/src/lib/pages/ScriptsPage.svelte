@@ -25,7 +25,14 @@
   let newScriptContent = $state('');
   let replayMode = $state<'raw' | 'xmodem'>('raw');
   let searchQuery = $state('');
-  let uploadInput: HTMLInputElement;
+  let uploadInput: HTMLInputElement | undefined = $state();
+  let expectingNewProgress = $state(false);
+
+  $effect(() => {
+    if ($replayProgress?.state === 'running') {
+      expectingNewProgress = false;
+    }
+  });
 
   let filteredScripts = $derived(
     searchQuery
@@ -115,15 +122,19 @@
   }
 
   async function startReplay(name: string) {
+    // Hide stale progress from a previous run until the next 'running' event arrives.
+    expectingNewProgress = true;
     try {
       await api.startReplay(name, replayMode);
       showToast(`Replay started (${replayMode})`, 'success');
     } catch (err: any) {
+      expectingNewProgress = false;
       showToast(err.message || 'Failed to start replay', 'error');
     }
   }
 
   async function cancelReplay() {
+    expectingNewProgress = false;
     try {
       await api.cancelReplay();
       showToast('Replay cancelled', 'info');
@@ -160,7 +171,7 @@
 
 {#snippet headerActions()}
   <Button variant="filled" icon="add" onclick={() => (showNewModal = true)}>New script</Button>
-  <Button variant="ghost" icon="upload" onclick={() => uploadInput.click()}>Upload</Button>
+  <Button variant="ghost" icon="upload" onclick={() => uploadInput?.click()}>Upload</Button>
   <input bind:this={uploadInput} type="file" style="display: none;" onchange={handleUpload} />
 {/snippet}
 
@@ -224,14 +235,12 @@
                   {formatSize(script.size)}
                 </div>
               </div>
-              <span onclick={(e: MouseEvent) => e.stopPropagation()}>
-                <IconButton
-                  icon="delete"
-                  size={16}
-                  title="Delete script"
-                  onclick={() => deleteScript(script.name)}
-                />
-              </span>
+              <IconButton
+                icon="delete"
+                size={16}
+                title="Delete script"
+                onclick={(e: MouseEvent) => { e.stopPropagation(); deleteScript(script.name); }}
+              />
             </div>
           {/each}
         {/if}
@@ -310,7 +319,7 @@
             {/if}
           </div>
 
-          {#if progress && (progress.state === 'running' || progress.state === 'completed')}
+          {#if progress && !expectingNewProgress && (progress.state === 'running' || progress.state === 'completed')}
             <div style="margin-top: 14px;">
               <div style="display: flex; align-items: center; justify-content: space-between; font: var(--text-body-sm); color: var(--fg-2); margin-bottom: 6px;">
                 <span class="fdc-mono" style="font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{progress.fileName}</span>
