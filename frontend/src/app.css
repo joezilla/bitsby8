@@ -9,6 +9,20 @@
 @import "tailwindcss";
 
 /* ============================================================
+   @theme — Tailwind utility surface
+   Maps the semantic tokens declared in :root to Tailwind's
+   --color-* slot so utilities like `text-accent`, `bg-accent`,
+   and `text-fg-3` resolve and stay theme-aware via var().
+   ============================================================ */
+@theme {
+  --color-accent: var(--accent);
+  --color-fg-1: var(--fg-1);
+  --color-fg-2: var(--fg-2);
+  --color-fg-3: var(--fg-3);
+  --color-fg-4: var(--fg-4);
+}
+
+/* ============================================================
    FDC+ DESIGN SYSTEM TOKENS
    Cool slate neutrals, amber primary, signal-green secondary.
    Dark by default with [data-theme="light"] override.
