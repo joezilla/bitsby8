@@ -14,7 +14,11 @@ export function setupSecurityMiddleware(
   config: WebServerConfig,
   apiKey?: string | null
 ): void {
-  // Helmet security headers
+  // Helmet security headers.
+  // HSTS and upgrade-insecure-requests are disabled: this server is intended
+  // for LAN / localhost use over plain HTTP. With either enabled, Safari (and
+  // some Chrome configurations) try to upgrade subresource URLs to HTTPS,
+  // there is no TLS listener, and the page renders empty.
   app.use(
     helmet({
       contentSecurityPolicy: {
@@ -24,8 +28,10 @@ export function setupSecurityMiddleware(
           styleSrc: ["'self'", "'unsafe-inline'"],
           imgSrc: ["'self'", "data:"],
           connectSrc: ["'self'", 'ws:', 'wss:'],
+          upgradeInsecureRequests: null,
         },
       },
+      hsts: { maxAge: 0 },
       crossOriginEmbedderPolicy: false,
     })
   );
