@@ -62,7 +62,9 @@
       headLoaded: false,
       readonly: false,
       filename: null,
+      fullPath: null,
       track: 0,
+      lastIo: null,
     };
   }
 

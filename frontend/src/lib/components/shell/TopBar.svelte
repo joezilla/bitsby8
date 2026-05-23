@@ -23,7 +23,7 @@
 
   const drives: DriveState[] = $derived($serverStatus?.drives ?? []);
   const serialConnected = $derived($serverStatus?.serial.connected ?? false);
-  const serialBaud = $derived($serverStatus?.serial.baud);
+  const serialBaud = $derived($serverStatus?.serial.baudRate);
   const diskServingRunning = $derived($serverStatus?.diskServing.running ?? false);
   const termConnected = $derived($terminalStatus?.connected ?? false);
 

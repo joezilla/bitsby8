@@ -8,10 +8,14 @@
 ## Build, Test, and Development Commands
 - `pnpm install`: Provisions both backend and `frontend/` (pnpm workspace).
 - `pnpm dev -- <args>`: Run TypeScript directly with ts-node for quick iteration.
+- `pnpm dev:all`: Run backend (ts-node) and frontend (Vite) concurrently with labeled output.
 - `pnpm build`: Type-check and emit JS + maps into `dist/`, then regenerate `openapi.json`.
+- `pnpm build:all`: Build both trees (backend + frontend SPA into `frontend/dist/`).
 - `pnpm start -- <args>`: Execute the compiled server from `dist/`.
-- `pnpm test`: Run Jest (ts-jest preset) against `test/**/*.test.ts`; outputs coverage to `coverage/`.
-- `pnpm --filter fdcplus-frontend build`: Build the Svelte SPA into `frontend/dist/`.
+- `pnpm test`: Run Jest (`--runInBand`; serial-mock suite has a known intermittent race).
+- `pnpm typecheck`: `tsc --noEmit` on the backend; `pnpm --filter fdcplus-frontend typecheck` runs `svelte-check` on the SPA.
+- `pnpm check`: Full pre-PR gate — typecheck + lint (no-op for now) + test + frontend typecheck.
+- `pnpm --filter fdcplus-frontend build`: Build only the Svelte SPA.
 - Debian packaging: `make deb` builds the .deb into `build/`; `make quick-install` installs it locally. Use `make clean` or `make distclean` before release artifacts.
 
 ## Coding Style & Naming Conventions
