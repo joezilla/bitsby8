@@ -8,7 +8,7 @@
     "create-boot-disk": "./create-boot-disk.js"
   },
   "scripts": {
-    "build": "tsc && npm run docs",
+    "build": "tsc && pnpm run docs",
     "docs": "ts-node scripts/generate-openapi.ts",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
@@ -65,6 +65,7 @@
   "engines": {
     "node": ">=18.0.0"
   },
+  "packageManager": "pnpm@11.2.2",
   "ts-node": {
     "compilerOptions": {
       "module": "commonjs"

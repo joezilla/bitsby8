@@ -1,11 +1,12 @@
 # Build output
 dist/
-*.js
-!create-boot-disk.js
-*.js.map
+/*.js
+!/create-boot-disk.js
+/*.js.map
 
 # Dependencies
 node_modules/
+node_modules_back/
 
 # Configuration files (personal settings)
 .fdcsds.config
@@ -42,3 +43,28 @@ coverage/
 .env
 .env.local
 .env.*.local
+
+# Local SQLite database
+fdcplus.db
+fdcplus.db-journal
+fdcplus.db-wal
+fdcplus.db-shm
+
+# BMAD / Claude tooling (local-only)
+_bmad/
+_bmad-output/
+.claude/
+
+# Dev scratch
+cassettes/
+asm/
+killthebit.txt
+protocol.txt
+
+# KiCad generated artifacts (keep source .kicad_*, ignore outputs)
+kicad/*.gbr
+kicad/*.gbrjob
+kicad/*-backups/
+kicad/fp-info-cache
+kicad/done1.tgz
+kicad/panel.png
