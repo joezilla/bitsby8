@@ -40,6 +40,7 @@ export class DriveManager {
         readonly: false,
         hdld: false,
         track: 0,
+        lastIo: null,
       });
     }
   }
@@ -333,6 +334,7 @@ export class DriveManager {
         console.log(`[DEBUG] DriveManager.readTrack SUCCESS: drive=${drive}, track=${track}, bytesRead=${bytesRead}`);
       }
 
+      driveState.lastIo = Date.now();
       this.fdcErrno = FdcError.OK;
       return buffer;
     } catch (error) {
@@ -454,6 +456,7 @@ export class DriveManager {
             console.log(`[DEBUG] DriveManager.writeTrack SUCCESS: drive=${drive}, track=${track}, bytesWritten=${bytesWritten}, synced to disk`);
           }
 
+          driveState.lastIo = Date.now();
           this.fdcErrno = FdcError.OK;
           return bytesWritten;
 

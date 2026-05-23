@@ -1,5 +1,7 @@
 import * as path from 'path';
 import { Dependencies } from '../types';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const pkg = require('../../package.json') as { version: string };
 
 export function getStatus(deps: Dependencies) {
   return {
@@ -15,6 +17,10 @@ export function getStatus(deps: Dependencies) {
       running: deps.server !== null && deps.serverTask !== null,
     },
     drives: getDrivesStatus(deps),
+    system: {
+      version: pkg.version,
+      uptimeSeconds: Math.floor(process.uptime()),
+    },
     timestamp: new Date().toISOString(),
   };
 }
@@ -32,6 +38,7 @@ export function getDrivesStatus(deps: Dependencies) {
         readonly: state.readonly,
         headLoaded: state.hdld,
         track: state.track,
+        lastIo: state.lastIo,
       });
     }
   }

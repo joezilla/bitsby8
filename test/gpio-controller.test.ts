@@ -152,6 +152,7 @@ describe('GpioLedController', () => {
       readonly: false,
       hdld: true,
       track: 5,
+      lastIo: null,
     };
 
     beforeEach(async () => {
