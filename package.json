@@ -11,13 +11,14 @@
     "build": "tsc && pnpm run docs",
     "build:all": "pnpm run build && pnpm --filter fdcplus-frontend build",
     "docs": "ts-node scripts/generate-openapi.ts",
+    "docs:check": "ts-node scripts/generate-openapi.ts --check",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "dev:all": "concurrently -n backend,frontend -c blue,magenta \"pnpm run dev\" \"pnpm --filter fdcplus-frontend dev\"",
     "test": "jest --runInBand",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'lint: no ESLint configured (see cleanup-epic; project-context requires discussion before introducing a linter)' && exit 0",
-    "check": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm --filter fdcplus-frontend check",
+    "check": "pnpm run typecheck && pnpm run lint && pnpm run docs:check && pnpm run test && pnpm --filter fdcplus-frontend check",
     "clean": "rm -rf dist coverage frontend/dist"
   },
   "keywords": [

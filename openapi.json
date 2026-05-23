@@ -1,0 +1,3202 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "FDC+ Serial Drive Server API",
+    "version": "2.0.0",
+    "description": "REST API for the Altair 8800 FDC+ Serial Drive Server web interface. Manages disk image serving, CP/M filesystem browsing, cassette audio, terminal serial connections, script replay, and XMODEM transfers.\n\n## Socket.IO Events\n\nThe server also exposes real-time events via Socket.IO (not covered by OpenAPI).\n\n### Server → Client\n\n| Event | Payload | Description |\n|-------|---------|-------------|\n| `status` | `ServerStatus` | Periodic server status broadcast (1s interval) |\n| `terminal:data` | `number[]` | Incoming serial data as byte array |\n| `terminal:status` | `TerminalStatus` | Terminal connection status change |\n| `terminal:error` | `{message: string}` | Terminal error |\n| `replay:progress` | `ReplayProgress` | Transfer progress update |\n| `replay:status` | `{active, mode, progress}` | Transfer status on connect |\n\n### Client → Server\n\n| Event | Payload | Description |\n|-------|---------|-------------|\n| `request-status` | _(none)_ | Request current server status |\n| `terminal:write` | `string` | Send keyboard input to terminal serial port |\n| `terminal:control` | `{type, value}` | Set DTR/RTS control signals |\n| `replay:start` | `ReplayStartParams` | Start raw replay or XMODEM send |\n| `replay:cancel` | _(none)_ | Cancel active transfer |"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local development server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Health check and server status"
+    },
+    {
+      "name": "Config",
+      "description": "Runtime configuration"
+    },
+    {
+      "name": "Serial",
+      "description": "Primary serial port management"
+    },
+    {
+      "name": "Disk Serving",
+      "description": "Enable/disable FDC disk serving"
+    },
+    {
+      "name": "Drives",
+      "description": "Drive mount/unmount and status"
+    },
+    {
+      "name": "Images",
+      "description": "Disk image management"
+    },
+    {
+      "name": "CP/M",
+      "description": "CP/M filesystem browser"
+    },
+    {
+      "name": "Cassettes",
+      "description": "Cassette audio management"
+    },
+    {
+      "name": "Terminal",
+      "description": "Terminal serial port management"
+    },
+    {
+      "name": "Scripts",
+      "description": "Script file management"
+    },
+    {
+      "name": "Replay",
+      "description": "Raw replay and XMODEM transfer"
+    }
+  ],
+  "components": {
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "Something went wrong"
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "DriveState": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "example": 0
+          },
+          "mounted": {
+            "type": "boolean"
+          },
+          "filename": {
+            "type": "string",
+            "nullable": true,
+            "example": "cpm63k.dsk"
+          },
+          "fullPath": {
+            "type": "string",
+            "nullable": true
+          },
+          "readonly": {
+            "type": "boolean"
+          },
+          "headLoaded": {
+            "type": "boolean"
+          },
+          "track": {
+            "type": "integer",
+            "example": 0
+          },
+          "lastIo": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Epoch ms of most recent successful read/write; null if no I/O yet."
+          }
+        }
+      },
+      "SystemInfo": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "example": "2.0.0"
+          },
+          "uptimeSeconds": {
+            "type": "integer",
+            "example": 3600
+          }
+        }
+      },
+      "DiskImageInfo": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "cpm63k.dsk"
+          },
+          "size": {
+            "type": "integer",
+            "example": 337568
+          },
+          "description": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "CpmFileInfo": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "type": "integer",
+            "example": 0
+          },
+          "filename": {
+            "type": "string",
+            "example": "ASM     "
+          },
+          "extension": {
+            "type": "string",
+            "example": "COM"
+          },
+          "size": {
+            "type": "integer",
+            "example": 8192
+          },
+          "readonly": {
+            "type": "boolean"
+          },
+          "system": {
+            "type": "boolean"
+          },
+          "extents": {
+            "type": "integer",
+            "example": 1
+          }
+        }
+      },
+      "ReplayProgress": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "sending",
+              "completed",
+              "cancelled",
+              "error"
+            ]
+          },
+          "bytesSent": {
+            "type": "integer"
+          },
+          "totalBytes": {
+            "type": "integer"
+          },
+          "percentComplete": {
+            "type": "number"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "SerialPortInfo": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "example": "/dev/ttyUSB0"
+          },
+          "resolvedPath": {
+            "type": "string"
+          },
+          "persistentPaths": {
+            "type": "object",
+            "properties": {
+              "byId": {
+                "type": "string",
+                "nullable": true
+              },
+              "byPath": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "manufacturer": {
+            "type": "string"
+          },
+          "serialNumber": {
+            "type": "string"
+          },
+          "pnpId": {
+            "type": "string"
+          },
+          "vendorId": {
+            "type": "string"
+          },
+          "productId": {
+            "type": "string"
+          },
+          "recommended": {
+            "type": "string"
+          }
+        }
+      },
+      "CassetteInfo": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "killthebits.wav"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "description": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "ScriptInfo": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "hello.txt"
+          },
+          "size": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/terminal/status": {
+      "get": {
+        "tags": [
+          "Terminal"
+        ],
+        "summary": "Get terminal status",
+        "description": "Returns terminal serial port connection state, device, config, and preferred settings.",
+        "responses": {
+          "200": {
+            "description": "Terminal status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "connected": {
+                      "type": "boolean"
+                    },
+                    "device": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "config": {
+                      "type": "object"
+                    },
+                    "preferred": {
+                      "type": "object",
+                      "properties": {
+                        "port": {
+                          "type": "string"
+                        },
+                        "baud": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/terminal/ports": {
+      "get": {
+        "tags": [
+          "Terminal"
+        ],
+        "summary": "List serial ports for terminal",
+        "description": "Enumerates serial ports available for the terminal connection.",
+        "responses": {
+          "200": {
+            "description": "List of serial ports",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ports": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SerialPortInfo"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/terminal/open": {
+      "post": {
+        "tags": [
+          "Terminal"
+        ],
+        "summary": "Open terminal serial port",
+        "description": "Open a serial port for the terminal connection.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "device"
+                ],
+                "properties": {
+                  "device": {
+                    "type": "string",
+                    "description": "Serial port device path",
+                    "example": "/dev/ttyUSB1"
+                  },
+                  "config": {
+                    "type": "object",
+                    "description": "Serial port configuration (baud, dataBits, stopBits, parity)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Port opened",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "device": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing device path",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/terminal/close": {
+      "post": {
+        "tags": [
+          "Terminal"
+        ],
+        "summary": "Close terminal serial port",
+        "description": "Close the terminal serial port connection.",
+        "responses": {
+          "200": {
+            "description": "Port closed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/terminal/config": {
+      "put": {
+        "tags": [
+          "Terminal"
+        ],
+        "summary": "Update terminal configuration",
+        "description": "Update serial port configuration (baud, data bits, stop bits, parity) for an open terminal connection.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "config"
+                ],
+                "properties": {
+                  "config": {
+                    "type": "object",
+                    "description": "Serial port configuration"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Configuration updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "config": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/serial/ports": {
+      "get": {
+        "tags": [
+          "Serial"
+        ],
+        "summary": "List available serial ports",
+        "description": "Enumerates serial ports on the host, including persistent device paths.",
+        "responses": {
+          "200": {
+            "description": "List of serial ports",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ports": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SerialPortInfo"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/serial/config": {
+      "put": {
+        "tags": [
+          "Serial"
+        ],
+        "summary": "Update primary serial configuration",
+        "description": "Change the serial device and baud rate for the primary FDC connection. Will close and reopen the port if needed.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "device",
+                  "baudRate"
+                ],
+                "properties": {
+                  "device": {
+                    "type": "string",
+                    "description": "Serial port device path",
+                    "example": "/dev/ttyUSB0"
+                  },
+                  "baudRate": {
+                    "type": "integer",
+                    "description": "Baud rate",
+                    "enum": [
+                      300,
+                      1200,
+                      2400,
+                      4800,
+                      9600,
+                      19200,
+                      38400,
+                      57600,
+                      115200,
+                      230400,
+                      460800,
+                      921600
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Serial configuration updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "serial": {
+                      "type": "object",
+                      "properties": {
+                        "device": {
+                          "type": "string"
+                        },
+                        "baudRate": {
+                          "type": "integer"
+                        },
+                        "connected": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or invalid parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scripts": {
+      "get": {
+        "tags": [
+          "Scripts"
+        ],
+        "summary": "List scripts",
+        "description": "Returns all files in the scripts directory with name and size.",
+        "responses": {
+          "200": {
+            "description": "List of scripts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "scripts": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ScriptInfo"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Scripts"
+        ],
+        "summary": "Create new text script",
+        "description": "Create a new script file. Fails if the file already exists.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Script filename",
+                    "example": "hello.txt"
+                  },
+                  "content": {
+                    "type": "string",
+                    "description": "Initial file content"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Script created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid script name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Script already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scripts/{name}": {
+      "get": {
+        "tags": [
+          "Scripts"
+        ],
+        "summary": "Get script content",
+        "description": "Returns script metadata and content. Text files (.txt) include content; binary files return metadata only.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Script filename"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Script content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string",
+                      "description": "File content (text files only)"
+                    },
+                    "size": {
+                      "type": "integer"
+                    },
+                    "binary": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid script name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Script not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Scripts"
+        ],
+        "summary": "Update script",
+        "description": "Overwrite the content of an existing script file.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Script filename"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "content": {
+                    "type": "string",
+                    "description": "New file content"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Script updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid script name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Script not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Scripts"
+        ],
+        "summary": "Delete script",
+        "description": "Delete a script file.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Script filename"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Script deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid script name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Script not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scripts/upload": {
+      "post": {
+        "tags": [
+          "Scripts"
+        ],
+        "summary": "Upload script file",
+        "description": "Upload any file to the scripts directory. Max 1MB.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Script file to upload"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Upload successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "size": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No file uploaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/replay/start": {
+      "post": {
+        "tags": [
+          "Replay"
+        ],
+        "summary": "Start replay or XMODEM send",
+        "description": "Start a raw text replay or XMODEM binary transfer of a script file over the terminal serial port.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "scriptName"
+                ],
+                "properties": {
+                  "scriptName": {
+                    "type": "string",
+                    "description": "Script filename to send"
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "raw",
+                      "xmodem"
+                    ],
+                    "default": "raw",
+                    "description": "Transfer mode"
+                  },
+                  "chunkSize": {
+                    "type": "integer",
+                    "description": "Bytes per chunk (raw mode)"
+                  },
+                  "interByteDelayMs": {
+                    "type": "integer",
+                    "description": "Delay between bytes in ms (raw mode)"
+                  },
+                  "interLineDelayMs": {
+                    "type": "integer",
+                    "description": "Delay between lines in ms (raw mode)"
+                  },
+                  "lineEnding": {
+                    "type": "string",
+                    "enum": [
+                      "cr",
+                      "lf",
+                      "crlf",
+                      "raw"
+                    ],
+                    "description": "Line ending conversion (raw mode)"
+                  },
+                  "useCrc": {
+                    "type": "boolean",
+                    "description": "Use CRC-16 instead of checksum (xmodem mode)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Transfer started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "mode": {
+                      "type": "string"
+                    },
+                    "scriptName": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing scriptName or invalid name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Script file not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Transfer already in progress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/replay/cancel": {
+      "post": {
+        "tags": [
+          "Replay"
+        ],
+        "summary": "Cancel active transfer",
+        "description": "Cancel a running raw replay or XMODEM transfer.",
+        "responses": {
+          "200": {
+            "description": "Cancel result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/replay/status": {
+      "get": {
+        "tags": [
+          "Replay"
+        ],
+        "summary": "Get transfer status",
+        "description": "Returns whether a transfer is active, its mode, and the last progress update.",
+        "responses": {
+          "200": {
+            "description": "Transfer status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "active": {
+                      "type": "boolean"
+                    },
+                    "mode": {
+                      "type": "string",
+                      "enum": [
+                        "raw",
+                        "xmodem"
+                      ]
+                    },
+                    "progress": {
+                      "nullable": true,
+                      "$ref": "#/components/schemas/ReplayProgress"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/images": {
+      "get": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "List disk images",
+        "description": "Returns filenames of all disk images (.dsk, .img, .ima) in the disks directory.",
+        "responses": {
+          "200": {
+            "description": "List of disk image filenames",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "images": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/images/details": {
+      "get": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "List disk images with details",
+        "description": "Returns all disk images with file size, description, and notes.",
+        "responses": {
+          "200": {
+            "description": "Detailed disk image list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "images": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/DiskImageInfo"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/images/upload": {
+      "post": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Upload disk image",
+        "description": "Upload a disk image file (.dsk, .img, .ima). Max 10MB.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "diskImage"
+                ],
+                "properties": {
+                  "diskImage": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Disk image file"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Upload successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "size": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No file or invalid type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/images/{filename}/clone": {
+      "post": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Clone disk image",
+        "description": "Create a copy of an existing disk image with a \"-copy\" suffix.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Source disk image filename"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Clone successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "filename": {
+                      "type": "string",
+                      "description": "New filename of the clone"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid filename",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Source file not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/images/create": {
+      "post": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Create blank disk image",
+        "description": "Create a new empty disk image in the specified format.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "filename",
+                  "format",
+                  "extension"
+                ],
+                "properties": {
+                  "filename": {
+                    "type": "string",
+                    "description": "Base filename (alphanumeric, underscores, hyphens, periods, spaces)",
+                    "example": "newdisk"
+                  },
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "8inch",
+                      "minidisk",
+                      "8mb"
+                    ],
+                    "description": "Disk format: 8inch (77 tracks, 330K), minidisk (17 tracks, 75K), 8mb (1863 tracks)"
+                  },
+                  "extension": {
+                    "type": "string",
+                    "enum": [
+                      ".dsk",
+                      ".img",
+                      ".ima"
+                    ],
+                    "description": "File extension"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Disk image created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "size": {
+                      "type": "integer"
+                    },
+                    "format": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or invalid parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "File already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/images/{filename}": {
+      "delete": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Delete disk image",
+        "description": "Delete a disk image file. Fails if the image is currently mounted on any drive.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Disk image filename"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "filename": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid filename",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "File not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "File is mounted on a drive",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/images/{filename}/notes": {
+      "put": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Update disk image notes",
+        "description": "Set or update the description and notes for a disk image.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Disk image filename"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "description": {
+                    "type": "string",
+                    "description": "Short description"
+                  },
+                  "notes": {
+                    "type": "string",
+                    "description": "Extended notes"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Notes updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "filename": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid filename",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "File not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Health check",
+        "description": "Returns server health status and current timestamp.",
+        "responses": {
+          "200": {
+            "description": "Server is running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "ok"
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/status": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Full server status",
+        "description": "Returns serial connection state, disk serving state, drive statuses, and timestamp.",
+        "responses": {
+          "200": {
+            "description": "Current server status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "serial": {
+                      "type": "object",
+                      "properties": {
+                        "connected": {
+                          "type": "boolean"
+                        },
+                        "device": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "baudRate": {
+                          "type": "integer"
+                        },
+                        "configuredPort": {
+                          "type": "string"
+                        },
+                        "configuredBaudRate": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "diskServing": {
+                      "type": "object",
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "running": {
+                          "type": "boolean"
+                        }
+                      }
+                    },
+                    "drives": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/DriveState"
+                      }
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/drives": {
+      "get": {
+        "tags": [
+          "Drives"
+        ],
+        "summary": "Get drive status",
+        "description": "Returns mount status, filename, read-only flag, head-loaded state, and current track for each drive.",
+        "responses": {
+          "200": {
+            "description": "Array of drive states",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DriveState"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/drives/{id}/mount": {
+      "post": {
+        "tags": [
+          "Drives"
+        ],
+        "summary": "Mount disk image to drive",
+        "description": "Mount a disk image file onto the specified drive slot.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 15
+            },
+            "description": "Drive number (0-15)"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "filename"
+                ],
+                "properties": {
+                  "filename": {
+                    "type": "string",
+                    "description": "Disk image filename (in disks directory)",
+                    "example": "cpm63k.dsk"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Drive mounted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "drive": {
+                      "type": "integer"
+                    },
+                    "filename": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing filename or invalid drive ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/drives/{id}/unmount": {
+      "post": {
+        "tags": [
+          "Drives"
+        ],
+        "summary": "Unmount drive",
+        "description": "Unmount the disk image from the specified drive slot.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 15
+            },
+            "description": "Drive number (0-15)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Drive unmounted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "drive": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid drive ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/drives/{id}/readonly": {
+      "put": {
+        "tags": [
+          "Drives"
+        ],
+        "summary": "Set drive read-only status",
+        "description": "Toggle write protection on a mounted drive. May remount the file with the correct mode.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 15
+            },
+            "description": "Drive number (0-15)"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "readonly"
+                ],
+                "properties": {
+                  "readonly": {
+                    "type": "boolean",
+                    "description": "Write-protect the drive"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only status updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "drive": {
+                      "type": "integer"
+                    },
+                    "readonly": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid drive ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/disk-serving/enable": {
+      "post": {
+        "tags": [
+          "Disk Serving"
+        ],
+        "summary": "Enable disk serving",
+        "description": "Start the FDC server to serve disk images over serial. Opens serial port and begins listening for Altair commands.",
+        "responses": {
+          "200": {
+            "description": "Disk serving enabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/disk-serving/disable": {
+      "post": {
+        "tags": [
+          "Disk Serving"
+        ],
+        "summary": "Disable disk serving",
+        "description": "Stop the FDC server and close the primary serial port.",
+        "responses": {
+          "200": {
+            "description": "Disk serving disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/images/{filename}/cpm/info": {
+      "get": {
+        "tags": [
+          "CP/M"
+        ],
+        "summary": "Get CP/M disk info",
+        "description": "Returns CP/M disk parameters, free space, file count, and mount status.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Disk image filename"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CP/M disk information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "params": {
+                      "type": "object",
+                      "description": "CP/M disk parameter block"
+                    },
+                    "freeSpace": {
+                      "type": "integer",
+                      "description": "Free space in bytes"
+                    },
+                    "fileCount": {
+                      "type": "integer"
+                    },
+                    "mounted": {
+                      "oneOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "boolean"
+                        }
+                      ],
+                      "description": "Drive number if mounted, false otherwise"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid filename",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Disk image not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/images/{filename}/cpm/files": {
+      "get": {
+        "tags": [
+          "CP/M"
+        ],
+        "summary": "List CP/M files",
+        "description": "List all files on the CP/M disk image.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Disk image filename"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of CP/M files",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "files": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/CpmFileInfo"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid filename",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Disk image not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "CP/M"
+        ],
+        "summary": "Upload file to CP/M disk image",
+        "description": "Write a file into the CP/M filesystem on the disk image. Fails if the disk is currently mounted. Max 256KB.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Disk image filename"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "File to upload"
+                  },
+                  "cpmFilename": {
+                    "type": "string",
+                    "description": "Override CP/M filename (format: USER:NAME.EXT)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "File written to disk image",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "size": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No file uploaded or invalid filename",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Disk image not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Disk image is mounted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/images/{filename}/cpm/files/{cpmFile}": {
+      "get": {
+        "tags": [
+          "CP/M"
+        ],
+        "summary": "Download a CP/M file",
+        "description": "Extract and download a single file from the CP/M disk image. The cpmFile param format is \"USER:NAME.EXT\" (e.g. \"0:ASM.COM\").",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Disk image filename"
+          },
+          {
+            "in": "path",
+            "name": "cpmFile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "CP/M file identifier in format USER:NAME.EXT",
+            "example": "0:ASM.COM"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File content",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid filename",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Disk image or CP/M file not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "CP/M"
+        ],
+        "summary": "Delete a CP/M file",
+        "description": "Remove a file from the CP/M filesystem on the disk image. Fails if the disk is currently mounted.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Disk image filename"
+          },
+          {
+            "in": "path",
+            "name": "cpmFile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "CP/M file identifier in format USER:NAME.EXT",
+            "example": "0:ASM.COM"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File deleted from disk image",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "filename": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid filename",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Disk image or CP/M file not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Disk image is mounted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/config": {
+      "get": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Get current configuration",
+        "description": "Returns current runtime configuration including serial, web, terminal, and display options.",
+        "responses": {
+          "200": {
+            "description": "Current configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "port": {
+                      "type": "string",
+                      "description": "Serial port device path"
+                    },
+                    "baud": {
+                      "type": "integer"
+                    },
+                    "web": {
+                      "type": "boolean"
+                    },
+                    "webPort": {
+                      "type": "integer"
+                    },
+                    "webHost": {
+                      "type": "string"
+                    },
+                    "terminalPort": {
+                      "type": "string"
+                    },
+                    "terminalBaud": {
+                      "type": "integer"
+                    },
+                    "terminalAutoconnect": {
+                      "type": "boolean"
+                    },
+                    "verbose": {
+                      "type": "boolean"
+                    },
+                    "debug": {
+                      "type": "boolean"
+                    },
+                    "logFile": {
+                      "type": "string"
+                    },
+                    "gpioLeds": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Update configuration",
+        "description": "Update runtime configuration. Currently only `verbose` takes effect without restart.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "verbose": {
+                    "type": "boolean",
+                    "description": "Enable/disable verbose logging"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Configuration updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cassettes/details": {
+      "get": {
+        "tags": [
+          "Cassettes"
+        ],
+        "summary": "List cassettes with details",
+        "description": "Returns all cassette WAV files with size, description, and notes.",
+        "responses": {
+          "200": {
+            "description": "Detailed cassette list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "cassettes": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/CassetteInfo"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cassettes/upload": {
+      "post": {
+        "tags": [
+          "Cassettes"
+        ],
+        "summary": "Upload cassette",
+        "description": "Upload a cassette WAV file. Max 100MB.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "cassette"
+                ],
+                "properties": {
+                  "cassette": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "WAV audio file"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Upload successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "size": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No file or invalid type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cassettes/{filename}": {
+      "delete": {
+        "tags": [
+          "Cassettes"
+        ],
+        "summary": "Delete cassette",
+        "description": "Delete a cassette WAV file.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Cassette filename"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "filename": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid filename",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "File not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cassettes/{filename}/notes": {
+      "put": {
+        "tags": [
+          "Cassettes"
+        ],
+        "summary": "Update cassette notes",
+        "description": "Set or update the description and notes for a cassette file.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Cassette filename"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "description": {
+                    "type": "string",
+                    "description": "Short description"
+                  },
+                  "notes": {
+                    "type": "string",
+                    "description": "Extended notes"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Notes updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "filename": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid filename",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "File not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cassettes/{filename}/stream": {
+      "get": {
+        "tags": [
+          "Cassettes"
+        ],
+        "summary": "Stream cassette audio",
+        "description": "Stream the cassette WAV file for client-side playback.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Cassette filename"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "WAV audio stream",
+            "content": {
+              "audio/wav": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid filename",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "File not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cassettes/{filename}/play": {
+      "post": {
+        "tags": [
+          "Cassettes"
+        ],
+        "summary": "Play cassette server-side",
+        "description": "Play the cassette WAV file through the server's audio output. Stops any currently playing audio first.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Cassette filename"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Playback started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "filename": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid filename",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "File not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cassettes/stop": {
+      "post": {
+        "tags": [
+          "Cassettes"
+        ],
+        "summary": "Stop server-side playback",
+        "description": "Stop any currently playing cassette audio on the server.",
+        "responses": {
+          "200": {
+            "description": "Playback stopped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

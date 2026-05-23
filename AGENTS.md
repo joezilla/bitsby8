@@ -14,7 +14,9 @@
 - `pnpm start -- <args>`: Execute the compiled server from `dist/`.
 - `pnpm test`: Run Jest (`--runInBand`; serial-mock suite has a known intermittent race).
 - `pnpm typecheck`: `tsc --noEmit` on the backend; `pnpm --filter fdcplus-frontend typecheck` runs `svelte-check` on the SPA.
-- `pnpm check`: Full pre-PR gate — typecheck + lint (no-op for now) + test + frontend typecheck.
+- `pnpm check`: Full pre-PR gate — typecheck + lint (no-op for now) + `docs:check` + test + frontend typecheck.
+- `pnpm docs`: Regenerate `openapi.json` at repo root from route JSDoc. When you change any `@openapi` block under `src/routes/`, run this and commit the regen in the same PR.
+- `pnpm docs:check`: Verify the committed `openapi.json` matches what `pnpm docs` would produce. Runs in CI.
 - `pnpm --filter fdcplus-frontend build`: Build only the Svelte SPA.
 - Debian packaging: `make deb` builds the .deb into `build/`; `make quick-install` installs it locally. Use `make clean` or `make distclean` before release artifacts.
 

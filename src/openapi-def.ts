@@ -73,6 +73,18 @@ export const openapiDefinition: Options = {
             readonly: { type: 'boolean' },
             headLoaded: { type: 'boolean' },
             track: { type: 'integer', example: 0 },
+            lastIo: {
+              type: 'integer',
+              nullable: true,
+              description: 'Epoch ms of most recent successful read/write; null if no I/O yet.',
+            },
+          },
+        },
+        SystemInfo: {
+          type: 'object',
+          properties: {
+            version: { type: 'string', example: '2.0.0' },
+            uptimeSeconds: { type: 'integer', example: 3600 },
           },
         },
         DiskImageInfo: {
@@ -146,5 +158,8 @@ export const openapiDefinition: Options = {
       },
     },
   },
-  apis: [path.resolve(__dirname, 'web-server.{ts,js}')],
+  apis: [
+    path.resolve(__dirname, 'web-server.{ts,js}'),
+    path.resolve(__dirname, 'routes/*.{ts,js}'),
+  ],
 };
