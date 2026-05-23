@@ -1,12 +1,12 @@
-@import "tailwindcss";
-
 /* ============================================================
    Font imports — Geist (sans), IBM Plex Mono (data), Material
-   Symbols Rounded (icons). Old JetBrains Mono / VT323 retired
-   after Phase 4 page sweeps complete.
+   Symbols Rounded (icons). Must precede other rules per CSS spec.
+   Old JetBrains Mono / VT323 retired after Phase 4 page sweeps.
    ============================================================ */
 @import url("https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
 @import url("https://fonts.googleapis.com/icon?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300..600,0..1,-25..200");
+
+@import "tailwindcss";
 
 /* ============================================================
    COMPAT @theme — keeps existing Tailwind utility classes
