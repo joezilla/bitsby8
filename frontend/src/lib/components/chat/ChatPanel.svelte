@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { MessageSquare, X, ExternalLink, Copy, Check } from 'lucide-svelte';
+  import Icon from '$lib/components/shared/Icon.svelte';
+  import IconButton from '$lib/components/shared/IconButton.svelte';
+  import Card from '$lib/components/shared/Card.svelte';
+  import LabelStrip from '$lib/components/shared/LabelStrip.svelte';
   import { showToast } from '$lib/stores/toast';
 
   interface Props {
@@ -19,6 +22,24 @@
     },
   }, null, 2);
 
+  const exampleTools = [
+    'get_status', 'list_drives', 'mount_disk', 'unmount_disk',
+    'list_disk_images', 'create_disk_image', 'clone_disk_image',
+    'list_cpm_files', 'read_cpm_file', 'write_cpm_file',
+    'open_terminal', 'send_to_terminal', 'close_terminal',
+    'start_replay', 'list_scripts', 'list_cassettes',
+    'configure_serial', 'enable_disk_serving',
+  ];
+
+  const examplePrompts = [
+    'Mount the CP/M boot disk on drive 0',
+    'What files are on this disk?',
+    'Transfer HELLO.BAS to the Altair via XMODEM',
+    'Find a disk image with MBASIC on it',
+    'Configure serial port to /dev/ttyUSB0 at 230400 baud',
+    'Create a blank 8-inch disk image',
+  ];
+
   async function copyConfig() {
     try {
       await navigator.clipboard.writeText(mcpConfig);
@@ -31,118 +52,173 @@
 </script>
 
 {#if open}
-  <div class="fixed right-0 top-0 bottom-0 w-full max-w-md z-30 flex flex-col bg-panel border-l border-border shadow-2xl shadow-black/40">
+  <aside
+    aria-label="AI assistant"
+    style="
+      position: fixed;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      width: 100%;
+      max-width: 420px;
+      z-index: 30;
+      display: flex;
+      flex-direction: column;
+      background: var(--surface-raised);
+      border-left: 1px solid var(--border-2);
+      box-shadow: var(--elev-4);
+    "
+  >
     <!-- Header -->
-    <div class="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
-      <div class="flex items-center gap-2">
-        <MessageSquare size={16} class="text-amber" />
-        <span class="text-sm font-retro text-amber tracking-wider">AI Assistant</span>
+    <div
+      style="
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border-1);
+        flex: 0 0 auto;
+      "
+    >
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <LabelStrip>AI · Assistant · MCP</LabelStrip>
+        <span style="font: var(--text-title-sm); color: var(--fg-1);">FDC+ Assistant</span>
       </div>
-      <button
-        class="p-1 text-text-dim hover:text-text transition-colors"
-        onclick={onclose}
-      >
-        <X size={16} />
-      </button>
+      <IconButton icon="close" size={18} title="Close" onclick={onclose} />
     </div>
 
     <!-- Content -->
-    <div class="flex-1 overflow-auto p-4 flex flex-col gap-4">
-      <!-- MCP Setup Instructions -->
-      <div class="bg-panel-sunken rounded-lg border border-border p-4">
-        <h3 class="text-sm font-semibold text-text mb-2">MCP Server Integration</h3>
-        <p class="text-xs text-text-dim leading-relaxed mb-3">
-          Control your Altair 8800 with AI using the FDC+ MCP server.
-          Add this configuration to Claude Desktop or Claude Code to get started.
-        </p>
+    <div style="flex: 1; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px;">
+      <!-- MCP setup -->
+      <Card>
+        <div style="padding: 16px;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+            <Icon name="extension" size={18} class="text-accent" />
+            <span style="font: var(--text-title-sm); color: var(--fg-1);">MCP server integration</span>
+          </div>
+          <p style="font: var(--text-body-sm); color: var(--fg-2); margin: 0 0 12px;">
+            Control your Altair 8800 with AI using the FDC+ MCP server. Add this
+            configuration to Claude Desktop or Claude Code to get started.
+          </p>
 
-        <!-- Config block -->
-        <div class="relative">
-          <pre class="bg-[#0a0a0a] rounded border border-border p-3 text-xs text-cyan overflow-x-auto font-mono">{mcpConfig}</pre>
-          <button
-            class="absolute top-2 right-2 p-1.5 rounded bg-panel border border-border text-text-dim hover:text-text transition-colors"
-            onclick={copyConfig}
-            title="Copy configuration"
-          >
-            {#if copied}
-              <Check size={12} class="text-green" />
-            {:else}
-              <Copy size={12} />
-            {/if}
-          </button>
+          <div style="position: relative;">
+            <pre
+              class="fdc-mono"
+              style="
+                background: var(--surface-sunken);
+                border: 1px solid var(--border-1);
+                border-radius: var(--radius-sm);
+                padding: 12px;
+                font-size: 11px;
+                color: var(--info);
+                overflow-x: auto;
+                margin: 0;
+              "
+            >{mcpConfig}</pre>
+            <span style="position: absolute; top: 6px; right: 6px;">
+              <IconButton
+                icon={copied ? 'check' : 'content_copy'}
+                size={16}
+                title="Copy configuration"
+                onclick={copyConfig}
+              />
+            </span>
+          </div>
         </div>
-      </div>
+      </Card>
 
       <!-- Capabilities -->
-      <div class="bg-panel-sunken rounded-lg border border-border p-4">
-        <h3 class="text-sm font-semibold text-text mb-2">What the AI can do</h3>
-        <ul class="text-xs text-text-dim space-y-1.5">
-          <li class="flex items-start gap-2">
-            <span class="text-amber mt-0.5">&#x2022;</span>
-            <span>"Mount the CP/M boot disk on drive 0"</span>
-          </li>
-          <li class="flex items-start gap-2">
-            <span class="text-amber mt-0.5">&#x2022;</span>
-            <span>"What files are on this disk?"</span>
-          </li>
-          <li class="flex items-start gap-2">
-            <span class="text-amber mt-0.5">&#x2022;</span>
-            <span>"Transfer HELLO.BAS to the Altair via XMODEM"</span>
-          </li>
-          <li class="flex items-start gap-2">
-            <span class="text-amber mt-0.5">&#x2022;</span>
-            <span>"Find a disk image with MBASIC on it"</span>
-          </li>
-          <li class="flex items-start gap-2">
-            <span class="text-amber mt-0.5">&#x2022;</span>
-            <span>"Configure serial port to /dev/ttyUSB0 at 230400 baud"</span>
-          </li>
-          <li class="flex items-start gap-2">
-            <span class="text-amber mt-0.5">&#x2022;</span>
-            <span>"Create a blank 8-inch disk image"</span>
-          </li>
-        </ul>
-      </div>
-
-      <!-- 29 tools badge -->
-      <div class="bg-panel-sunken rounded-lg border border-border p-4">
-        <h3 class="text-sm font-semibold text-text mb-2">Available Tools</h3>
-        <div class="flex flex-wrap gap-1.5">
-          {#each [
-            'get_status', 'list_drives', 'mount_disk', 'unmount_disk',
-            'list_disk_images', 'create_disk_image', 'clone_disk_image',
-            'list_cpm_files', 'read_cpm_file', 'write_cpm_file',
-            'open_terminal', 'send_to_terminal', 'close_terminal',
-            'start_replay', 'list_scripts', 'list_cassettes',
-            'configure_serial', 'enable_disk_serving',
-          ] as tool}
-            <span class="px-2 py-0.5 bg-surface rounded text-[10px] text-text-dim font-mono">{tool}</span>
-          {/each}
-          <span class="px-2 py-0.5 bg-amber/10 rounded text-[10px] text-amber font-mono">+11 more</span>
+      <Card>
+        <div style="padding: 16px;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+            <Icon name="auto_awesome" size={18} class="text-accent" />
+            <span style="font: var(--text-title-sm); color: var(--fg-1);">What the AI can do</span>
+          </div>
+          <ul style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px;">
+            {#each examplePrompts as prompt}
+              <li style="display: flex; gap: 8px; font: var(--text-body-sm); color: var(--fg-2);">
+                <span style="color: var(--accent); flex: 0 0 auto;">›</span>
+                <span style="font-style: italic;">"{prompt}"</span>
+              </li>
+            {/each}
+          </ul>
         </div>
-      </div>
+      </Card>
+
+      <!-- Tools -->
+      <Card>
+        <div style="padding: 16px;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+            <Icon name="build" size={18} class="text-accent" />
+            <span style="font: var(--text-title-sm); color: var(--fg-1);">Available tools</span>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+            {#each exampleTools as tool}
+              <span
+                class="fdc-mono"
+                style="
+                  padding: 2px 8px;
+                  background: var(--surface-variant);
+                  border: 1px solid var(--border-1);
+                  border-radius: var(--radius-sm);
+                  font-size: 10px;
+                  color: var(--fg-2);
+                "
+              >
+                {tool}
+              </span>
+            {/each}
+            <span
+              class="fdc-mono"
+              style="
+                padding: 2px 8px;
+                background: var(--accent-bg);
+                border-radius: var(--radius-sm);
+                font-size: 10px;
+                color: var(--accent);
+              "
+            >
+              +11 more
+            </span>
+          </div>
+        </div>
+      </Card>
 
       <!-- Links -->
-      <div class="flex flex-col gap-2">
+      <div style="display: flex; flex-direction: column; gap: 6px;">
         <a
           href="https://claude.ai/download"
           target="_blank"
           rel="noopener noreferrer"
-          class="flex items-center gap-2 text-xs text-cyan hover:text-cyan-bright transition-colors"
+          style="
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font: var(--text-body-sm);
+            color: var(--info);
+            text-decoration: none;
+          "
         >
-          <ExternalLink size={12} />
+          <Icon name="open_in_new" size={16} />
           Download Claude Desktop
         </a>
         <a
           href="https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview"
           target="_blank"
           rel="noopener noreferrer"
-          class="flex items-center gap-2 text-xs text-cyan hover:text-cyan-bright transition-colors"
+          style="
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font: var(--text-body-sm);
+            color: var(--info);
+            text-decoration: none;
+          "
         >
-          <ExternalLink size={12} />
-          Claude Code Documentation
+          <Icon name="open_in_new" size={16} />
+          Claude Code documentation
         </a>
       </div>
     </div>
-  </div>
+  </aside>
 {/if}

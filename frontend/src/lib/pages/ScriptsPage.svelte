@@ -3,8 +3,17 @@
   import { api } from '$lib/services/api';
   import { replayProgress } from '$lib/services/socket';
   import { showToast } from '$lib/stores/toast';
+  import Icon from '$lib/components/shared/Icon.svelte';
+  import IconButton from '$lib/components/shared/IconButton.svelte';
+  import Button from '$lib/components/shared/Button.svelte';
+  import Card from '$lib/components/shared/Card.svelte';
+  import Chip from '$lib/components/shared/Chip.svelte';
+  import Input from '$lib/components/shared/Input.svelte';
+  import Select from '$lib/components/shared/Select.svelte';
+  import TextArea from '$lib/components/shared/TextArea.svelte';
+  import PageHeader from '$lib/components/shared/PageHeader.svelte';
+  import LabelStrip from '$lib/components/shared/LabelStrip.svelte';
   import type { ScriptInfo } from '$lib/types/api';
-  import { FileText, Upload, Plus, Play, Square, Trash2, Send } from 'lucide-svelte';
 
   let scripts = $state<ScriptInfo[]>([]);
   let selectedScript = $state<string | null>(null);
@@ -20,7 +29,7 @@
 
   let filteredScripts = $derived(
     searchQuery
-      ? scripts.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      ? scripts.filter((s) => s.name.toLowerCase().includes(searchQuery.toLowerCase()))
       : scripts
   );
 
@@ -149,229 +158,255 @@
   });
 </script>
 
-<div class="flex flex-col gap-4 h-full">
-  <!-- Header -->
-  <div class="flex items-center justify-between">
-    <h2 class="text-lg font-retro text-amber tracking-wider">Scripts</h2>
-  </div>
+{#snippet headerActions()}
+  <Button variant="filled" icon="add" onclick={() => (showNewModal = true)}>New script</Button>
+  <Button variant="ghost" icon="upload" onclick={() => uploadInput.click()}>Upload</Button>
+  <input bind:this={uploadInput} type="file" style="display: none;" onchange={handleUpload} />
+{/snippet}
 
-  <div class="flex gap-4 flex-1 min-h-0">
-    <!-- Left Panel: Script List (1/3) -->
-    <div class="w-1/3 flex flex-col gap-3 min-h-0">
-      <!-- Search & Actions -->
-      <div class="flex gap-2">
-        <input
-          type="text"
-          placeholder="Search scripts..."
-          bind:value={searchQuery}
-          class="flex-1 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text placeholder:text-text-dim focus:outline-none focus:border-amber"
-        />
-      </div>
-      <div class="flex gap-2">
-        <button
-          onclick={() => (showNewModal = true)}
-          class="flex items-center gap-1.5 px-3 py-1.5 bg-amber/10 border border-amber/30 rounded text-amber text-xs hover:bg-amber/20 transition-colors"
-        >
-          <Plus size={14} />
-          New
-        </button>
-        <button
-          onclick={() => uploadInput.click()}
-          class="flex items-center gap-1.5 px-3 py-1.5 bg-cyan/10 border border-cyan/30 rounded text-cyan text-xs hover:bg-cyan/20 transition-colors"
-        >
-          <Upload size={14} />
-          Upload
-        </button>
-        <input
-          bind:this={uploadInput}
-          type="file"
-          class="hidden"
-          onchange={handleUpload}
-        />
-      </div>
+<PageHeader
+  eyebrow="Section · Scripts · Replay"
+  title="Scripts"
+  subtitle="Compose, edit, and replay scripts to the FDC+ serial line."
+  actions={headerActions}
+/>
 
-      <!-- Script List -->
-      <div class="flex-1 overflow-y-auto bg-panel rounded-lg border border-border">
+<div
+  style="
+    flex: 1;
+    min-height: 0;
+    padding: 0 28px 28px;
+    display: flex;
+    gap: 16px;
+  "
+>
+  <!-- Left: script list -->
+  <div style="width: 320px; flex: 0 0 320px; display: flex; flex-direction: column; gap: 12px; min-height: 0;">
+    <Input variant="search" placeholder="Filter scripts…" bind:value={searchQuery} />
+
+    <Card>
+      <div style="flex: 1; overflow-y: auto; max-height: 60vh;">
         {#if loading}
-          <div class="p-4 text-text-dim text-sm">Loading scripts...</div>
+          <div style="padding: 16px; font: var(--text-body-sm); color: var(--fg-3);">Loading scripts…</div>
         {:else if filteredScripts.length === 0}
-          <div class="p-4 text-text-dim text-sm">
+          <div style="padding: 16px; font: var(--text-body-sm); color: var(--fg-3);">
             {searchQuery ? 'No scripts match your search.' : 'No scripts found.'}
           </div>
         {:else}
           {#each filteredScripts as script}
+            {@const isActive = selectedScript === script.name}
             <div
               role="button"
               tabindex="0"
               onclick={() => selectScript(script.name)}
               onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') selectScript(script.name); }}
-              class="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-surface/50 transition-colors border-b border-border/50 last:border-b-0 cursor-pointer {selectedScript === script.name ? 'bg-amber/10 border-l-2 border-l-amber' : ''}"
+              style="
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 10px 12px;
+                cursor: pointer;
+                border-bottom: 1px solid var(--border-1);
+                background: {isActive ? 'var(--accent-bg)' : 'transparent'};
+                border-left: 3px solid {isActive ? 'var(--accent)' : 'transparent'};
+                transition: background var(--dur-short) var(--ease-standard);
+              "
             >
-              <FileText size={16} class="text-text-dim shrink-0" />
-              <div class="flex-1 min-w-0">
-                <div class="text-sm text-text truncate">{script.name}</div>
-                <div class="text-xs text-text-dim">{formatSize(script.size)}</div>
+              <Icon name="description" size={18} class={isActive ? 'text-accent' : 'text-fg-3'} />
+              <div style="flex: 1; min-width: 0;">
+                <div
+                  class="fdc-mono"
+                  style="font-size: 12px; color: {isActive ? 'var(--accent)' : 'var(--fg-1)'}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                >
+                  {script.name}
+                </div>
+                <div class="fdc-label-strip" style="margin-top: 2px;">
+                  {formatSize(script.size)}
+                </div>
               </div>
-              <button
-                onclick={(e: MouseEvent) => { e.stopPropagation(); deleteScript(script.name); }}
-                class="p-1 text-text-dim hover:text-red transition-colors shrink-0"
-                title="Delete script"
-              >
-                <Trash2 size={14} />
-              </button>
+              <span onclick={(e: MouseEvent) => e.stopPropagation()}>
+                <IconButton
+                  icon="delete"
+                  size={16}
+                  title="Delete script"
+                  onclick={() => deleteScript(script.name)}
+                />
+              </span>
             </div>
           {/each}
         {/if}
       </div>
-    </div>
+    </Card>
+  </div>
 
-    <!-- Right Panel: Editor (2/3) -->
-    <div class="w-2/3 flex flex-col gap-3 min-h-0">
-      {#if selectedScript}
-        <!-- Editor Header -->
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <FileText size={16} class="text-amber" />
-            <span class="text-sm font-mono text-amber">{selectedScript}</span>
-          </div>
-          <div class="flex gap-2">
-            {#if editing}
-              <button
-                onclick={saveScript}
-                class="px-3 py-1.5 bg-green/10 border border-green/30 rounded text-green text-xs hover:bg-green/20 transition-colors"
-              >
-                Save
-              </button>
-              <button
-                onclick={() => { editing = false; selectScript(selectedScript!); }}
-                class="px-3 py-1.5 bg-surface border border-border rounded text-text-dim text-xs hover:bg-surface/80 transition-colors"
-              >
-                Cancel
-              </button>
-            {:else}
-              <button
-                onclick={() => (editing = true)}
-                class="px-3 py-1.5 bg-surface border border-border rounded text-text text-xs hover:bg-surface/80 transition-colors"
-              >
-                Edit
-              </button>
-            {/if}
-          </div>
+  <!-- Right: editor -->
+  <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; min-height: 0;">
+    {#if selectedScript}
+      <!-- Editor header -->
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <Icon name="description" size={20} class="text-accent" />
+          <span class="fdc-mono" style="font-size: 14px; color: var(--accent);">{selectedScript}</span>
         </div>
+        <div style="display: flex; gap: 8px;">
+          {#if editing}
+            <Button variant="ghost" size="sm" onclick={() => { editing = false; selectScript(selectedScript!); }}>Cancel</Button>
+            <Button variant="filled" size="sm" icon="save" onclick={saveScript}>Save</Button>
+          {:else}
+            <Button variant="outline" size="sm" icon="edit" onclick={() => (editing = true)}>Edit</Button>
+          {/if}
+        </div>
+      </div>
 
-        <!-- Text Editor -->
-        <textarea
-          bind:value={scriptContent}
-          readonly={!editing}
-          class="flex-1 bg-surface border border-border rounded-lg p-4 font-mono text-sm text-text resize-none focus:outline-none focus:border-amber {editing ? 'bg-surface' : 'bg-panel'}"
-          spellcheck="false"
-        ></textarea>
+      <!-- Editor -->
+      <textarea
+        bind:value={scriptContent}
+        readonly={!editing}
+        spellcheck="false"
+        class="fdc-mono"
+        style="
+          flex: 1;
+          min-height: 200px;
+          background: {editing ? 'var(--surface-sunken)' : 'var(--surface)'};
+          border: 1px solid var(--border-2);
+          border-radius: var(--radius-md);
+          padding: 16px;
+          font-size: 12.5px;
+          color: var(--fg-1);
+          resize: none;
+          outline: none;
+          line-height: 1.5;
+        "
+        onfocus={(e: Event) => {
+          if (editing) {
+            (e.target as HTMLTextAreaElement).style.borderColor = 'var(--accent)';
+            (e.target as HTMLTextAreaElement).style.boxShadow = '0 0 0 3px var(--ring)';
+          }
+        }}
+        onblur={(e: Event) => {
+          (e.target as HTMLTextAreaElement).style.borderColor = 'var(--border-2)';
+          (e.target as HTMLTextAreaElement).style.boxShadow = 'none';
+        }}
+      ></textarea>
 
-        <!-- Replay Controls -->
-        <div class="bg-panel rounded-lg border border-border p-3">
-          <div class="flex items-center gap-3">
-            <span class="text-xs text-text-dim uppercase tracking-wider shrink-0">Replay</span>
-            <select
-              bind:value={replayMode}
-              class="bg-surface border border-border rounded px-2 py-1 text-xs text-text focus:outline-none focus:border-amber"
-            >
-              <option value="raw">Raw</option>
-              <option value="xmodem">XMODEM</option>
-            </select>
+      <!-- Replay controls -->
+      <Card>
+        <div style="padding: 14px;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <LabelStrip>Replay</LabelStrip>
+            <div style="width: 140px;">
+              <Select bind:value={replayMode}>
+                <option value="raw">Raw</option>
+                <option value="xmodem">XMODEM</option>
+              </Select>
+            </div>
             {#if isReplaying}
-              <button
-                onclick={cancelReplay}
-                class="flex items-center gap-1.5 px-3 py-1.5 bg-red/10 border border-red/30 rounded text-red text-xs hover:bg-red/20 transition-colors"
-              >
-                <Square size={14} />
-                Cancel
-              </button>
+              <Button variant="ghost" size="sm" icon="stop" danger onclick={cancelReplay}>Cancel</Button>
             {:else}
-              <button
-                onclick={() => startReplay(selectedScript!)}
-                class="flex items-center gap-1.5 px-3 py-1.5 bg-green/10 border border-green/30 rounded text-green text-xs hover:bg-green/20 transition-colors"
-              >
-                <Send size={14} />
-                Send
-              </button>
+              <Button variant="filled" size="sm" icon="send" onclick={() => startReplay(selectedScript!)}>Send</Button>
+            {/if}
+            {#if isReplaying}
+              <Chip color="amber" icon="play_arrow">Running</Chip>
             {/if}
           </div>
 
-          <!-- Progress Bar -->
           {#if progress && (progress.state === 'running' || progress.state === 'completed')}
-            <div class="mt-3">
-              <div class="flex items-center justify-between text-xs text-text-dim mb-1">
-                <span class="truncate">{progress.fileName}</span>
-                <span>{progress.percentComplete}%</span>
+            <div style="margin-top: 14px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; font: var(--text-body-sm); color: var(--fg-2); margin-bottom: 6px;">
+                <span class="fdc-mono" style="font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{progress.fileName}</span>
+                <span class="fdc-mono" style="font-size: 11px;">{progress.percentComplete}%</span>
               </div>
-              <div class="w-full h-2 bg-surface rounded-full overflow-hidden">
+              <div style="width: 100%; height: 6px; background: var(--surface-sunken); border-radius: 999px; overflow: hidden;">
                 <div
-                  class="h-full rounded-full transition-all duration-300 {progress.state === 'completed' ? 'bg-green' : 'bg-amber'}"
-                  style="width: {progress.percentComplete}%"
+                  style="
+                    height: 100%;
+                    width: {progress.percentComplete}%;
+                    background: {progress.state === 'completed' ? 'var(--success)' : 'var(--accent)'};
+                    border-radius: 999px;
+                    transition: width var(--dur-medium) var(--ease-standard);
+                  "
                 ></div>
               </div>
               {#if progress.state === 'completed'}
-                <div class="text-xs text-green mt-1">Transfer complete</div>
+                <div style="font: var(--text-body-sm); color: var(--success); margin-top: 6px;">Transfer complete</div>
               {/if}
             </div>
           {/if}
           {#if progress?.state === 'error'}
-            <div class="mt-2 text-xs text-red">{progress.error || 'Replay error'}</div>
+            <div style="font: var(--text-body-sm); color: var(--error); margin-top: 8px;">
+              {progress.error || 'Replay error'}
+            </div>
           {/if}
         </div>
-      {:else}
-        <!-- Placeholder -->
-        <div class="flex-1 flex items-center justify-center bg-panel rounded-lg border border-border">
-          <div class="text-center">
-            <FileText size={48} class="text-text-dim/30 mx-auto mb-3" />
-            <p class="text-text-dim text-sm">Select a script to view or edit</p>
-          </div>
+      </Card>
+    {:else}
+      <Card>
+        <div style="padding: 60px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px;">
+          <Icon name="description" size={24} class="text-fg-4" />
+          <div style="font: var(--text-body); color: var(--fg-2);">Select a script to view or edit</div>
         </div>
-      {/if}
-    </div>
+      </Card>
+    {/if}
   </div>
+</div>
 
-  <!-- New Script Modal -->
-  {#if showNewModal}
-    <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center">
-      <div class="bg-panel border border-border rounded-lg p-6 w-full max-w-lg mx-4 shadow-xl">
-        <h3 class="text-sm font-retro text-amber tracking-wider mb-4">Create New Script</h3>
-        <div class="flex flex-col gap-3">
-          <div>
-            <label class="block text-xs text-text-dim mb-1">Filename</label>
-            <input
-              type="text"
-              bind:value={newScriptName}
-              placeholder="my-script.txt"
-              class="w-full bg-surface border border-border rounded px-3 py-2 text-sm text-text placeholder:text-text-dim focus:outline-none focus:border-amber"
-            />
-          </div>
-          <div>
-            <label class="block text-xs text-text-dim mb-1">Content</label>
-            <textarea
-              bind:value={newScriptContent}
-              placeholder="Enter script content..."
-              rows="8"
-              class="w-full bg-surface border border-border rounded px-3 py-2 text-sm text-text font-mono placeholder:text-text-dim focus:outline-none focus:border-amber resize-none"
-              spellcheck="false"
-            ></textarea>
-          </div>
-          <div class="flex justify-end gap-2 mt-2">
-            <button
-              onclick={() => { showNewModal = false; newScriptName = ''; newScriptContent = ''; }}
-              class="px-4 py-2 bg-surface border border-border rounded text-text-dim text-sm hover:bg-surface/80 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onclick={createScript}
-              class="px-4 py-2 bg-amber/10 border border-amber/30 rounded text-amber text-sm hover:bg-amber/20 transition-colors"
-            >
-              Create
-            </button>
-          </div>
-        </div>
+<!-- New script modal -->
+{#if showNewModal}
+  <div
+    role="dialog"
+    aria-modal="true"
+    aria-label="Create new script"
+    tabindex="-1"
+    onkeydown={(e: KeyboardEvent) => { if (e.key === 'Escape') showNewModal = false; }}
+    style="
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      background: var(--surface-overlay);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    "
+  >
+    <button
+      type="button"
+      onclick={() => (showNewModal = false)}
+      aria-label="Close"
+      style="position: absolute; inset: 0; background: transparent; border: none; cursor: default;"
+    ></button>
+    <div
+      role="document"
+      style="
+        position: relative;
+        background: var(--surface-raised);
+        border: 1px solid var(--border-2);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--elev-4);
+        width: 100%;
+        max-width: 560px;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      "
+    >
+      <div>
+        <LabelStrip>New script</LabelStrip>
+        <h3 style="font: var(--text-title-lg); color: var(--fg-1); margin: 4px 0 0;">Create script</h3>
+      </div>
+      <div>
+        <label class="fdc-label-strip" for="new-script-name" style="display: block; margin-bottom: 4px;">Filename</label>
+        <Input id="new-script-name" placeholder="my-script.txt" bind:value={newScriptName} />
+      </div>
+      <div>
+        <label class="fdc-label-strip" for="new-script-content" style="display: block; margin-bottom: 4px;">Content</label>
+        <TextArea id="new-script-content" rows={8} placeholder="Enter script content…" bind:value={newScriptContent} />
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px;">
+        <Button variant="ghost" onclick={() => { showNewModal = false; newScriptName = ''; newScriptContent = ''; }}>Cancel</Button>
+        <Button variant="filled" icon="check" onclick={createScript}>Create</Button>
       </div>
     </div>
-  {/if}
-</div>
+  </div>
+{/if}

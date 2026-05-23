@@ -2,8 +2,16 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/services/api';
   import { showToast } from '$lib/stores/toast';
+  import Icon from '$lib/components/shared/Icon.svelte';
+  import IconButton from '$lib/components/shared/IconButton.svelte';
+  import Button from '$lib/components/shared/Button.svelte';
+  import Card from '$lib/components/shared/Card.svelte';
+  import Chip from '$lib/components/shared/Chip.svelte';
+  import Input from '$lib/components/shared/Input.svelte';
+  import TextArea from '$lib/components/shared/TextArea.svelte';
+  import PageHeader from '$lib/components/shared/PageHeader.svelte';
+  import LabelStrip from '$lib/components/shared/LabelStrip.svelte';
   import type { CassetteInfo } from '$lib/types/api';
-  import { Music, Upload, Play, Square, Trash2, FileEdit, Volume2 } from 'lucide-svelte';
 
   let cassettes = $state<CassetteInfo[]>([]);
   let loading = $state(true);
@@ -54,7 +62,6 @@
   }
 
   function streamCassette(filename: string) {
-    // Stop any existing stream
     if (streamAudio) {
       streamAudio.pause();
       streamAudio = null;
@@ -76,7 +83,7 @@
         streamingFile = null;
         streamAudio = null;
       };
-    } catch (err: any) {
+    } catch {
       showToast('Failed to stream cassette', 'error');
     }
   }
@@ -148,150 +155,146 @@
   });
 </script>
 
-<div class="flex flex-col gap-4">
-  <!-- Header -->
-  <div class="flex items-center justify-between">
-    <h2 class="text-lg font-retro text-amber tracking-wider">Cassettes</h2>
-    <div class="flex gap-2">
-      <button
-        onclick={() => uploadInput.click()}
-        class="flex items-center gap-1.5 px-3 py-1.5 bg-cyan/10 border border-cyan/30 rounded text-cyan text-xs hover:bg-cyan/20 transition-colors"
-      >
-        <Upload size={14} />
-        Upload .wav
-      </button>
-      <input
-        bind:this={uploadInput}
-        type="file"
-        accept=".wav,.cas"
-        class="hidden"
-        onchange={handleUpload}
-      />
-    </div>
-  </div>
+{#snippet headerActions()}
+  <Button variant="filled" icon="upload" onclick={() => uploadInput.click()}>Upload .wav</Button>
+  <input
+    bind:this={uploadInput}
+    type="file"
+    accept=".wav,.cas"
+    style="display: none;"
+    onchange={handleUpload}
+  />
+{/snippet}
 
-  <!-- Cassette List -->
+<PageHeader
+  eyebrow="Section · Cassettes · Audio out"
+  title="Cassettes"
+  subtitle="Tape audio for SAVE / LOAD on the Altair. Play through the FDC+ serial output or stream in-browser."
+  actions={headerActions}
+/>
+
+<div style="padding: 0 28px 28px; display: flex; flex-direction: column; gap: 16px;">
   {#if loading}
-    <div class="bg-panel rounded-lg border border-border p-6">
-      <p class="text-text-dim text-sm">Loading cassettes...</p>
-    </div>
+    <Card>
+      <div style="padding: 24px; font: var(--text-body-sm); color: var(--fg-3);">
+        Loading cassettes…
+      </div>
+    </Card>
   {:else if cassettes.length === 0}
-    <div class="bg-panel rounded-lg border border-border p-8 text-center">
-      <Music size={48} class="text-text-dim/30 mx-auto mb-3" />
-      <p class="text-text-dim text-sm">No cassette files found.</p>
-      <p class="text-text-dim/60 text-xs mt-1">Upload a .wav file to get started.</p>
-    </div>
+    <Card>
+      <div style="padding: 40px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px;">
+        <Icon name="album" size={24} class="text-fg-4" />
+        <div style="font: var(--text-body); color: var(--fg-2);">No cassette files found.</div>
+        <div style="font: var(--text-body-sm); color: var(--fg-3);">Upload a .wav file to get started.</div>
+      </div>
+    </Card>
   {:else}
-    <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+    <div
+      style="
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 12px;
+      "
+    >
       {#each cassettes as cassette}
-        <div class="bg-panel rounded-lg border border-border p-4 flex flex-col gap-3">
-          <!-- Card Header -->
-          <div class="flex items-start gap-3">
-            <div class="p-2 bg-amber/10 rounded shrink-0">
-              <Music size={18} class="text-amber" />
-            </div>
-            <div class="flex-1 min-w-0">
-              <div class="text-sm text-text font-mono truncate" title={cassette.name}>
-                {cassette.name}
+        <Card>
+          <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+            <!-- Header -->
+            <div style="display: flex; align-items: flex-start; gap: 12px;">
+              <div
+                style="
+                  padding: 8px;
+                  background: var(--accent-bg);
+                  border-radius: var(--radius-sm);
+                  flex: 0 0 auto;
+                  display: inline-flex;
+                "
+              >
+                <Icon name="album" size={20} class="text-accent" />
               </div>
-              <div class="text-xs text-text-dim">{formatSize(cassette.size)}</div>
-              {#if cassette.description}
-                <div class="text-xs text-text-dim/80 mt-1 truncate" title={cassette.description}>
-                  {cassette.description}
+              <div style="flex: 1; min-width: 0;">
+                <div
+                  class="fdc-mono"
+                  style="font-size: 13px; color: var(--fg-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                  title={cassette.name}
+                >
+                  {cassette.name}
                 </div>
-              {/if}
-            </div>
-          </div>
-
-          <!-- Inline Notes Editor -->
-          {#if editingNotes === cassette.name}
-            <div class="flex flex-col gap-2 border-t border-border/50 pt-3">
-              <div>
-                <label class="block text-xs text-text-dim mb-1" for="cassette-desc">Description</label>
-                <input
-                  id="cassette-desc"
-                  type="text"
-                  bind:value={editDescription}
-                  placeholder="Short description..."
-                  class="w-full bg-surface border border-border rounded px-2 py-1.5 text-xs text-text placeholder:text-text-dim focus:outline-none focus:border-amber"
-                />
-              </div>
-              <div>
-                <label class="block text-xs text-text-dim mb-1" for="cassette-notes">Notes</label>
-                <textarea
-                  id="cassette-notes"
-                  bind:value={editNotesText}
-                  placeholder="Additional notes..."
-                  rows="3"
-                  class="w-full bg-surface border border-border rounded px-2 py-1.5 text-xs text-text placeholder:text-text-dim focus:outline-none focus:border-amber resize-none"
-                ></textarea>
-              </div>
-              <div class="flex justify-end gap-2">
-                <button
-                  onclick={() => (editingNotes = null)}
-                  class="px-2 py-1 bg-surface border border-border rounded text-text-dim text-xs hover:bg-surface/80 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onclick={saveNotes}
-                  class="px-2 py-1 bg-green/10 border border-green/30 rounded text-green text-xs hover:bg-green/20 transition-colors"
-                >
-                  Save
-                </button>
+                <div style="display: flex; align-items: center; gap: 6px; margin-top: 4px;">
+                  <Chip>{formatSize(cassette.size)}</Chip>
+                  {#if playingFile === cassette.name}
+                    <Chip color="amber" icon="play_arrow">Playing</Chip>
+                  {/if}
+                  {#if streamingFile === cassette.name}
+                    <Chip color="cyan" icon="graphic_eq">Streaming</Chip>
+                  {/if}
+                </div>
+                {#if cassette.description}
+                  <div
+                    style="font: var(--text-body-sm); color: var(--fg-2); margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                    title={cassette.description}
+                  >
+                    {cassette.description}
+                  </div>
+                {/if}
               </div>
             </div>
-          {/if}
 
-          <!-- Actions -->
-          <div class="flex items-center gap-1.5 border-t border-border/50 pt-3">
-            {#if playingFile === cassette.name}
-              <button
-                onclick={stopCassette}
-                class="flex items-center gap-1 px-2 py-1 bg-red/10 border border-red/30 rounded text-red text-xs hover:bg-red/20 transition-colors"
-                title="Stop playback"
+            <!-- Inline notes editor -->
+            {#if editingNotes === cassette.name}
+              <div
+                style="
+                  display: flex;
+                  flex-direction: column;
+                  gap: 8px;
+                  padding-top: 12px;
+                  border-top: 1px solid var(--border-1);
+                "
               >
-                <Square size={12} />
-                Stop
-              </button>
-            {:else}
-              <button
-                onclick={() => playCassette(cassette.name)}
-                class="flex items-center gap-1 px-2 py-1 bg-green/10 border border-green/30 rounded text-green text-xs hover:bg-green/20 transition-colors"
-                title="Play via server (serial output)"
-              >
-                <Play size={12} />
-                Play
-              </button>
+                <div>
+                  <label class="fdc-label-strip" for="cassette-desc-{cassette.name}" style="display: block; margin-bottom: 4px;">Description</label>
+                  <Input id="cassette-desc-{cassette.name}" bind:value={editDescription} placeholder="Short description…" />
+                </div>
+                <div>
+                  <label class="fdc-label-strip" for="cassette-notes-{cassette.name}" style="display: block; margin-bottom: 4px;">Notes</label>
+                  <TextArea id="cassette-notes-{cassette.name}" bind:value={editNotesText} rows={3} placeholder="Additional notes…" />
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                  <Button variant="ghost" size="sm" onclick={() => (editingNotes = null)}>Cancel</Button>
+                  <Button variant="filled" size="sm" icon="check" onclick={saveNotes}>Save</Button>
+                </div>
+              </div>
             {/if}
 
-            <button
-              onclick={() => streamCassette(cassette.name)}
-              class="flex items-center gap-1 px-2 py-1 bg-cyan/10 border border-cyan/30 rounded text-xs transition-colors {streamingFile === cassette.name ? 'text-amber border-amber/30 bg-amber/10 hover:bg-amber/20' : 'text-cyan border-cyan/30 hover:bg-cyan/20'}"
-              title={streamingFile === cassette.name ? 'Stop streaming' : 'Stream in browser'}
+            <!-- Actions -->
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                padding-top: 12px;
+                border-top: 1px solid var(--border-1);
+              "
             >
-              <Volume2 size={12} />
-              {streamingFile === cassette.name ? 'Streaming' : 'Stream'}
-            </button>
-
-            <div class="flex-1"></div>
-
-            <button
-              onclick={() => openNotes(cassette)}
-              class="p-1.5 text-text-dim hover:text-amber transition-colors"
-              title="Edit notes"
-            >
-              <FileEdit size={14} />
-            </button>
-            <button
-              onclick={() => deleteCassette(cassette.name)}
-              class="p-1.5 text-text-dim hover:text-red transition-colors"
-              title="Delete cassette"
-            >
-              <Trash2 size={14} />
-            </button>
+              {#if playingFile === cassette.name}
+                <Button variant="ghost" size="sm" icon="stop" danger onclick={stopCassette}>Stop</Button>
+              {:else}
+                <Button variant="tonal" size="sm" icon="play_arrow" onclick={() => playCassette(cassette.name)}>Play</Button>
+              {/if}
+              <Button
+                variant={streamingFile === cassette.name ? 'filled' : 'ghost'}
+                size="sm"
+                icon="graphic_eq"
+                onclick={() => streamCassette(cassette.name)}
+              >
+                {streamingFile === cassette.name ? 'Streaming' : 'Stream'}
+              </Button>
+              <div style="flex: 1;"></div>
+              <IconButton icon="edit_note" size={18} title="Edit notes" onclick={() => openNotes(cassette)} />
+              <IconButton icon="delete" size={16} title="Delete cassette" onclick={() => deleteCassette(cassette.name)} />
+            </div>
           </div>
-        </div>
+        </Card>
       {/each}
     </div>
   {/if}
