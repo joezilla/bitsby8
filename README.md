@@ -1,10 +1,41 @@
-# FDC+ Serial Drive Server (TypeScript)
+# FDC+ Serial Drive Server
 
-TypeScript port of the FDC+ Serial Drive Server - A Serial Disk Server compatible with the FDC+ Enhanced Floppy Disk Controller for the Altair 8800.
+<img src="images/mits-logo.svg" alt="MITS Altair 8800" width="180" align="right" />
 
-**Version:** 2.0.0
-**Original C Version by:** Patrick Linstruth
-**License:** GPL-3.0
+A TypeScript Serial Disk Server compatible with the FDC+ Enhanced Floppy Disk Controller for the **MITS Altair 8800**. Serves virtual floppies, cassette audio, and a VT102 terminal over serial, with a Svelte 5 web UI for control.
+
+**Version:** 2.0.0 · **License:** GPL-3.0 · See [Origins](#origins--upstream) for relationship to the original C implementation.
+
+> _`[SCREENSHOT TODO]` — annotated GIF of the web UI showing a mounted drive + the VT102 terminal. (`images/` currently holds hardware photos only.)_
+
+---
+
+## Quickstart
+
+```bash
+# Clone, install both trees, run backend + frontend dev servers
+git clone <repo-url> fdcplus-web && cd fdcplus-web
+pnpm install                       # pnpm workspace: provisions root + frontend/
+pnpm dev:all                       # backend (ts-node) + Vite dev concurrently
+open http://localhost:3000         # mount a sample disk image; no hardware needed
+```
+
+For a connected Altair (Pi target), see [Installation](#installation) and the GPIO sections below.
+
+## Supported platforms
+
+| Platform | Status | Notes |
+|---|---|---|
+| Linux (Raspberry Pi & x86) | ✅ Tested | Primary production target; GPIO LED support |
+| macOS | ✅ Tested | Dev / exploration; serial works via `/dev/cu.usbserial-*` |
+| Windows | ⚠️ Untested | Should work in theory (Node.js + SerialPort), but no contributor runs it. PRs welcome. |
+| Docker | ✅ | `docker-compose.yml` included |
+
+## Contributing & architecture
+
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to send a PR, what the pre-PR gate runs
+- [`AGENTS.md`](AGENTS.md) — terse repo conventions (filename casing, scripts, testing rules)
+- [`_bmad-output/project-context.md`](_bmad-output/project-context.md) (gitignored) — AI-agent context with the load-bearing details: tokens, primitives, stack traps, vintage-hardware invariants
 
 ---
 
@@ -15,14 +46,20 @@ This is a complete TypeScript rewrite of the original C implementation. The Type
 - Modern async/await architecture with modular Express backend
 - Type-safe protocol implementation
 - Better error handling and structured logging (pino)
-- Cross-platform support (Linux, macOS)
-- **Svelte 5 + Tailwind 4 web interface** with real-time status updates
-- **VT102 terminal emulator** for second serial port
-- **MCP server** with 29 tools for AI assistant integration
+- Cross-platform support (Linux + macOS tested; Windows untested)
+- **Svelte 5 + Tailwind 4 web interface** with real-time Socket.IO status updates
+- **VT102 terminal emulator** for a second serial port (with optional CRT phosphor mode)
+- **MCP server** with 30 tools for AI assistant integration — see [AI Assistant Integration](#ai-assistant-integration-mcp)
 - **GPIO LED status indicators** for Raspberry Pi
-- **OpenAPI/Swagger documentation** at `/api/docs`
+- **OpenAPI/Swagger documentation** at `/api/docs` (also committed as [`openapi.json`](openapi.json))
 - SQLite database with WAL mode for persistent state
 - Docker and Debian package deployment support
+
+---
+
+## Origins & Upstream
+
+This project is a TypeScript rewrite of Patrick Linstruth's original C implementation of the FDC+ Serial Disk Server (see [deramp.com](http://www.deramp.com) for the FDC+ hardware). The TypeScript rewrite preserves the wire protocol bit-for-bit so it's a drop-in replacement on the same hardware, and is licensed under GPL-3.0 to honor the upstream license. Attribution per GPL §5(a) is in [AUTHORS](AUTHORS) and the [Credits](#credits) section.
 
 ---
 
@@ -41,7 +78,7 @@ src/
 ├── protocol.ts           # FDC+ protocol definitions & types
 ├── config.ts             # Configuration file loading & validation
 ├── database.ts           # SQLite database management
-├── mcp-server.ts         # MCP server (29 AI-accessible tools)
+├── mcp-server.ts         # MCP server (30 AI-accessible tools)
 ├── openapi-def.ts        # OpenAPI/Swagger specification
 ├── types.ts              # Shared TypeScript types
 ├── routes/               # Express route handlers
@@ -98,7 +135,7 @@ frontend/                  # Svelte 5 + Vite + Tailwind 4 SPA
 - **routes/**: 11 Express route modules covering drives, images, cassettes, scripts, terminal, etc.
 - **services/**: Business logic separated from HTTP handling (status, transfers, audio, file listing)
 - **middleware/**: Security (Helmet, CORS, rate limiting), API key auth, and static file serving
-- **mcp-server.ts**: MCP server exposing 29 tools for AI assistant integration via stdio transport
+- **mcp-server.ts**: MCP server exposing 30 tools for AI assistant integration via stdio transport (see [AI Assistant Integration](#ai-assistant-integration-mcp))
 - **frontend/**: Modern Svelte 5 SPA with real-time Socket.IO updates, xterm.js terminal, and retro CRT mode
 
 ---
@@ -491,6 +528,49 @@ The web interface uses Socket.IO for real-time updates.
 
 ---
 
+## AI Assistant Integration (MCP)
+
+The server ships a [Model Context Protocol](https://modelcontextprotocol.io/) server that exposes **30 tools** to MCP-compatible assistants (Claude Desktop, Claude Code, etc.). It runs over **stdio transport** as a separate process from the web server (`fdcsds --mcp ...`).
+
+### Tool surface (30 tools, by category)
+
+| Category | Capabilities (examples) |
+|---|---|
+| **Status** | `get_status`, `get_drive_status` |
+| **Drives** | `list_drives`, `mount_disk`, `unmount_disk`, `set_drive_readonly` |
+| **Disk images** | `list_disk_images`, `create_disk_image`, `clone_disk_image`, `delete_disk_image`, `upload_disk_image` |
+| **CP/M filesystem** | `list_cpm_files`, `read_cpm_file`, `write_cpm_file`, `delete_cpm_file`, `format_cpm_disk` |
+| **Terminal serial** | `list_terminal_ports`, `open_terminal`, `close_terminal`, `send_to_terminal` |
+| **Replay / transfer** | `start_replay`, `cancel_replay`, `list_scripts` |
+| **Cassettes** | `list_cassettes`, `play_cassette`, `stop_cassette` |
+| **Configuration** | `configure_serial`, `enable_disk_serving`, `disable_disk_serving` |
+
+The exact, current list is the source of truth in [`src/mcp-server.ts`](src/mcp-server.ts).
+
+### Auth, transport, and default posture
+
+- **Transport:** stdio (one process per assistant session).
+- **Auth:** none on stdio (parent process trust model). The MCP server runs only when launched explicitly with `--mcp`.
+- **Default posture:** **disabled** — the regular `fdcsds` binary does NOT start MCP. You opt in per-session.
+- **Blast radius if exposed:** the tools can read and **write** disk images, mount/unmount drives, send arbitrary bytes to the serial port, and read/write CP/M files on mounted disks. Do not point an assistant at production hardware without intent.
+
+### Enabling it (Claude Desktop / Claude Code)
+
+```json
+{
+  "mcpServers": {
+    "fdcplus": {
+      "command": "fdcsds",
+      "args": ["--mcp", "--data-dir", "/path/to/your/data"]
+    }
+  }
+}
+```
+
+The web interface's Chat panel (top-bar `forum` icon) has the same config block with a copy button.
+
+---
+
 ## VT102 Terminal Emulator
 
 ### Overview
@@ -769,7 +849,7 @@ npx tsc --noEmit
 - `tailwindcss` ^4.0.0 - Utility-first CSS
 - `@xterm/xterm` ^6.0.0 - Terminal emulator (bundled)
 - `socket.io-client` ^4.6.0 - Real-time updates
-- `lucide-svelte` - Icon library
+- Material Symbols Rounded - Icon font (loaded from Google Fonts via `app.css`)
 
 **Development:**
 - `typescript` ^5.3.0
@@ -1064,13 +1144,14 @@ fdcsds -p /dev/ttyUSB0 -0 disk.dsk -v -d
 
 ## Contributing
 
-This is a TypeScript port of the original C implementation. Contributions are welcome!
+Contributions are welcome. The full guide — branch model, commit style, the pre-PR `pnpm check` gate, OpenAPI regen rule, hardware-touching PR caveats — lives in [**CONTRIBUTING.md**](CONTRIBUTING.md).
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
+Quick summary:
+1. Fork & branch from `main`.
+2. Make your change. Add tests if you can.
+3. Run `pnpm check` — it must pass.
+4. If you touched route `@openapi` JSDoc, run `pnpm docs` and commit the regenerated `openapi.json` in the same PR.
+5. Open the PR. CI runs the same check; the maintainer reviews.
 
 ---
 
@@ -1082,9 +1163,11 @@ GPL-3.0 - Same as original C version
 
 ## Credits
 
-- **Original C Implementation**: Patrick Linstruth
-- **TypeScript Port**: 2024
-- **FDC+ Hardware**: http://www.deramp.com
+- **Original C implementation**: Patrick Linstruth (the `fdcsds` reference C codebase, GPL-3.0). The TypeScript rewrite preserves the wire protocol bit-for-bit.
+- **FDC+ Enhanced Floppy Disk Controller hardware**: Mike Douglas / [deramp.com](http://www.deramp.com).
+- **TypeScript rewrite & web interface**: Joe Toppe (2024–present).
+
+See [AUTHORS](AUTHORS) for the contributor list.
 
 ---
 

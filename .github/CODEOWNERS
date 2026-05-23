@@ -1,0 +1,6 @@
+# Default reviewer for all changes. The maintainer is solo today.
+# Update if/when contributors take on long-term ownership of subtrees.
+# [VERIFY] @mreppot — GitHub username inferred from email mreppot@gmail.com.
+#                     Correct this if the actual handle differs.
+
+*               @mreppot

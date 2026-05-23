@@ -1,7 +1,12 @@
 The following people have contributed to the FDC+ Serial Drive Server codebase:
 
-Joe Toppe <mreppot@gmail.com>
-   Typescript version with web interface
-
 Patrick Linstruth <patrick@deltecent.com>
-   Original Release (C code)
+   Original implementation in C — the upstream reference codebase that
+   the TypeScript version was ported from. (Era: pre-2024.)
+
+Joe Toppe <mreppot@gmail.com>
+   TypeScript rewrite, web interface (Svelte 5 + Tailwind 4), MCP server,
+   GPIO LED status indicators, OpenAPI documentation. (Era: 2024–present.)
+
+The FDC+ Enhanced Floppy Disk Controller hardware itself is by Mike Douglas
+(deramp.com). It is referenced here but not part of this codebase.
