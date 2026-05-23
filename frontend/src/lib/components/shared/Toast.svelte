@@ -1,20 +1,66 @@
 <script lang="ts">
   import { toasts } from '$lib/stores/toast';
+  import Icon from './Icon.svelte';
+  import IconButton from './IconButton.svelte';
 
-  const typeClasses: Record<string, string> = {
-    info: 'border-cyan bg-cyan/10 text-cyan',
-    success: 'border-green bg-green/10 text-green',
-    error: 'border-red bg-red/10 text-red',
-    warning: 'border-amber bg-amber/10 text-amber',
+  type Tone = {
+    icon: string;
+    color: string;
   };
+
+  const tones: Record<string, Tone> = {
+    success: { icon: 'check_circle', color: 'var(--success)' },
+    info:    { icon: 'info',         color: 'var(--info)' },
+    warning: { icon: 'warning',      color: 'var(--warning)' },
+    error:   { icon: 'error',        color: 'var(--error)' },
+  };
+
+  function dismiss(id: number): void {
+    toasts.update((t) => t.filter((m) => m.id !== id));
+  }
 </script>
 
-<div class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm">
+<div
+  style="
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 380px;
+  "
+>
   {#each $toasts as toast (toast.id)}
+    {@const tone = tones[toast.type] ?? tones.info}
     <div
-      class="px-4 py-3 rounded-lg border text-sm font-mono shadow-lg {typeClasses[toast.type]}"
+      role="status"
+      style="
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 12px 16px;
+        background: var(--surface-raised);
+        border: 1px solid var(--border-2);
+        border-left: 3px solid {tone.color};
+        border-radius: var(--radius-md);
+        box-shadow: var(--elev-3);
+        min-width: 280px;
+      "
     >
-      {toast.text}
+      <span style="color: {tone.color}; display: inline-flex; padding-top: 1px;">
+        <Icon name={tone.icon} size={20} />
+      </span>
+      <div style="flex: 1; font: var(--text-body-sm); color: var(--fg-1);">
+        {toast.text}
+      </div>
+      <IconButton
+        icon="close"
+        size={16}
+        title="Dismiss"
+        onclick={() => dismiss(toast.id)}
+      />
     </div>
   {/each}
 </div>

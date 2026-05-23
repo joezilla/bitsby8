@@ -1,5 +1,5 @@
 <script lang="ts">
-  import StatusLed from './StatusLed.svelte';
+  import Led from './Led.svelte';
   import { serverStatus, terminalStatus, connected } from '$lib/services/socket';
   import type { DriveState } from '$lib/types/api';
 
@@ -11,20 +11,20 @@
 
 <div class="flex items-center gap-4 text-xs">
   <!-- Connection status -->
-  <StatusLed
+  <Led
     color={$connected ? 'green' : 'red'}
     pulse={!$connected}
     label={$connected ? 'Online' : 'Offline'}
   />
 
   <!-- Serial -->
-  <StatusLed
+  <Led
     color={serialConnected ? 'cyan' : 'off'}
     label="Serial"
   />
 
-  <!-- Disk serving -->
-  <StatusLed
+  <!-- Disk serving (FDC) -->
+  <Led
     color={diskServingRunning ? 'green' : 'off'}
     label="FDC"
   />
@@ -33,8 +33,8 @@
   <div class="flex items-center gap-2 border-l border-border pl-3">
     {#each drives as drive}
       <div class="flex items-center gap-1" title="Drive {drive.id}">
-        <span class="text-text-dim font-retro">{drive.id}:</span>
-        <StatusLed
+        <span class="fdc-label-strip" style="font-size: 9px;">{drive.id}</span>
+        <Led
           color={drive.mounted ? (drive.headLoaded ? 'amber' : 'green') : 'off'}
           pulse={drive.headLoaded}
         />
@@ -44,7 +44,7 @@
 
   <!-- Terminal -->
   <div class="border-l border-border pl-3">
-    <StatusLed
+    <Led
       color={termConnected ? 'cyan' : 'off'}
       label="Term"
     />
