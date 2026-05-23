@@ -25,9 +25,10 @@ export function setupSecurityMiddleware(
         directives: {
           defaultSrc: ["'self'"],
           scriptSrc: ["'self'", "'unsafe-inline'"],
-          styleSrc: ["'self'", "'unsafe-inline'"],
+          styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
           imgSrc: ["'self'", "data:"],
           connectSrc: ["'self'", 'ws:', 'wss:'],
+          fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
           upgradeInsecureRequests: null,
         },
       },
