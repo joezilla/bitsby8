@@ -9,41 +9,6 @@
 @import "tailwindcss";
 
 /* ============================================================
-   COMPAT @theme — keeps existing Tailwind utility classes
-   (`bg-panel`, `text-amber`, `font-retro`, etc.) working until
-   per-page sweeps in Phase 4 replace them. Removed in Phase 5.
-   ============================================================ */
-@theme {
-  --color-panel: #111111;
-  --color-panel-raised: #1a1a1a;
-  --color-panel-sunken: #0a0a0a;
-  --color-surface: #141414;
-  --color-surface-hover: #1e1e1e;
-  --color-border: #2a2a2a;
-  --color-border-bright: #3a3a3a;
-
-  --color-amber: #ffaa00;
-  --color-amber-dim: #cc8800;
-  --color-amber-bright: #ffcc44;
-  --color-cyan: #00aaaa;
-  --color-cyan-dim: #008888;
-  --color-cyan-bright: #55ffff;
-  --color-green: #00cc00;
-  --color-green-dim: #009900;
-  --color-green-bright: #00ff00;
-  --color-red: #cc3333;
-  --color-red-dim: #992222;
-  --color-red-bright: #ff4444;
-
-  --color-text: #e0e0e0;
-  --color-text-dim: #888888;
-  --color-text-bright: #ffffff;
-
-  --font-mono: 'IBM Plex Mono', 'JetBrains Mono', 'Courier New', monospace;
-  --font-retro: 'VT323', monospace;
-}
-
-/* ============================================================
    FDC+ DESIGN SYSTEM TOKENS
    Cool slate neutrals, amber primary, signal-green secondary.
    Dark by default with [data-theme="light"] override.

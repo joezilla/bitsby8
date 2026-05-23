@@ -66,6 +66,8 @@
     {/if}
 
     <main
+      id="main"
+      aria-label="Main content"
       style="
         flex: 1;
         min-width: 0;
