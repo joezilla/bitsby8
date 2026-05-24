@@ -11,27 +11,32 @@ override_dh_auto_build:
 	# Activate pnpm via corepack (bundled with Node 16+; pins to the
 	# version declared in the root package.json `packageManager` field).
 	corepack enable pnpm
-	# Install with --shamefully-hoist so the resulting node_modules is
-	# a flat, npm-like tree (every package directly at node_modules/<name>/)
-	# rather than pnpm's default symlink-into-.pnpm layout. The flat tree
-	# is what systemd-launched node at /usr/lib/fdcsds/dist/index.js can
-	# resolve without pnpm-specific knowledge. Without this, runtime hits
-	# `Cannot find module 'serialport'` even though the file is technically
-	# present via a symlink chain that doesn't resolve cleanly post-copy.
-	pnpm install --frozen-lockfile --shamefully-hoist
+	# Install with --config.node-linker=hoisted so node_modules is a
+	# truly flat, npm-like tree — every package as a real directory
+	# directly under node_modules/<name>/, no symlinks, no .pnpm/
+	# indirection. This is what makes the shipped tree portable to
+	# /usr/lib/fdcsds/node_modules/ where systemd-launched node can
+	# resolve modules without pnpm-specific layout knowledge.
+	# (--shamefully-hoist alone does NOT achieve this; it only hoists
+	# transitives to top level within pnpm's still-symlinked layout,
+	# leaving package directories empty post-copy.)
+	pnpm install --frozen-lockfile --config.node-linker=hoisted
+	# Verify the install actually produced populated package directories
+	# before we waste cycles building. Catches future regressions of the
+	# "empty serialport/ dir" class of bug immediately.
+	@test -f node_modules/serialport/package.json || \
+		(echo "ERROR: node_modules/serialport/ is empty after install — node-linker=hoisted not applied" && exit 1)
+	@test -f node_modules/@serialport/bindings-cpp/package.json || \
+		(echo "ERROR: node_modules/@serialport/bindings-cpp/ missing after install" && exit 1)
 	# Compile backend TypeScript and (re)generate openapi.json at repo root.
 	pnpm run build
 	# Build the Svelte frontend SPA → frontend/dist/.
 	pnpm --filter fdcplus-frontend build
-	# NOTE: `pnpm prune --prod` is intentionally omitted. With the
-	# --shamefully-hoist layout above, prune was leaving runtime packages
-	# like `serialport` as EMPTY DIRECTORIES in the shipped tree —
-	# systemd-launched node then hit `Cannot find module 'serialport'`.
-	# The deb ships devDependencies too as a result (jest, tsc, vite,
-	# svelte-check, etc.) — larger but actually functional. If size
-	# becomes a real issue, switch to `pnpm deploy --prod --legacy`
-	# (which produces a self-contained prod-only tree) or rebuild
-	# this step on a fresh tree where no prior pnpm symlinks exist.
+	# NOTE: `pnpm prune --prod` is intentionally omitted. It misbehaves
+	# on the hoisted layout (leaves dirs but strips contents). The deb
+	# ships devDependencies too — larger but functional. To trim size
+	# later, switch to `pnpm deploy --prod` which is purpose-built for
+	# this and handles the layout end-to-end.
 
 override_dh_auto_test:
 	# Skip tests during package build (tests can be run separately).
