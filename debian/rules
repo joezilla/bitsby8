@@ -23,11 +23,15 @@ override_dh_auto_build:
 	pnpm run build
 	# Build the Svelte frontend SPA → frontend/dist/.
 	pnpm --filter fdcplus-frontend build
-	# Strip devDependencies (tsc, jest, vite, svelte-check, etc.) from
-	# the shipped node_modules. Native binaries built in the install
-	# pass above (better-sqlite3, @serialport/bindings-cpp, epoll) stay
-	# because their packages are runtime deps.
-	pnpm prune --prod
+	# NOTE: `pnpm prune --prod` is intentionally omitted. With the
+	# --shamefully-hoist layout above, prune was leaving runtime packages
+	# like `serialport` as EMPTY DIRECTORIES in the shipped tree —
+	# systemd-launched node then hit `Cannot find module 'serialport'`.
+	# The deb ships devDependencies too as a result (jest, tsc, vite,
+	# svelte-check, etc.) — larger but actually functional. If size
+	# becomes a real issue, switch to `pnpm deploy --prod --legacy`
+	# (which produces a self-contained prod-only tree) or rebuild
+	# this step on a fresh tree where no prior pnpm symlinks exist.
 
 override_dh_auto_test:
 	# Skip tests during package build (tests can be run separately).
