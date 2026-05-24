@@ -11,15 +11,22 @@ override_dh_auto_build:
 	# Activate pnpm via corepack (bundled with Node 16+; pins to the
 	# version declared in the root package.json `packageManager` field).
 	corepack enable pnpm
-	# Install all workspace deps (root + frontend/), exactly per lockfile.
-	pnpm install --frozen-lockfile
+	# Install with --shamefully-hoist so the resulting node_modules is
+	# a flat, npm-like tree (every package directly at node_modules/<name>/)
+	# rather than pnpm's default symlink-into-.pnpm layout. The flat tree
+	# is what systemd-launched node at /usr/lib/fdcsds/dist/index.js can
+	# resolve without pnpm-specific knowledge. Without this, runtime hits
+	# `Cannot find module 'serialport'` even though the file is technically
+	# present via a symlink chain that doesn't resolve cleanly post-copy.
+	pnpm install --frozen-lockfile --shamefully-hoist
 	# Compile backend TypeScript and (re)generate openapi.json at repo root.
 	pnpm run build
 	# Build the Svelte frontend SPA → frontend/dist/.
 	pnpm --filter fdcplus-frontend build
 	# Strip devDependencies (tsc, jest, vite, svelte-check, etc.) from
-	# the shipped node_modules. Keeps native binaries built in the install
-	# pass above.
+	# the shipped node_modules. Native binaries built in the install
+	# pass above (better-sqlite3, @serialport/bindings-cpp, epoll) stay
+	# because their packages are runtime deps.
 	pnpm prune --prod
 
 override_dh_auto_test:
@@ -41,9 +48,9 @@ override_dh_auto_install:
 	# itself isn't shipped (the SPA is already built into frontend/dist/),
 	# so the symlink would dangle and confuse anything that walks the tree.
 	rm -f node_modules/fdcplus-frontend
-	# Use cp -a so pnpm's symlink layout (node_modules/<pkg> → .pnpm/...)
-	# is preserved. `cp -r` would dereference symlinks, exploding size and
-	# losing the deduplication.
+	# With --shamefully-hoist (above) node_modules is a flat npm-like tree,
+	# but we still use cp -a to preserve any remaining symlinks (the .pnpm/
+	# directory is mostly empty in hoisted mode but may still exist).
 	cp -a node_modules debian/fdcsds/usr/lib/fdcsds/
 	cp package.json debian/fdcsds/usr/lib/fdcsds/
 	cp pnpm-lock.yaml debian/fdcsds/usr/lib/fdcsds/
