@@ -440,6 +440,8 @@ export function createMcpServer(deps: Dependencies): McpServer {
           case '8mb':
             tracks = 1863;
             break;
+          default:
+            throw new Error(`Unknown disk format: ${format}`);
         }
 
         const size = TRACK_SIZE * tracks;

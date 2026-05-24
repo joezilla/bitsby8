@@ -48,7 +48,8 @@
     "serialport": "^12.0.0",
     "socket.io": "^4.6.0",
     "swagger-jsdoc": "^6.2.8",
-    "swagger-ui-express": "^5.0.1"
+    "swagger-ui-express": "^5.0.1",
+    "zod": "^4.4.3"
   },
   "optionalDependencies": {
     "onoff": "^6.0.3"
