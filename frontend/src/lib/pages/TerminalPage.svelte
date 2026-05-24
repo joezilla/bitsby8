@@ -85,7 +85,7 @@
   onMount(() => {
     term = new Terminal({
       cursorBlink: true,
-      fontSize: 13,
+      fontSize: 15,
       fontFamily: "'IBM Plex Mono', 'JetBrains Mono', 'Courier New', monospace",
       theme: {
         background: crtThemes.off.background,
