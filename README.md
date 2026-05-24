@@ -2,9 +2,9 @@
 
 <img src="images/mits-logo.svg" alt="MITS Altair 8800" width="180" align="right" />
 
-A TypeScript Serial Disk Server compatible with the FDC+ Enhanced Floppy Disk Controller for the **MITS Altair 8800**. Serves virtual floppies, cassette audio, and a VT102 terminal over serial, with a Svelte 5 web UI for control.
+A TypeScript Serial Disk Server for the **FDC+ Enhanced Floppy Disk Controller** on the **MITS Altair 8800**. Serves virtual floppies, cassette audio, and a VT102 terminal over serial, with a Svelte 5 web UI for control.
 
-**Version:** 2.0.0 · **License:** GPL-3.0 · See [Origins](#origins--upstream) for relationship to the original C implementation.
+**Version:** 2.0.0 · **License:** GPL-3.0
 
 > _`[SCREENSHOT TODO]` — annotated GIF of the web UI showing a mounted drive + the VT102 terminal. (`images/` currently holds hardware photos only.)_
 
@@ -41,11 +41,11 @@ For a connected Altair (Pi target), see [Installation](#installation) and the GP
 
 ## Overview
 
-This is a complete TypeScript rewrite of the original C implementation. The TypeScript version provides:
+A TypeScript implementation of an FDC+ Serial Disk Server. It speaks the FDC+ wire protocol over serial so it works with the existing FDC+ Enhanced Floppy Disk Controller hardware on an unmodified Altair 8800. Features:
 
 - Modern async/await architecture with modular Express backend
 - Type-safe protocol implementation
-- Better error handling and structured logging (pino)
+- Structured logging (pino) with verbose / debug modes
 - Cross-platform support (Linux + macOS tested; Windows untested)
 - **Svelte 5 + Tailwind 4 web interface** with real-time Socket.IO status updates
 - **VT102 terminal emulator** for a second serial port (with optional CRT phosphor mode)
@@ -54,12 +54,6 @@ This is a complete TypeScript rewrite of the original C implementation. The Type
 - **OpenAPI/Swagger documentation** at `/api/docs` (also committed as [`openapi.json`](openapi.json))
 - SQLite database with WAL mode for persistent state
 - Docker and Debian package deployment support
-
----
-
-## Origins & Upstream
-
-This project is a TypeScript rewrite of Patrick Linstruth's original C implementation of the FDC+ Serial Disk Server (see [deramp.com](http://www.deramp.com) for the FDC+ hardware). The TypeScript rewrite preserves the wire protocol bit-for-bit so it's a drop-in replacement on the same hardware, and is licensed under GPL-3.0 to honor the upstream license. Attribution per GPL §5(a) is in [AUTHORS](AUTHORS) and the [Credits](#credits) section.
 
 ---
 
@@ -1040,30 +1034,21 @@ There's no breaking change - migrate at your own pace.
 
 ---
 
-## Differences from C Version
+## Implementation notes
 
-### Improvements
+This server runs on Node.js and uses the same FDC+ wire protocol the controller hardware expects:
 
-1. **Async/Await**: All I/O operations are non-blocking Promises
-2. **Type Safety**: TypeScript provides compile-time type checking
-3. **Error Handling**: Better error propagation and reporting
-4. **Module System**: Clean ES module architecture
-5. **Package Management**: npm-based dependency management
-6. **Cross-Platform**: Better Node.js cross-platform support
+- Same FDC+ wire protocol (STAT / READ / WRIT, 137-byte sectors, 16-bit checksums)
+- Same disk image format (raw binary, 4,384 bytes per track)
+- Same command and response block structure
 
-### API Differences
+Implementation choices specific to this codebase:
 
-- Uses `serialport` package instead of termios
-- Uses `fs/promises` instead of POSIX file I/O
-- Promise-based timeout handling instead of select()
-
-### Compatibility
-
-The TypeScript version is **protocol-compatible** with the C version:
-- Same FDC+ wire protocol
-- Same disk image format
-- Same command structure
-- Binary-compatible data transfers
+- All serial / file I/O is async (Node `serialport` + `fs/promises`)
+- Promise-based timeout handling instead of POSIX `select()`
+- TypeScript with strict mode + `noUnusedLocals` / `noImplicitReturns` etc.
+- Clean module separation: `routes/ → services/ → low-level (drive.ts, serial.ts, cpm-filesystem.ts)`
+- See `_bmad-output/project-context.md` (gitignored) for the full set of conventions and traps
 
 ---
 
@@ -1157,15 +1142,14 @@ Quick summary:
 
 ## License
 
-GPL-3.0 - Same as original C version
+GPL-3.0.
 
 ---
 
 ## Credits
 
-- **Original C implementation**: Patrick Linstruth (the `fdcsds` reference C codebase, GPL-3.0). The TypeScript rewrite preserves the wire protocol bit-for-bit.
-- **FDC+ Enhanced Floppy Disk Controller hardware**: Mike Douglas / [deramp.com](http://www.deramp.com).
-- **TypeScript rewrite & web interface**: Joe Toppe (2024–present).
+- **TypeScript implementation, web interface, MCP server, GPIO LEDs**: Joe Toppe (2024–present).
+- **FDC+ Enhanced Floppy Disk Controller hardware**: Mike Douglas / [deramp.com](http://www.deramp.com). This software talks to that hardware over serial; the hardware itself is a separate product.
 
 See [AUTHORS](AUTHORS) for the contributor list.
 

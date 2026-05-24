@@ -60,4 +60,4 @@ Use the GitHub issue templates. For a security disclosure, see SECURITY.md (plan
 
 ## License
 
-By contributing you agree your work is licensed under **GPL-3.0**, same as the rest of the project (the upstream C implementation by Patrick Linstruth is also GPL-3.0).
+By contributing you agree your work is licensed under **GPL-3.0**, same as the rest of the project.
