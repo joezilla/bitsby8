@@ -10,18 +10,19 @@ ARCH := all
 
 all: build
 
-# Build the TypeScript project
+# Build the TypeScript project (both trees: backend + Svelte SPA)
 build:
-	@echo "Building TypeScript project..."
-	npm install
-	npm run build
+	@echo "Building backend + frontend via pnpm workspace..."
+	corepack enable pnpm
+	pnpm install --frozen-lockfile
+	pnpm run build:all
 
 # Clean build artifacts
 clean:
 	@echo "Cleaning build artifacts..."
-	rm -rf dist
-	rm -rf node_modules
-	npm run clean || true
+	rm -rf dist coverage frontend/dist
+	rm -rf node_modules frontend/node_modules
+	pnpm run clean || true
 
 # Install the application (for local testing)
 install: build
@@ -75,7 +76,11 @@ distclean: clean deb-clean
 install-build-deps:
 	@echo "Installing build dependencies..."
 	sudo apt-get update
-	sudo apt-get install -y build-essential debhelper devscripts nodejs npm
+	sudo apt-get install -y build-essential debhelper devscripts nodejs npm \
+	                        python3 g++
+	@echo ""
+	@echo "Note: pnpm is provisioned at build time via corepack (bundled with"
+	@echo "Node 16+). The 'packageManager' field in package.json pins the version."
 
 # Quick build and install (for testing)
 quick-install: deb

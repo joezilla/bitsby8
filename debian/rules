@@ -8,23 +8,26 @@
 	dh $@
 
 override_dh_auto_build:
-	# Install all dependencies (including devDependencies for build)
-	npm ci
-	# Compile TypeScript
-	npm run build
-	# Build Svelte frontend
-	cd frontend && npm ci && npm run build
-	# Remove devDependencies to reduce package size
-	# Set NODE_ENV=production before pruning to ensure only production deps remain
-	NODE_ENV=production npm prune --production
+	# Activate pnpm via corepack (bundled with Node 16+; pins to the
+	# version declared in the root package.json `packageManager` field).
+	corepack enable pnpm
+	# Install all workspace deps (root + frontend/), exactly per lockfile.
+	pnpm install --frozen-lockfile
+	# Compile backend TypeScript and (re)generate openapi.json at repo root.
+	pnpm run build
+	# Build the Svelte frontend SPA → frontend/dist/.
+	pnpm --filter fdcplus-frontend build
+	# Strip devDependencies (tsc, jest, vite, svelte-check, etc.) from
+	# the shipped node_modules. Keeps native binaries built in the install
+	# pass above.
+	pnpm prune --prod
 
 override_dh_auto_test:
-	# Skip tests during package build
-	# Tests can be run separately if needed
+	# Skip tests during package build (tests can be run separately).
 	@echo "Skipping tests during package build"
 
 override_dh_auto_clean:
-	# Clean build artifacts
+	# Clean build artifacts from both trees.
 	rm -rf dist node_modules frontend/dist frontend/node_modules
 	dh_auto_clean
 
@@ -34,9 +37,19 @@ override_dh_auto_install:
 	cp -r dist debian/fdcsds/usr/lib/fdcsds/
 	mkdir -p debian/fdcsds/usr/lib/fdcsds/frontend
 	cp -r frontend/dist debian/fdcsds/usr/lib/fdcsds/frontend/dist
-	cp -r node_modules debian/fdcsds/usr/lib/fdcsds/
+	# Remove the workspace symlink before copying node_modules — frontend/
+	# itself isn't shipped (the SPA is already built into frontend/dist/),
+	# so the symlink would dangle and confuse anything that walks the tree.
+	rm -f node_modules/fdcplus-frontend
+	# Use cp -a so pnpm's symlink layout (node_modules/<pkg> → .pnpm/...)
+	# is preserved. `cp -r` would dereference symlinks, exploding size and
+	# losing the deduplication.
+	cp -a node_modules debian/fdcsds/usr/lib/fdcsds/
 	cp package.json debian/fdcsds/usr/lib/fdcsds/
-	cp package-lock.json debian/fdcsds/usr/lib/fdcsds/
+	cp pnpm-lock.yaml debian/fdcsds/usr/lib/fdcsds/
+	# Ship the committed OpenAPI spec at the install root for any external
+	# tooling that wants to read it without hitting /api/docs at runtime.
+	cp openapi.json debian/fdcsds/usr/lib/fdcsds/ || true
 
 	# Create symlink for binary
 	mkdir -p debian/fdcsds/usr/bin
@@ -59,6 +72,7 @@ override_dh_auto_install:
 	# Install documentation
 	mkdir -p debian/fdcsds/usr/share/doc/fdcsds
 	cp README.md debian/fdcsds/usr/share/doc/fdcsds/
+	cp CONTRIBUTING.md debian/fdcsds/usr/share/doc/fdcsds/ || true
 	cp WEB-INTERFACE.md debian/fdcsds/usr/share/doc/fdcsds/ || true
 	cp QUICKSTART.md debian/fdcsds/usr/share/doc/fdcsds/ || true
 	cp LAUNCHER-USAGE.md debian/fdcsds/usr/share/doc/fdcsds/ || true
