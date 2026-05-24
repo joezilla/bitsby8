@@ -4,6 +4,9 @@ dist/
 !/create-boot-disk.js
 /*.js.map
 
+# Debian build artifacts (Makefile collects `make deb` output here)
+/build/
+
 # Dependencies
 node_modules/
 node_modules_back/
