@@ -29,22 +29,41 @@ install: build
 	@echo "Installing fdcsds locally..."
 	npm install -g .
 
+# Directory where collected dpkg-buildpackage output lands.
+# Use an absolute path so the mv step is immune to any cwd shenanigans
+# inside dpkg-buildpackage / debhelper.
+BUILD_DIR := $(CURDIR)/build
+
+# Force BUILD_DIR to be a real directory. Handles:
+#   - missing path                → mkdir creates it
+#   - existing directory          → mkdir -p is a no-op
+#   - existing regular file/link  → remove, then mkdir
+# (GNU mkdir -p errors on a non-directory, so we have to clear first.)
+define ensure_build_dir
+	@if [ -e "$(BUILD_DIR)" ] && [ ! -d "$(BUILD_DIR)" ]; then \
+		echo "Removing non-directory at $(BUILD_DIR)"; \
+		rm -f "$(BUILD_DIR)"; \
+	fi
+	@mkdir -p "$(BUILD_DIR)"
+endef
+
 # Build Debian package.
 # dpkg-buildpackage always drops its output (.deb, .changes, .buildinfo)
 # one directory up from the source tree — that's standard Debian convention
-# and not configurable. We collect those files into build/ here so the
-# output lives inside the repo and is easy to find.
+# and not configurable. We collect those files into $(BUILD_DIR) here so
+# the output lives inside the repo and is easy to find.
 deb: build
 	@echo "Building Debian package..."
-	@mkdir -p build
+	$(ensure_build_dir)
 	dpkg-buildpackage -us -uc -b
 	@echo ""
-	@echo "Collecting build artifacts into $(CURDIR)/build/ ..."
+	@echo "Collecting build artifacts into $(BUILD_DIR)/ ..."
+	$(ensure_build_dir)
 	@moved=0; \
 	for ext in deb changes buildinfo dsc; do \
 		for f in ../$(PACKAGE_NAME)_$(VERSION)*.$$ext; do \
 			if [ -f "$$f" ]; then \
-				mv -v "$$f" build/; \
+				mv -v "$$f" "$(BUILD_DIR)/"; \
 				moved=$$((moved + 1)); \
 			fi; \
 		done; \
@@ -56,15 +75,16 @@ deb: build
 	fi
 	@echo ""
 	@echo "Debian package created successfully:"
-	@ls -lh build/$(PACKAGE_NAME)_$(VERSION)*.deb 2>/dev/null || true
+	@ls -lh "$(BUILD_DIR)"/$(PACKAGE_NAME)_$(VERSION)*.deb 2>/dev/null || true
 
 # Build source package (for uploading to repositories)
 deb-source:
 	@echo "Building Debian source package..."
-	@mkdir -p build
+	$(ensure_build_dir)
 	dpkg-buildpackage -us -uc -S
 	@echo ""
-	@echo "Collecting source-package artifacts into $(CURDIR)/build/ ..."
+	@echo "Collecting source-package artifacts into $(BUILD_DIR)/ ..."
+	$(ensure_build_dir)
 	@moved=0; \
 	for pattern in "../$(PACKAGE_NAME)_$(VERSION)*.dsc" \
 	               "../$(PACKAGE_NAME)_$(VERSION)*.tar.*" \
@@ -72,7 +92,7 @@ deb-source:
 	               "../$(PACKAGE_NAME)_$(VERSION)*.buildinfo"; do \
 		for f in $$pattern; do \
 			if [ -f "$$f" ]; then \
-				mv -v "$$f" build/; \
+				mv -v "$$f" "$(BUILD_DIR)/"; \
 				moved=$$((moved + 1)); \
 			fi; \
 		done; \
@@ -82,7 +102,7 @@ deb-source:
 		exit 1; \
 	fi
 	@echo ""
-	@echo "Source package created in $(CURDIR)/build/"
+	@echo "Source package created in $(BUILD_DIR)/"
 
 # Clean Debian build artifacts
 deb-clean:
