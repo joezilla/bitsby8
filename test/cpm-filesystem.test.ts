@@ -10,6 +10,7 @@ import {
   REVERSE_INTERLEAVE_TABLE,
   PARAMS_8INCH,
   PARAMS_MINIDISK,
+  ALTAIR_8INCH_SYSTEM_TRACKS,
 } from '../src/cpm-filesystem';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -39,16 +40,25 @@ function buildTestDisk(
   const imageSize = params.tracks * CDBL.TRACK_SIZE;
   const image = Buffer.alloc(imageSize, 0);
 
-  // Initialize all sectors with proper CDBL framing
+  // Pre-initialize sector framing to match the layout a freshly formatted
+  // Altair 8" Lifeboat disk would have: boot framing on tracks 0-5, data
+  // framing on tracks 6+. For other formats (minidisk, or 8" without
+  // systemTracks set) the boot framing is used everywhere — matches the
+  // pre-fix behavior.
+  const systemTracks = params.systemTracks ?? params.tracks;
   for (let track = 0; track < params.tracks; track++) {
     for (let sec = 0; sec < CDBL.SECTORS_PER_TRACK; sec++) {
       const base = (track * CDBL.SECTORS_PER_TRACK + sec) * CDBL.SECTOR_SIZE;
-      // Byte 0: track | 0x80
       image[base] = track | 0x80;
-      // Byte 131: marker
-      image[base + CDBL.MARKER_OFFSET] = 0xFF;
-      // Byte 132: checksum (0 for zero data)
-      image[base + CDBL.CHECKSUM_OFFSET] = 0;
+      if (track < systemTracks) {
+        image[base + CDBL.MARKER_OFFSET] = 0xFF;
+        image[base + CDBL.CHECKSUM_OFFSET] = 0;
+      } else {
+        image[base + 1] = (sec * 17) & 0xFF;
+        image[base + 2] = 0x01;
+        image[base + CDBL.DATA_MARKER_OFFSET] = 0xFF;
+        image[base + CDBL.DATA_END_OFFSET] = 0x00;
+      }
     }
   }
 
@@ -145,7 +155,7 @@ describe('CpmFilesystem', () => {
       expect(read).toEqual(testData);
     });
 
-    test('writeSector updates CDBL framing bytes', () => {
+    test('writeSector updates CDBL framing bytes on a system track', () => {
       const image = buildTestDisk();
       const cpm = new CpmFilesystem(image, PARAMS_8INCH);
 
@@ -164,6 +174,33 @@ describe('CpmFilesystem', () => {
       // Checksum: 128 * 0x42 = 8448 → 0x42 * 128 mod 256
       const expectedChecksum = (0x42 * 128) & 0xFF;
       expect(raw[base + CDBL.CHECKSUM_OFFSET]).toBe(expectedChecksum);
+    });
+
+    test('writeSector lays down data-track framing past systemTracks', () => {
+      // The Altair 8" BIOS expects byte 135 = 0xFF on data tracks and
+      // bytes 131-134 to not contain 0xFF (would be a false stop byte).
+      // Regression: writing the CDBL boot frame to a data track is what
+      // produces "Bdos Err on B: Bad Sector" — see games.dsk / TREK.BAS.
+      const image = buildTestDisk();
+      const cpm = new CpmFilesystem(image, PARAMS_8INCH);
+
+      const data = Buffer.alloc(128, 0x42);
+      cpm.writeSector(24, 3, data);
+
+      const raw = cpm.getImageData();
+      const physSec = INTERLEAVE_TABLE[3];
+      const base = (24 * 32 + physSec) * CDBL.SECTOR_SIZE;
+
+      expect(raw[base]).toBe(24 | 0x80);
+      expect(raw[base + 1]).toBe((physSec * 17) & 0xFF);
+      expect(raw[base + 2]).toBe(0x01);
+      // Bytes 131-134 must NOT be 0xFF (false stop byte trap).
+      expect(raw[base + 131]).not.toBe(0xFF);
+      expect(raw[base + 132]).not.toBe(0xFF);
+      expect(raw[base + 133]).not.toBe(0xFF);
+      expect(raw[base + 134]).not.toBe(0xFF);
+      expect(raw[base + CDBL.DATA_MARKER_OFFSET]).toBe(0xFF);
+      expect(raw[base + CDBL.DATA_END_OFFSET]).toBe(0x00);
     });
 
     test('interleave mapping is correct for sector I/O', () => {
@@ -472,6 +509,58 @@ describe('CpmFilesystem', () => {
       cpm.writeFile('SECTOR', 'TST', data);
       const result = cpm.readFile('SECTOR', 'TST');
       expect(result).toEqual(data);
+    });
+
+    test('writeFile preserves data-track frame on blocks that span past track 5', () => {
+      // Fill blocks 0-7 (system area, tracks 2-5) so the next allocation
+      // lands on block 8 = track 6, the first user-data track. Then write
+      // a real file that lands on tracks 6+ and confirm the BIOS-visible
+      // frame is intact on every touched sector.
+      const image = buildTestDisk(PARAMS_8INCH);
+      const cpm = new CpmFilesystem(image, PARAMS_8INCH);
+
+      // Push allocations past block 8: 7 blocks of fill (16 KiB).
+      for (let i = 0; i < 7; i++) {
+        cpm.writeFile(`FILL${i}`, 'BIN', Buffer.alloc(2048, i + 1));
+      }
+
+      const trekBytes = Buffer.alloc(3272);
+      for (let i = 0; i < trekBytes.length; i++) trekBytes[i] = (i * 13 + 7) & 0xFF;
+      cpm.writeFile('TREK', 'BAS', trekBytes);
+
+      // Round-trip
+      expect(cpm.readFile('TREK', 'BAS')).toEqual(trekBytes);
+
+      // Find which blocks TREK.BAS used, then verify every physical sector
+      // in those blocks has data-track framing.
+      const file = cpm.listFiles().find(f => f.filename === 'TREK');
+      expect(file).toBeDefined();
+      const blocks = file!.extents.flatMap(e => e.blockPointers).filter(b => b !== 0);
+      expect(blocks.length).toBeGreaterThan(0);
+
+      const raw = cpm.getImageData();
+      const sectorsPerBlock = PARAMS_8INCH.blocksize / PARAMS_8INCH.seclen;
+      for (const block of blocks) {
+        const absStart = block * sectorsPerBlock;
+        for (let i = 0; i < sectorsPerBlock; i++) {
+          const absSec = absStart + i;
+          const track = PARAMS_8INCH.boottrk + Math.floor(absSec / PARAMS_8INCH.sectrk);
+          const logSec = absSec % PARAMS_8INCH.sectrk;
+          const physSec = INTERLEAVE_TABLE[logSec];
+          const base = (track * CDBL.SECTORS_PER_TRACK + physSec) * CDBL.SECTOR_SIZE;
+
+          // This file must have landed past systemTracks for the test to mean anything.
+          expect(track).toBeGreaterThanOrEqual(ALTAIR_8INCH_SYSTEM_TRACKS);
+          expect(raw[base + CDBL.DATA_MARKER_OFFSET]).toBe(0xFF);
+          expect(raw[base + CDBL.DATA_END_OFFSET]).toBe(0x00);
+          // The pre-fix bug: a stray 0xFF in bytes 131-134 looks like an
+          // early stop byte to the BIOS and causes Bad Sector on read.
+          expect(raw[base + 131]).not.toBe(0xFF);
+          expect(raw[base + 132]).not.toBe(0xFF);
+          expect(raw[base + 133]).not.toBe(0xFF);
+          expect(raw[base + 134]).not.toBe(0xFF);
+        }
+      }
     });
 
     test('write multiple files then read all back', () => {
@@ -809,6 +898,70 @@ describe('CpmFilesystem', () => {
       expect(space.usedBlocks).toBeGreaterThan(0);
       expect(space.freeBlocks).toBeLessThan(space.totalBlocks);
       expect(space.usedBlocks + space.freeBlocks).toBe(space.totalBlocks);
+    });
+
+    realImageTest('LIFEBOAT-CPM22-48K.DSK uses dual sector framing', () => {
+      // The Altair 8" Lifeboat layout: boot framing on tracks 0-5, data
+      // framing on tracks 6+. We rely on this when writing new files.
+      const imgPath = path.join(disksDir, 'LIFEBOAT-CPM22-48K.DSK');
+      if (!fs.existsSync(imgPath)) return;
+
+      const imageData = fs.readFileSync(imgPath);
+      for (let track = 0; track < ALTAIR_8INCH_SYSTEM_TRACKS; track++) {
+        for (let sec = 0; sec < CDBL.SECTORS_PER_TRACK; sec++) {
+          const base = (track * CDBL.SECTORS_PER_TRACK + sec) * CDBL.SECTOR_SIZE;
+          expect(imageData[base + CDBL.MARKER_OFFSET]).toBe(0xFF);
+        }
+      }
+      for (let track = ALTAIR_8INCH_SYSTEM_TRACKS; track < 77; track++) {
+        for (let sec = 0; sec < CDBL.SECTORS_PER_TRACK; sec++) {
+          const base = (track * CDBL.SECTORS_PER_TRACK + sec) * CDBL.SECTOR_SIZE;
+          expect(imageData[base + CDBL.DATA_MARKER_OFFSET]).toBe(0xFF);
+        }
+      }
+    });
+
+    realImageTest('writeFile to LIFEBOAT image keeps data-track frame intact', () => {
+      // Regression for the games.dsk / TREK.BAS bug: writing through
+      // CpmFilesystem on a real Lifeboat disk must not stamp 0xFF at
+      // byte 131 of data-area sectors.
+      const imgPath = path.join(disksDir, 'LIFEBOAT-CPM22-48K.DSK');
+      if (!fs.existsSync(imgPath)) return;
+
+      const imageData = fs.readFileSync(imgPath);
+      const cpm = new CpmFilesystem(imageData);
+
+      const trekBytes = Buffer.alloc(3272);
+      for (let i = 0; i < trekBytes.length; i++) trekBytes[i] = (i * 13 + 7) & 0xFF;
+      cpm.writeFile('TREK', 'BAS', trekBytes);
+
+      expect(cpm.readFile('TREK', 'BAS')).toEqual(trekBytes);
+
+      const file = cpm.listFiles().find(f => f.filename === 'TREK');
+      expect(file).toBeDefined();
+      const blocks = file!.extents.flatMap(e => e.blockPointers).filter(b => b !== 0);
+
+      const raw = cpm.getImageData();
+      const params = cpm.getParams();
+      const sectorsPerBlock = params.blocksize / params.seclen;
+      let dataTrackSectorsSeen = 0;
+      for (const block of blocks) {
+        const absStart = block * sectorsPerBlock;
+        for (let i = 0; i < sectorsPerBlock; i++) {
+          const absSec = absStart + i;
+          const track = params.boottrk + Math.floor(absSec / params.sectrk);
+          if (track < ALTAIR_8INCH_SYSTEM_TRACKS) continue;
+          dataTrackSectorsSeen++;
+          const logSec = absSec % params.sectrk;
+          const physSec = INTERLEAVE_TABLE[logSec];
+          const base = (track * CDBL.SECTORS_PER_TRACK + physSec) * CDBL.SECTOR_SIZE;
+          expect(raw[base + CDBL.DATA_MARKER_OFFSET]).toBe(0xFF);
+          for (let off = 131; off <= 134; off++) {
+            expect(raw[base + off]).not.toBe(0xFF);
+          }
+        }
+      }
+      expect(dataTrackSectorsSeen).toBeGreaterThan(0);
     });
 
     // Test all .dsk files in disks/ directory for detectParams

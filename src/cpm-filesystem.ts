@@ -7,7 +7,33 @@
  */
 
 // ---------------------------------------------------------------------------
-// CDBL framing constants (must match create-boot-disk.js / protocol.ts)
+// Physical sector framing constants.
+//
+// Altair 8" SD Lifeboat disks use TWO physical-sector layouts in the same
+// image. Tracks 0-5 hold the cold-start loader, the CP/M system image, and
+// the directory; they use the "boot" framing (a.k.a. CDBL). Tracks 6+ are
+// the user data area and use the longer "data" framing the BIOS lays down
+// during normal file I/O.
+//
+//   Boot framing (tracks 0-5):
+//     [0]      track | 0x80
+//     [1-2]    file byte count (boot tracks) or unused
+//     [3-130]  128 data bytes
+//     [131]    0xFF stop byte
+//     [132]    8-bit checksum (sum of bytes 3-130)
+//     [133-136] spare
+//
+//   Data framing (tracks 6-76):
+//     [0]      track | 0x80
+//     [1]      physical-sector position (phys × 17 mod 256)
+//     [2]      0x01
+//     [3-130]  128 data bytes
+//     [131-134] padding (must NOT contain 0xFF — would be a false stop byte)
+//     [135]    0xFF stop byte
+//     [136]    0x00
+//
+// Writing the boot layout to a data track corrupts the frame and CP/M
+// reports "Bdos Err on B: Bad Sector" on read.
 // ---------------------------------------------------------------------------
 export const CDBL = {
   SECTOR_SIZE: 137,        // Total bytes per physical sector record
@@ -15,9 +41,16 @@ export const CDBL = {
   DATA_SIZE: 128,          // CP/M logical sector size
   SECTORS_PER_TRACK: 32,   // Physical sectors per track
   TRACK_SIZE: 137 * 32,    // 4384 bytes per track
-  MARKER_OFFSET: 131,      // 0xFF marker byte position
-  CHECKSUM_OFFSET: 132,    // 8-bit checksum position
+  MARKER_OFFSET: 131,      // Boot-track 0xFF marker position
+  CHECKSUM_OFFSET: 132,    // Boot-track checksum position
+  DATA_MARKER_OFFSET: 135, // Data-track 0xFF marker position
+  DATA_END_OFFSET: 136,    // Data-track terminator (0x00)
 } as const;
+
+// Altair 8" SD: tracks 0-5 use boot framing, tracks 6+ use data framing.
+// Other formats (minidisk, blank images created by this code) default to
+// boot framing across the whole disk.
+export const ALTAIR_8INCH_SYSTEM_TRACKS = 6;
 
 // ---------------------------------------------------------------------------
 // CP/M disk parameter block (diskdef equivalent)
@@ -29,6 +62,11 @@ export interface CpmDiskParams {
   blocksize: number;       // Allocation block size in bytes
   maxdir: number;          // Maximum directory entries
   boottrk: number;         // Number of reserved boot tracks
+  systemTracks?: number;   // # of tracks at the start that use boot-style
+                           // CDBL framing (marker @ 131). Tracks at or
+                           // beyond this index use data-track framing
+                           // (marker @ 135). Defaults to the entire disk,
+                           // i.e. boot framing everywhere.
   dpbAL0?: number;         // AL0 byte for directory blocks (optional)
   dpbAL1?: number;         // AL1 byte for directory blocks (optional)
 }
@@ -41,6 +79,7 @@ export const PARAMS_8INCH: CpmDiskParams = {
   blocksize: 2048,
   maxdir: 64,
   boottrk: 2,
+  systemTracks: ALTAIR_8INCH_SYSTEM_TRACKS,
 };
 
 // Standard minidisk parameters
@@ -175,7 +214,7 @@ export class CpmFilesystem {
 
   /**
    * Write a 128-byte CP/M logical sector to the image.
-   * Also updates track byte, marker, and checksum in the CDBL frame.
+   * Picks the boot or data sector framing based on the track number.
    */
   writeSector(track: number, logicalSector: number, data: Buffer): void {
     if (data.length !== CDBL.DATA_SIZE) {
@@ -189,22 +228,34 @@ export class CpmFilesystem {
       );
     }
 
-    // Byte 0: Track | 0x80 (sync bit)
+    // Byte 0: sync (track | 0x80) — same in both framings.
     this.imageData[sectorBase] = track | 0x80;
 
-    // Bytes 1-2: leave existing file byte count (or zero)
-    // Bytes 3-130: sector data
+    // Bytes 3-130: 128-byte CP/M payload — same offset in both framings.
     data.copy(this.imageData, sectorBase + CDBL.DATA_OFFSET);
 
-    // Byte 131: marker
-    this.imageData[sectorBase + CDBL.MARKER_OFFSET] = 0xFF;
-
-    // Byte 132: checksum (8-bit sum of 128 data bytes)
-    let checksum = 0;
-    for (let i = 0; i < CDBL.DATA_SIZE; i++) {
-      checksum = (checksum + data[i]) & 0xFF;
+    const systemTracks = this.params.systemTracks ?? this.params.tracks;
+    if (track < systemTracks) {
+      // Boot/CDBL framing (tracks 0-5 on 8" Lifeboat).
+      this.imageData[sectorBase + CDBL.MARKER_OFFSET] = 0xFF;
+      let checksum = 0;
+      for (let i = 0; i < CDBL.DATA_SIZE; i++) {
+        checksum = (checksum + data[i]) & 0xFF;
+      }
+      this.imageData[sectorBase + CDBL.CHECKSUM_OFFSET] = checksum;
+    } else {
+      // Data-track framing (tracks 6+ on 8" Lifeboat). Bytes 131-134 must
+      // not contain 0xFF — that would look like a stop byte to the BIOS
+      // and produce "Bad Sector" on read.
+      this.imageData[sectorBase + 1] = (physSector * 17) & 0xFF;
+      this.imageData[sectorBase + 2] = 0x01;
+      this.imageData[sectorBase + 131] = 0;
+      this.imageData[sectorBase + 132] = 0;
+      this.imageData[sectorBase + 133] = 0;
+      this.imageData[sectorBase + 134] = 0;
+      this.imageData[sectorBase + CDBL.DATA_MARKER_OFFSET] = 0xFF;
+      this.imageData[sectorBase + CDBL.DATA_END_OFFSET] = 0x00;
     }
-    this.imageData[sectorBase + CDBL.CHECKSUM_OFFSET] = checksum;
   }
 
   /**
