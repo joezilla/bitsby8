@@ -1,57 +1,136 @@
-# FDC+ Serial Drive Server (TypeScript)
+# FDC+ Serial Drive Server
 
-TypeScript port of the FDC+ Serial Drive Server - A Serial Disk Server compatible with the FDC+ Enhanced Floppy Disk Controller for the Altair 8800.
+<img src="images/mits-logo.svg" alt="MITS Altair 8800" width="180" align="right" />
 
-**Version:** 2.0.0
-**Original C Version by:** Patrick Linstruth
-**License:** GPL-3.0
+A TypeScript Serial Disk Server for the **FDC+ Enhanced Floppy Disk Controller** on the **MITS Altair 8800**. Serves virtual floppies, cassette audio, and a VT102 terminal over serial, with a Svelte 5 web UI for control.
+
+**Version:** 2.0.0 · **License:** GPL-3.0
+
+> _`[SCREENSHOT TODO]` — annotated GIF of the web UI showing a mounted drive + the VT102 terminal. (`images/` currently holds hardware photos only.)_
+
+---
+
+## Quickstart
+
+```bash
+# Clone, install both trees, run backend + frontend dev servers
+git clone <repo-url> fdcplus-web && cd fdcplus-web
+pnpm install                       # pnpm workspace: provisions root + frontend/
+pnpm dev:all                       # backend (ts-node) + Vite dev concurrently
+open http://localhost:3000         # mount a sample disk image; no hardware needed
+```
+
+For a connected Altair (Pi target), see [Installation](#installation) and the GPIO sections below.
+
+## Supported platforms
+
+| Platform | Status | Notes |
+|---|---|---|
+| Linux (Raspberry Pi & x86) | ✅ Tested | Primary production target; GPIO LED support |
+| macOS | ✅ Tested | Dev / exploration; serial works via `/dev/cu.usbserial-*` |
+| Windows | ⚠️ Untested | Should work in theory (Node.js + SerialPort), but no contributor runs it. PRs welcome. |
+| Docker | ✅ | `docker-compose.yml` included |
+
+## Contributing & architecture
+
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to send a PR, what the pre-PR gate runs
+- [`AGENTS.md`](AGENTS.md) — terse repo conventions (filename casing, scripts, testing rules)
+- [`_bmad-output/project-context.md`](_bmad-output/project-context.md) (gitignored) — AI-agent context with the load-bearing details: tokens, primitives, stack traps, vintage-hardware invariants
 
 ---
 
 ## Overview
 
-This is a complete TypeScript rewrite of the original C implementation. The TypeScript version provides:
+A TypeScript implementation of an FDC+ Serial Disk Server. It speaks the FDC+ wire protocol over serial so it works with the existing FDC+ Enhanced Floppy Disk Controller hardware on an unmodified Altair 8800. Features:
 
-- Modern async/await architecture
+- Modern async/await architecture with modular Express backend
 - Type-safe protocol implementation
-- Better error handling
-- Cross-platform support (Linux, macOS)
-- **Web interface with real-time status updates**
-- **VT102 terminal emulator for second serial port**
-- **GPIO LED status indicators for Raspberry Pi**
-- Easier maintenance and extensibility
+- Structured logging (pino) with verbose / debug modes
+- Cross-platform support (Linux + macOS tested; Windows untested)
+- **Svelte 5 + Tailwind 4 web interface** with real-time Socket.IO status updates
+- **VT102 terminal emulator** for a second serial port (with optional CRT phosphor mode)
+- **MCP server** with 30 tools for AI assistant integration — see [AI Assistant Integration](#ai-assistant-integration-mcp)
+- **GPIO LED status indicators** for Raspberry Pi
+- **OpenAPI/Swagger documentation** at `/api/docs` (also committed as [`openapi.json`](openapi.json))
+- SQLite database with WAL mode for persistent state
+- Docker and Debian package deployment support
 
 ---
 
 ## Architecture
 
-The codebase is organized into modular TypeScript components:
+The codebase is organized into a modular backend and a Svelte single-page application frontend:
 
 ```
 src/
-├── index.ts            # Entry point with CLI parsing
-├── server.ts           # Main server loop & command processing
-├── drive.ts            # Drive management & disk I/O
-├── serial.ts           # FDC+ serial port communication
-├── terminal-serial.ts  # Terminal serial port manager
-├── web-server.ts       # Web interface & REST API
-├── protocol.ts         # FDC+ protocol definitions & types
-└── gpio/               # GPIO LED status indicators
-    ├── gpio-manager.ts      # Low-level GPIO control
-    └── gpio-controller.ts   # High-level LED state management
+├── index.ts              # Entry point with CLI parsing
+├── server.ts             # Main server loop & command processing
+├── drive.ts              # Drive management & disk I/O
+├── serial.ts             # FDC+ serial port communication
+├── terminal-serial.ts    # Terminal serial port manager
+├── web-server.ts         # Express orchestrator (composes modules below)
+├── protocol.ts           # FDC+ protocol definitions & types
+├── config.ts             # Configuration file loading & validation
+├── database.ts           # SQLite database management
+├── mcp-server.ts         # MCP server (30 AI-accessible tools)
+├── openapi-def.ts        # OpenAPI/Swagger specification
+├── types.ts              # Shared TypeScript types
+├── routes/               # Express route handlers
+│   ├── cassettes.ts      # Cassette tape management
+│   ├── config.ts         # Runtime configuration
+│   ├── cpm.ts            # CP/M filesystem utilities
+│   ├── disk-serving.ts   # Disk image serving control
+│   ├── drives.ts         # Drive mount/unmount/status
+│   ├── health.ts         # Health check endpoints
+│   ├── images.ts         # Disk image library
+│   ├── replay.ts         # Script replay & XMODEM transfers
+│   ├── scripts.ts        # Script management
+│   ├── serial.ts         # Serial port management
+│   └── terminal.ts       # Terminal serial management
+├── services/             # Business logic
+│   ├── audio.ts          # Audio/cassette processing
+│   ├── disk-serving.ts   # Disk serving logic
+│   ├── file-listing.ts   # File/directory listing
+│   ├── status.ts         # Status broadcasting
+│   └── transfer.ts       # File transfer logic
+├── middleware/            # Express middleware
+│   ├── auth.ts           # API key authentication
+│   ├── security.ts       # CORS, CSP, rate limiting
+│   └── static.ts         # Static file serving & Swagger UI
+├── websocket/
+│   └── handlers.ts       # Socket.IO event handlers
+├── utils/
+│   └── safe-path.ts      # Path traversal prevention
+└── gpio/                 # GPIO LED status indicators
+    ├── gpio-manager.ts
+    └── gpio-controller.ts
+
+frontend/                  # Svelte 5 + Vite + Tailwind 4 SPA
+├── src/
+│   ├── App.svelte         # Root application component
+│   ├── lib/
+│   │   ├── components/    # Reusable UI components
+│   │   │   ├── chat/      # AI assistant panel
+│   │   │   └── shared/    # StatusLed, LedPanel, Toast
+│   │   ├── pages/         # Page components (Terminal, Disks, Cassettes, Scripts, Config)
+│   │   ├── services/      # API client & Socket.IO
+│   │   ├── stores/        # Svelte stores (state management)
+│   │   └── types/         # TypeScript type definitions
+│   └── main.ts
+└── vite.config.ts
 ```
 
 ### Key Modules
 
-- **protocol.ts**: Type definitions, constants, and protocol structures
-- **drive.ts**: Async file operations using Node.js fs/promises
-- **serial.ts**: FDC+ serial communication using the `serialport` package
-- **terminal-serial.ts**: Terminal serial port manager for VT102 emulation
-- **web-server.ts**: Express-based REST API and Socket.IO WebSocket server
-- **gpio-manager.ts**: Low-level GPIO pin control for LED indicators
-- **gpio-controller.ts**: High-level LED state management for drives and terminal
-- **server.ts**: Command processing (STAT, READ, WRIT)
-- **index.ts**: CLI argument parsing and initialization
+- **server.ts / protocol.ts**: FDC+ command processing (STAT, READ, WRIT) and protocol definitions
+- **drive.ts**: Async disk image I/O using Node.js fs/promises
+- **serial.ts / terminal-serial.ts**: Serial port communication for FDC+ controller and VT102 terminal
+- **web-server.ts**: Express orchestrator that composes route, service, and middleware modules
+- **routes/**: 11 Express route modules covering drives, images, cassettes, scripts, terminal, etc.
+- **services/**: Business logic separated from HTTP handling (status, transfers, audio, file listing)
+- **middleware/**: Security (Helmet, CORS, rate limiting), API key auth, and static file serving
+- **mcp-server.ts**: MCP server exposing 30 tools for AI assistant integration via stdio transport (see [AI Assistant Integration](#ai-assistant-integration-mcp))
+- **frontend/**: Modern Svelte 5 SPA with real-time Socket.IO updates, xterm.js terminal, and retro CRT mode
 
 ---
 
@@ -443,6 +522,49 @@ The web interface uses Socket.IO for real-time updates.
 
 ---
 
+## AI Assistant Integration (MCP)
+
+The server ships a [Model Context Protocol](https://modelcontextprotocol.io/) server that exposes **30 tools** to MCP-compatible assistants (Claude Desktop, Claude Code, etc.). It runs over **stdio transport** as a separate process from the web server (`fdcsds --mcp ...`).
+
+### Tool surface (30 tools, by category)
+
+| Category | Capabilities (examples) |
+|---|---|
+| **Status** | `get_status`, `get_drive_status` |
+| **Drives** | `list_drives`, `mount_disk`, `unmount_disk`, `set_drive_readonly` |
+| **Disk images** | `list_disk_images`, `create_disk_image`, `clone_disk_image`, `delete_disk_image`, `upload_disk_image` |
+| **CP/M filesystem** | `list_cpm_files`, `read_cpm_file`, `write_cpm_file`, `delete_cpm_file`, `format_cpm_disk` |
+| **Terminal serial** | `list_terminal_ports`, `open_terminal`, `close_terminal`, `send_to_terminal` |
+| **Replay / transfer** | `start_replay`, `cancel_replay`, `list_scripts` |
+| **Cassettes** | `list_cassettes`, `play_cassette`, `stop_cassette` |
+| **Configuration** | `configure_serial`, `enable_disk_serving`, `disable_disk_serving` |
+
+The exact, current list is the source of truth in [`src/mcp-server.ts`](src/mcp-server.ts).
+
+### Auth, transport, and default posture
+
+- **Transport:** stdio (one process per assistant session).
+- **Auth:** none on stdio (parent process trust model). The MCP server runs only when launched explicitly with `--mcp`.
+- **Default posture:** **disabled** — the regular `fdcsds` binary does NOT start MCP. You opt in per-session.
+- **Blast radius if exposed:** the tools can read and **write** disk images, mount/unmount drives, send arbitrary bytes to the serial port, and read/write CP/M files on mounted disks. Do not point an assistant at production hardware without intent.
+
+### Enabling it (Claude Desktop / Claude Code)
+
+```json
+{
+  "mcpServers": {
+    "fdcplus": {
+      "command": "fdcsds",
+      "args": ["--mcp", "--data-dir", "/path/to/your/data"]
+    }
+  }
+}
+```
+
+The web interface's Chat panel (top-bar `forum` icon) has the same config block with a copy button.
+
+---
+
 ## VT102 Terminal Emulator
 
 ### Overview
@@ -665,24 +787,31 @@ dd if=/dev/zero of=minidisk.dsk bs=4384 count=17
 ### Project Structure
 
 ```
-fds-ts/
-├── src/               # TypeScript source
-├── dist/              # Compiled JavaScript (generated)
+fdcplus-web/
+├── src/               # Backend TypeScript source
+├── frontend/          # Svelte 5 frontend source
+├── dist/              # Compiled backend JavaScript (generated)
+├── frontend/dist/     # Compiled frontend assets (generated)
 ├── disks/             # Disk image storage
-├── test/              # Unit tests (future)
-├── package.json       # Dependencies & scripts
+├── test/              # Unit tests (Jest)
+├── package.json       # Backend dependencies & scripts
 ├── tsconfig.json      # TypeScript configuration
-└── README-TS.md       # This file
+└── README.md          # This file
 ```
 
 ### NPM Scripts
 
 ```bash
-npm run build      # Compile TypeScript
+npm run build      # Compile TypeScript + generate OpenAPI docs
 npm run start      # Run compiled code
 npm run dev        # Run with ts-node (development)
 npm run clean      # Remove dist/
-npm test           # Run tests (future)
+npm test           # Run Jest tests
+
+# Frontend (from frontend/ directory)
+cd frontend
+npm run dev        # Vite dev server with HMR
+npm run build      # Production build to frontend/dist/
 ```
 
 ### Type Checking
@@ -693,26 +822,33 @@ npx tsc --noEmit
 
 ### Dependencies
 
-**Runtime:**
+**Backend Runtime:**
 - `serialport` ^12.0.0 - Serial port I/O
 - `commander` ^11.0.0 - CLI parsing
 - `express` ^4.18.0 - Web server
 - `socket.io` ^4.6.0 - WebSocket communication
+- `better-sqlite3` - SQLite database with WAL mode
 - `cors` ^2.8.5 - CORS support
+- `helmet` - Security headers
+- `pino` - Structured logging
+- `swagger-jsdoc` / `swagger-ui-express` - OpenAPI documentation
+- `@anthropic-ai/sdk` - MCP server SDK
 
 **Optional (Raspberry Pi only):**
-- `onoff` ^6.0.3 - GPIO control for LED indicators (optional dependency, only needed on Linux/Raspberry Pi)
+- `onoff` ^6.0.3 - GPIO control for LED indicators
 
-**Frontend:**
-- `xterm` ^5.3.0 - Terminal emulator (CDN)
-- `xterm-addon-fit` ^0.8.0 - Terminal resize addon (CDN)
+**Frontend (Svelte SPA):**
+- `svelte` ^5.0.0 - UI framework
+- `vite` ^6.0.0 - Build tool
+- `tailwindcss` ^4.0.0 - Utility-first CSS
+- `@xterm/xterm` ^6.0.0 - Terminal emulator (bundled)
+- `socket.io-client` ^4.6.0 - Real-time updates
+- Material Symbols Rounded - Icon font (loaded from Google Fonts via `app.css`)
 
 **Development:**
 - `typescript` ^5.3.0
-- `@types/node` ^20.0.0
-- `@types/express` ^4.17.0
-- `ts-node` ^10.9.0
 - `jest` ^29.0.0
+- `ts-node` ^10.9.0
 
 ---
 
@@ -898,30 +1034,21 @@ There's no breaking change - migrate at your own pace.
 
 ---
 
-## Differences from C Version
+## Implementation notes
 
-### Improvements
+This server runs on Node.js and uses the same FDC+ wire protocol the controller hardware expects:
 
-1. **Async/Await**: All I/O operations are non-blocking Promises
-2. **Type Safety**: TypeScript provides compile-time type checking
-3. **Error Handling**: Better error propagation and reporting
-4. **Module System**: Clean ES module architecture
-5. **Package Management**: npm-based dependency management
-6. **Cross-Platform**: Better Node.js cross-platform support
+- Same FDC+ wire protocol (STAT / READ / WRIT, 137-byte sectors, 16-bit checksums)
+- Same disk image format (raw binary, 4,384 bytes per track)
+- Same command and response block structure
 
-### API Differences
+Implementation choices specific to this codebase:
 
-- Uses `serialport` package instead of termios
-- Uses `fs/promises` instead of POSIX file I/O
-- Promise-based timeout handling instead of select()
-
-### Compatibility
-
-The TypeScript version is **protocol-compatible** with the C version:
-- Same FDC+ wire protocol
-- Same disk image format
-- Same command structure
-- Binary-compatible data transfers
+- All serial / file I/O is async (Node `serialport` + `fs/promises`)
+- Promise-based timeout handling instead of POSIX `select()`
+- TypeScript with strict mode + `noUnusedLocals` / `noImplicitReturns` etc.
+- Clean module separation: `routes/ → services/ → low-level (drive.ts, serial.ts, cpm-filesystem.ts)`
+- See `_bmad-output/project-context.md` (gitignored) for the full set of conventions and traps
 
 ---
 
@@ -982,16 +1109,19 @@ fdcsds -p /dev/ttyUSB0 -0 disk.dsk -v -d
 ## Future Enhancements
 
 - [x] Unit tests with Jest
-- [x] Web-based UI option
+- [x] Web-based UI option (Svelte 5 SPA)
 - [x] REST API for remote management
 - [x] VT102 terminal emulator
 - [x] GPIO LED status indicators
+- [x] Disk image upload via web interface
+- [x] MCP server for AI assistant integration
+- [x] OpenAPI/Swagger documentation
+- [x] Modular backend architecture
 - [ ] Integration tests with mock serial port
 - [ ] Support for more drive types
 - [ ] Disk image conversion utilities
 - [ ] Performance benchmarking
 - [ ] Terminal recording/playback
-- [ ] Disk image upload via web interface
 - [ ] PWM brightness control for LEDs
 - [ ] GPIO button inputs for physical control
 
@@ -999,27 +1129,29 @@ fdcsds -p /dev/ttyUSB0 -0 disk.dsk -v -d
 
 ## Contributing
 
-This is a TypeScript port of the original C implementation. Contributions are welcome!
+Contributions are welcome. The full guide — branch model, commit style, the pre-PR `pnpm check` gate, OpenAPI regen rule, hardware-touching PR caveats — lives in [**CONTRIBUTING.md**](CONTRIBUTING.md).
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
+Quick summary:
+1. Fork & branch from `main`.
+2. Make your change. Add tests if you can.
+3. Run `pnpm check` — it must pass.
+4. If you touched route `@openapi` JSDoc, run `pnpm docs` and commit the regenerated `openapi.json` in the same PR.
+5. Open the PR. CI runs the same check; the maintainer reviews.
 
 ---
 
 ## License
 
-GPL-3.0 - Same as original C version
+GPL-3.0.
 
 ---
 
 ## Credits
 
-- **Original C Implementation**: Patrick Linstruth
-- **TypeScript Port**: 2024
-- **FDC+ Hardware**: http://www.deramp.com
+- **TypeScript implementation, web interface, MCP server, GPIO LEDs**: Joe Toppe (2024–present).
+- **FDC+ Enhanced Floppy Disk Controller hardware**: Mike Douglas / [deramp.com](http://www.deramp.com). This software talks to that hardware over serial; the hardware itself is a separate product.
+
+See [AUTHORS](AUTHORS) for the contributor list.
 
 ---
 

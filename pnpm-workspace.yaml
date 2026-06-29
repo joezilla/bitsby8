@@ -1,0 +1,9 @@
+packages:
+  - 'frontend'
+
+allowBuilds:
+  '@scarf/scarf': false
+  '@serialport/bindings-cpp': true
+  better-sqlite3: true
+  epoll: true
+  esbuild: true

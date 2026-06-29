@@ -54,6 +54,7 @@ export interface DriveState {
   readonly: boolean;
   hdld: boolean; // Head loaded
   track: number; // Current track number
+  lastIo: number | null; // Epoch ms of most recent successful read/write
 }
 
 /**

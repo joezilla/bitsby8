@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  fdcplus:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./disks:/data/disks
+      - ./cassettes:/data/cassettes
+      - ./scripts:/data/scripts
+      - fdcplus-db:/data
+    restart: unless-stopped
+    # For serial port access (uncomment and adjust as needed):
+    # devices:
+    #   - /dev/ttyUSB0:/dev/ttyUSB0
+    #   - /dev/ttyUSB1:/dev/ttyUSB1
+    # privileged: true  # Required for GPIO on Raspberry Pi
+
+volumes:
+  fdcplus-db:

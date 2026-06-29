@@ -1,0 +1,28 @@
+{
+  "name": "fdcplus-frontend",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json",
+    "check": "pnpm run typecheck"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.0.0",
+    "@tailwindcss/vite": "^4.0.0",
+    "svelte": "^5.0.0",
+    "svelte-check": "^4.4.8",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.3.0",
+    "vite": "^6.0.0"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-webgl": "^0.19.0",
+    "@xterm/xterm": "^6.0.0",
+    "socket.io-client": "^4.6.0"
+  }
+}

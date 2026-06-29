@@ -57,6 +57,7 @@ case "$1" in
         if [ ! -f /etc/fdcsds/fdcsds.config.json ]; then
             cat > /etc/fdcsds/fdcsds.config.json <<'EOF'
 {
+  "dataDir": "/var/lib/fdcsds",
   "port": "/dev/ttyUSB0",
   "baud": 230400,
   "drive0": "disks/cpm22.dsk",

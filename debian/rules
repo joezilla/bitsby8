@@ -8,32 +8,64 @@
 	dh $@
 
 override_dh_auto_build:
-	# Install all dependencies (including devDependencies for build)
-	npm ci
-	# Compile TypeScript
-	npm run build
-	# Remove devDependencies to reduce package size
-	# Set NODE_ENV=production before pruning to ensure only production deps remain
-	NODE_ENV=production npm prune --production
+	# Activate pnpm via corepack (bundled with Node 16+; pins to the
+	# version declared in the root package.json `packageManager` field).
+	corepack enable pnpm
+	# Install with --config.node-linker=hoisted so node_modules is a
+	# truly flat, npm-like tree — every package as a real directory
+	# directly under node_modules/<name>/, no symlinks, no .pnpm/
+	# indirection. This is what makes the shipped tree portable to
+	# /usr/lib/fdcsds/node_modules/ where systemd-launched node can
+	# resolve modules without pnpm-specific layout knowledge.
+	# (--shamefully-hoist alone does NOT achieve this; it only hoists
+	# transitives to top level within pnpm's still-symlinked layout,
+	# leaving package directories empty post-copy.)
+	pnpm install --frozen-lockfile --config.node-linker=hoisted
+	# Verify the install actually produced populated package directories
+	# before we waste cycles building. Catches future regressions of the
+	# "empty serialport/ dir" class of bug immediately.
+	@test -f node_modules/serialport/package.json || \
+		(echo "ERROR: node_modules/serialport/ is empty after install — node-linker=hoisted not applied" && exit 1)
+	@test -f node_modules/@serialport/bindings-cpp/package.json || \
+		(echo "ERROR: node_modules/@serialport/bindings-cpp/ missing after install" && exit 1)
+	# Compile backend TypeScript and (re)generate openapi.json at repo root.
+	pnpm run build
+	# Build the Svelte frontend SPA → frontend/dist/.
+	pnpm --filter fdcplus-frontend build
+	# NOTE: `pnpm prune --prod` is intentionally omitted. It misbehaves
+	# on the hoisted layout (leaves dirs but strips contents). The deb
+	# ships devDependencies too — larger but functional. To trim size
+	# later, switch to `pnpm deploy --prod` which is purpose-built for
+	# this and handles the layout end-to-end.
 
 override_dh_auto_test:
-	# Skip tests during package build
-	# Tests can be run separately if needed
+	# Skip tests during package build (tests can be run separately).
 	@echo "Skipping tests during package build"
 
 override_dh_auto_clean:
-	# Clean build artifacts
-	rm -rf dist node_modules
+	# Clean build artifacts from both trees.
+	rm -rf dist node_modules frontend/dist frontend/node_modules
 	dh_auto_clean
 
 override_dh_auto_install:
 	# Install application files to /usr/lib/fdcsds
 	mkdir -p debian/fdcsds/usr/lib/fdcsds
 	cp -r dist debian/fdcsds/usr/lib/fdcsds/
-	cp -r public debian/fdcsds/usr/lib/fdcsds/
-	cp -r node_modules debian/fdcsds/usr/lib/fdcsds/
+	mkdir -p debian/fdcsds/usr/lib/fdcsds/frontend
+	cp -r frontend/dist debian/fdcsds/usr/lib/fdcsds/frontend/dist
+	# Remove the workspace symlink before copying node_modules — frontend/
+	# itself isn't shipped (the SPA is already built into frontend/dist/),
+	# so the symlink would dangle and confuse anything that walks the tree.
+	rm -f node_modules/fdcplus-frontend
+	# With --shamefully-hoist (above) node_modules is a flat npm-like tree,
+	# but we still use cp -a to preserve any remaining symlinks (the .pnpm/
+	# directory is mostly empty in hoisted mode but may still exist).
+	cp -a node_modules debian/fdcsds/usr/lib/fdcsds/
 	cp package.json debian/fdcsds/usr/lib/fdcsds/
-	cp package-lock.json debian/fdcsds/usr/lib/fdcsds/
+	cp pnpm-lock.yaml debian/fdcsds/usr/lib/fdcsds/
+	# Ship the committed OpenAPI spec at the install root for any external
+	# tooling that wants to read it without hitting /api/docs at runtime.
+	cp openapi.json debian/fdcsds/usr/lib/fdcsds/ || true
 
 	# Create symlink for binary
 	mkdir -p debian/fdcsds/usr/bin
@@ -56,6 +88,7 @@ override_dh_auto_install:
 	# Install documentation
 	mkdir -p debian/fdcsds/usr/share/doc/fdcsds
 	cp README.md debian/fdcsds/usr/share/doc/fdcsds/
+	cp CONTRIBUTING.md debian/fdcsds/usr/share/doc/fdcsds/ || true
 	cp WEB-INTERFACE.md debian/fdcsds/usr/share/doc/fdcsds/ || true
 	cp QUICKSTART.md debian/fdcsds/usr/share/doc/fdcsds/ || true
 	cp LAUNCHER-USAGE.md debian/fdcsds/usr/share/doc/fdcsds/ || true

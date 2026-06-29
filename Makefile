@@ -10,47 +10,79 @@ ARCH := all
 
 all: build
 
-# Build the TypeScript project
+# Build the TypeScript project (both trees: backend + Svelte SPA)
 build:
-	@echo "Building TypeScript project..."
-	npm install
-	npm run build
+	@echo "Building backend + frontend via pnpm workspace..."
+	corepack enable pnpm
+	pnpm install --frozen-lockfile
+	pnpm run build:all
 
 # Clean build artifacts
 clean:
 	@echo "Cleaning build artifacts..."
-	rm -rf dist
-	rm -rf node_modules
-	npm run clean || true
+	rm -rf dist coverage frontend/dist
+	rm -rf node_modules frontend/node_modules
+	pnpm run clean || true
 
 # Install the application (for local testing)
 install: build
 	@echo "Installing fdcsds locally..."
 	npm install -g .
 
-# Build Debian package
+# Build Debian package.
+# dpkg-buildpackage always drops its output (.deb, .changes, .buildinfo)
+# one directory up from the source tree — that's standard Debian convention
+# and not configurable. We collect those files into build/ here so the
+# output lives inside the repo and is easy to find.
 deb: build
 	@echo "Building Debian package..."
-	mkdir -p build
+	@mkdir -p build
 	dpkg-buildpackage -us -uc -b
-	@echo "Moving packages to build/ directory..."
-	mv ../*.deb build/ 2>/dev/null || true
-	mv ../*.changes build/ 2>/dev/null || true
-	mv ../*.buildinfo build/ 2>/dev/null || true
 	@echo ""
-	@echo "Debian package created successfully!"
-	@echo "Package location: build/$(PACKAGE_NAME)_$(VERSION)-1_$(ARCH).deb"
+	@echo "Collecting build artifacts into $(CURDIR)/build/ ..."
+	@moved=0; \
+	for ext in deb changes buildinfo dsc; do \
+		for f in ../$(PACKAGE_NAME)_$(VERSION)*.$$ext; do \
+			if [ -f "$$f" ]; then \
+				mv -v "$$f" build/; \
+				moved=$$((moved + 1)); \
+			fi; \
+		done; \
+	done; \
+	if [ $$moved -eq 0 ]; then \
+		echo "ERROR: dpkg-buildpackage finished but no $(PACKAGE_NAME)_$(VERSION)* artifacts found in ../"; \
+		echo "       check the build output above."; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "Debian package created successfully:"
+	@ls -lh build/$(PACKAGE_NAME)_$(VERSION)*.deb 2>/dev/null || true
 
 # Build source package (for uploading to repositories)
 deb-source:
 	@echo "Building Debian source package..."
-	mkdir -p build
+	@mkdir -p build
 	dpkg-buildpackage -us -uc -S
-	@echo "Moving source packages to build/ directory..."
-	mv ../*.dsc build/ 2>/dev/null || true
-	mv ../*.tar.* build/ 2>/dev/null || true
-	mv ../*.changes build/ 2>/dev/null || true
-	mv ../*.buildinfo build/ 2>/dev/null || true
+	@echo ""
+	@echo "Collecting source-package artifacts into $(CURDIR)/build/ ..."
+	@moved=0; \
+	for pattern in "../$(PACKAGE_NAME)_$(VERSION)*.dsc" \
+	               "../$(PACKAGE_NAME)_$(VERSION)*.tar.*" \
+	               "../$(PACKAGE_NAME)_$(VERSION)*.changes" \
+	               "../$(PACKAGE_NAME)_$(VERSION)*.buildinfo"; do \
+		for f in $$pattern; do \
+			if [ -f "$$f" ]; then \
+				mv -v "$$f" build/; \
+				moved=$$((moved + 1)); \
+			fi; \
+		done; \
+	done; \
+	if [ $$moved -eq 0 ]; then \
+		echo "ERROR: dpkg-buildpackage finished but no source artifacts found in ../"; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "Source package created in $(CURDIR)/build/"
 
 # Clean Debian build artifacts
 deb-clean:
@@ -75,7 +107,11 @@ distclean: clean deb-clean
 install-build-deps:
 	@echo "Installing build dependencies..."
 	sudo apt-get update
-	sudo apt-get install -y build-essential debhelper devscripts nodejs npm
+	sudo apt-get install -y build-essential debhelper devscripts nodejs npm \
+	                        python3 g++
+	@echo ""
+	@echo "Note: pnpm is provisioned at build time via corepack (bundled with"
+	@echo "Node 16+). The 'packageManager' field in package.json pins the version."
 
 # Quick build and install (for testing)
 quick-install: deb

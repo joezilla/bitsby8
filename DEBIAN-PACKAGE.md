@@ -290,7 +290,7 @@ The service runs as the `fdcsds` system user with:
 | `/usr/bin/fdcsds` | Main executable (symlink) |
 | `/usr/lib/fdcsds/` | Application installation directory |
 | `/usr/lib/fdcsds/dist/` | Compiled JavaScript |
-| `/usr/lib/fdcsds/public/` | Web interface files |
+| `/usr/lib/fdcsds/frontend/dist/` | Web interface files (Svelte build) |
 | `/usr/lib/fdcsds/node_modules/` | Node.js dependencies |
 
 ### Configuration Files

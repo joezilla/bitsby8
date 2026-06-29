@@ -520,7 +520,7 @@ this.statusInterval = setInterval(() => {
 
 ### **Add More Drives to UI**
 
-Edit `public/index.html`:
+Edit `frontend/src/lib/pages/DisksPage.svelte`:
 
 ```typescript
 // Show 8 drives instead of 4
@@ -554,9 +554,9 @@ Planned enhancements:
 
 ## 📚 Additional Resources
 
-- **Main README:** See `README-TS.md` for overall documentation
+- **Main README:** See `README.md` for overall documentation
 - **API Examples:** Check `examples/` directory (future)
-- **Source Code:** `src/web-server.ts` and `public/index.html`
+- **Source Code:** `src/web-server.ts` (backend), `frontend/src/` (Svelte frontend)
 
 ---
 

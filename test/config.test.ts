@@ -3,7 +3,7 @@
  */
 
 import * as fs from 'fs/promises';
-import { loadConfigFile, mergeConfig, getExampleConfig, ConfigFile } from '../src/config';
+import { loadConfigFile, mergeConfig, getExampleConfig, ConfigFile, resolveDataDir, resolveDrivePath } from '../src/config';
 
 // Mock fs module
 jest.mock('fs/promises');
@@ -87,9 +87,9 @@ describe('Configuration Module', () => {
       await expect(loadConfigFile('test.config')).rejects.toThrow('"baud" must be a number');
     });
 
-    test('should validate drive paths as strings', async () => {
+    test('should validate drive paths as strings or null', async () => {
       mockReadFile.mockResolvedValue(JSON.stringify({ drive0: 123 }));
-      await expect(loadConfigFile('test.config')).rejects.toThrow('"drive0" must be a string');
+      await expect(loadConfigFile('test.config')).rejects.toThrow('"drive0" must be a string or null');
     });
 
     test('should validate readonly as array', async () => {
@@ -107,9 +107,42 @@ describe('Configuration Module', () => {
       await expect(loadConfigFile('test.config')).rejects.toThrow('"verbose" must be a boolean');
     });
 
-    test('should validate logFile as string', async () => {
+    test('should validate logFile as string or null', async () => {
       mockReadFile.mockResolvedValue(JSON.stringify({ logFile: 123 }));
-      await expect(loadConfigFile('test.config')).rejects.toThrow('"logFile" must be a string');
+      await expect(loadConfigFile('test.config')).rejects.toThrow('"logFile" must be a string or null');
+    });
+
+    test('should validate dataDir as string or null', async () => {
+      mockReadFile.mockResolvedValue(JSON.stringify({ dataDir: 123 }));
+      await expect(loadConfigFile('test.config')).rejects.toThrow('"dataDir" must be a string or null');
+    });
+
+    test('should accept null for drive paths', async () => {
+      mockReadFile.mockResolvedValue(JSON.stringify({ drive2: null, drive3: null }));
+      const config = await loadConfigFile('test.config');
+      expect(config).toEqual({ drive2: null, drive3: null });
+    });
+
+    test('should accept null for dataDir', async () => {
+      mockReadFile.mockResolvedValue(JSON.stringify({ dataDir: null }));
+      const config = await loadConfigFile('test.config');
+      expect(config).toEqual({ dataDir: null });
+    });
+
+    test('should accept null for logFile', async () => {
+      mockReadFile.mockResolvedValue(JSON.stringify({ logFile: null }));
+      const config = await loadConfigFile('test.config');
+      expect(config).toEqual({ logFile: null });
+    });
+
+    test('should successfully parse the output of getExampleConfig()', async () => {
+      const exampleJson = getExampleConfig();
+      mockReadFile.mockResolvedValue(exampleJson);
+      const config = await loadConfigFile('test.config');
+      expect(config).toBeDefined();
+      expect(config!.dataDir).toBeNull();
+      expect(config!.drive2).toBeNull();
+      expect(config!.drive3).toBeNull();
     });
 
     test('should validate webPort as number', async () => {
@@ -129,6 +162,7 @@ describe('Configuration Module', () => {
         verbose: true,
         debug: false,
         logFile: '/var/log/fdcsds.log',
+        dataDir: '/var/lib/fdcsds',
         web: true,
         webPort: 3000,
         webHost: 'localhost',
@@ -262,6 +296,34 @@ describe('Configuration Module', () => {
       expect(merged.readonly).toEqual([2, 3]);
     });
 
+    test('should override dataDir from CLI', () => {
+      const configFile: ConfigFile = {
+        dataDir: '/var/lib/fdcsds',
+        port: '/dev/ttyUSB0',
+      };
+
+      const cliOptions = {
+        dataDir: '/tmp/fdctest',
+      };
+
+      const merged = mergeConfig(configFile, cliOptions);
+
+      expect(merged.dataDir).toBe('/tmp/fdctest');
+      expect(merged.port).toBe('/dev/ttyUSB0');
+    });
+
+    test('should preserve dataDir from config when CLI absent', () => {
+      const configFile: ConfigFile = {
+        dataDir: '/var/lib/fdcsds',
+      };
+
+      const cliOptions = {};
+
+      const merged = mergeConfig(configFile, cliOptions);
+
+      expect(merged.dataDir).toBe('/var/lib/fdcsds');
+    });
+
     test('should not override with empty readonly array', () => {
       const configFile: ConfigFile = {
         readonly: [0, 1],
@@ -287,6 +349,7 @@ describe('Configuration Module', () => {
     test('should include all config options', () => {
       const example = JSON.parse(getExampleConfig());
 
+      expect(example).toHaveProperty('dataDir');
       expect(example).toHaveProperty('port');
       expect(example).toHaveProperty('baud');
       expect(example).toHaveProperty('drive0');
@@ -309,6 +372,7 @@ describe('Configuration Module', () => {
     test('should have sensible default values', () => {
       const example = JSON.parse(getExampleConfig());
 
+      expect(example.dataDir).toBeNull();
       expect(example.baud).toBe(230400);
       expect(example.webPort).toBe(3000);
       expect(example.webHost).toBe('localhost');
@@ -316,6 +380,45 @@ describe('Configuration Module', () => {
       expect(example.verbose).toBe(false);
       expect(example.debug).toBe(false);
       expect(Array.isArray(example.readonly)).toBe(true);
+    });
+  });
+
+  describe('resolveDataDir', () => {
+    test('should return process.cwd() when dataDir is undefined', () => {
+      expect(resolveDataDir(undefined)).toBe(process.cwd());
+    });
+
+    test('should return process.cwd() when dataDir is null', () => {
+      expect(resolveDataDir(null)).toBe(process.cwd());
+    });
+
+    test('should return process.cwd() when dataDir is empty string', () => {
+      expect(resolveDataDir('')).toBe(process.cwd());
+    });
+
+    test('should resolve absolute dataDir as-is', () => {
+      expect(resolveDataDir('/var/lib/fdcsds')).toBe('/var/lib/fdcsds');
+    });
+
+    test('should resolve relative dataDir against cwd', () => {
+      const result = resolveDataDir('data');
+      expect(result).toBe(require('path').resolve('data'));
+    });
+  });
+
+  describe('resolveDrivePath', () => {
+    test('should return absolute path as-is regardless of dataDir', () => {
+      expect(resolveDrivePath('/absolute/path/to/disk.dsk', '/var/lib/fdcsds')).toBe('/absolute/path/to/disk.dsk');
+    });
+
+    test('should resolve relative path against dataDir', () => {
+      expect(resolveDrivePath('disks/cpm22.dsk', '/var/lib/fdcsds')).toBe('/var/lib/fdcsds/disks/cpm22.dsk');
+    });
+
+    test('should resolve relative path against cwd-based dataDir', () => {
+      const dataDir = process.cwd();
+      const result = resolveDrivePath('disks/test.dsk', dataDir);
+      expect(result).toBe(require('path').resolve(dataDir, 'disks/test.dsk'));
     });
   });
 });

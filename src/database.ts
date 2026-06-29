@@ -1,9 +1,13 @@
 /**
  * Database Module
- * Manages SQLite database for disk and cassette metadata (notes, descriptions)
+ * Manages SQLite database for disk and cassette metadata (notes, descriptions).
+ *
+ * Uses better-sqlite3 for synchronous, high-performance SQLite access.
+ * Methods retain async signatures for backward compatibility with callers.
  */
 
-import sqlite3 from 'sqlite3';
+import BetterSqlite3 from 'better-sqlite3';
+import { chmodSync } from 'fs';
 
 export interface DiskNote {
   filename: string;
@@ -26,8 +30,31 @@ export interface DriveAssignment {
   updated_at: string;
 }
 
+// Schema migrations, applied in order. Each runs inside a transaction.
+const MIGRATIONS: string[] = [
+  // Migration 0: initial schema
+  `CREATE TABLE IF NOT EXISTS disk_notes (
+    filename TEXT PRIMARY KEY,
+    description TEXT DEFAULT '',
+    notes TEXT DEFAULT '',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS cassette_notes (
+    filename TEXT PRIMARY KEY,
+    description TEXT DEFAULT '',
+    notes TEXT DEFAULT '',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS drive_assignments (
+    drive_id INTEGER PRIMARY KEY,
+    filename TEXT NOT NULL,
+    readonly INTEGER DEFAULT 0,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );`,
+];
+
 export class Database {
-  private db: sqlite3.Database | null = null;
+  private db: BetterSqlite3.Database | null = null;
   private dbPath: string;
   private initialized = false;
 
@@ -35,412 +62,205 @@ export class Database {
     this.dbPath = dbPath;
   }
 
+  getPath(): string {
+    return this.dbPath;
+  }
+
   /**
-   * Initialize database and create tables if they don't exist
+   * Initialize database and run migrations.
    */
   async initialize(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.db = new sqlite3.Database(this.dbPath, (err) => {
-        if (err) {
-          reject(err);
-          return;
-        }
+    this.db = new BetterSqlite3(this.dbPath);
 
-        // Create tables
-        this.createTables()
-          .then(() => {
-            this.initialized = true;
-            console.log(`Database initialized at: ${this.dbPath}`);
-            resolve();
-          })
-          .catch(reject);
-      });
-    });
+    // Enable WAL mode for better concurrent read performance
+    this.db.pragma('journal_mode = WAL');
+
+    this.runMigrations();
+
+    this.initialized = true;
+    try { chmodSync(this.dbPath, 0o600); } catch { /* non-fatal */ }
+    console.log(`Database initialized at: ${this.dbPath}`);
   }
 
   /**
-   * Create database tables
+   * Run schema migrations.
    */
-  private async createTables(): Promise<void> {
-    if (!this.db) {
-      throw new Error('Database not initialized');
-    }
+  private runMigrations(): void {
+    if (!this.db) throw new Error('Database not open');
 
-    const createDiskNotesTable = `
-      CREATE TABLE IF NOT EXISTS disk_notes (
-        filename TEXT PRIMARY KEY,
-        description TEXT DEFAULT '',
-        notes TEXT DEFAULT '',
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    // Create migration tracking table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS schema_version (
+        version INTEGER PRIMARY KEY,
+        applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
-    `;
+    `);
 
-    const createCassetteNotesTable = `
-      CREATE TABLE IF NOT EXISTS cassette_notes (
-        filename TEXT PRIMARY KEY,
-        description TEXT DEFAULT '',
-        notes TEXT DEFAULT '',
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `;
+    // Get current version
+    const row = this.db.prepare('SELECT MAX(version) as version FROM schema_version').get() as { version: number | null } | undefined;
+    const currentVersion = row?.version ?? -1;
 
-    const createDriveAssignmentsTable = `
-      CREATE TABLE IF NOT EXISTS drive_assignments (
-        drive_id INTEGER PRIMARY KEY,
-        filename TEXT NOT NULL,
-        readonly INTEGER DEFAULT 0,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `;
-
-    return new Promise((resolve, reject) => {
-      this.db!.serialize(() => {
-        this.db!.run(createDiskNotesTable, (err) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-
-          this.db!.run(createCassetteNotesTable, (err) => {
-            if (err) {
-              reject(err);
-              return;
-            }
-
-            this.db!.run(createDriveAssignmentsTable, (err) => {
-              if (err) {
-                reject(err);
-                return;
-              }
-              resolve();
-            });
-          });
-        });
+    // Apply pending migrations
+    for (let i = currentVersion + 1; i < MIGRATIONS.length; i++) {
+      const migrate = this.db.transaction(() => {
+        this.db!.exec(MIGRATIONS[i]);
+        this.db!.prepare('INSERT INTO schema_version (version) VALUES (?)').run(i);
       });
-    });
+      migrate();
+      console.log(`Applied database migration ${i}`);
+    }
   }
 
   /**
-   * Get disk note by filename
+   * Get disk note by filename.
    */
   async getDiskNote(filename: string): Promise<DiskNote | null> {
-    if (!this.db || !this.initialized) {
-      throw new Error('Database not initialized');
-    }
-
-    return new Promise((resolve, reject) => {
-      this.db!.get(
-        'SELECT * FROM disk_notes WHERE filename = ?',
-        [filename],
-        (err, row: DiskNote | undefined) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          resolve(row || null);
-        }
-      );
-    });
+    this.ensureInitialized();
+    const row = this.db!.prepare('SELECT * FROM disk_notes WHERE filename = ?').get(filename) as DiskNote | undefined;
+    return row || null;
   }
 
   /**
-   * Get cassette note by filename
+   * Get cassette note by filename.
    */
   async getCassetteNote(filename: string): Promise<CassetteNote | null> {
-    if (!this.db || !this.initialized) {
-      throw new Error('Database not initialized');
-    }
-
-    return new Promise((resolve, reject) => {
-      this.db!.get(
-        'SELECT * FROM cassette_notes WHERE filename = ?',
-        [filename],
-        (err, row: CassetteNote | undefined) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          resolve(row || null);
-        }
-      );
-    });
+    this.ensureInitialized();
+    const row = this.db!.prepare('SELECT * FROM cassette_notes WHERE filename = ?').get(filename) as CassetteNote | undefined;
+    return row || null;
   }
 
   /**
-   * Get all disk notes
+   * Get all disk notes.
    */
   async getAllDiskNotes(): Promise<Map<string, DiskNote>> {
-    if (!this.db || !this.initialized) {
-      throw new Error('Database not initialized');
+    this.ensureInitialized();
+    const rows = this.db!.prepare('SELECT * FROM disk_notes').all() as DiskNote[];
+    const map = new Map<string, DiskNote>();
+    for (const row of rows) {
+      map.set(row.filename, row);
     }
-
-    return new Promise((resolve, reject) => {
-      this.db!.all(
-        'SELECT * FROM disk_notes',
-        (err, rows: DiskNote[]) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          const map = new Map<string, DiskNote>();
-          rows.forEach((row) => {
-            map.set(row.filename, row);
-          });
-          resolve(map);
-        }
-      );
-    });
+    return map;
   }
 
   /**
-   * Get all cassette notes
+   * Get all cassette notes.
    */
   async getAllCassetteNotes(): Promise<Map<string, CassetteNote>> {
-    if (!this.db || !this.initialized) {
-      throw new Error('Database not initialized');
+    this.ensureInitialized();
+    const rows = this.db!.prepare('SELECT * FROM cassette_notes').all() as CassetteNote[];
+    const map = new Map<string, CassetteNote>();
+    for (const row of rows) {
+      map.set(row.filename, row);
     }
-
-    return new Promise((resolve, reject) => {
-      this.db!.all(
-        'SELECT * FROM cassette_notes',
-        (err, rows: CassetteNote[]) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          const map = new Map<string, CassetteNote>();
-          rows.forEach((row) => {
-            map.set(row.filename, row);
-          });
-          resolve(map);
-        }
-      );
-    });
+    return map;
   }
 
   /**
-   * Update or insert disk note
+   * Update or insert disk note.
    */
   async upsertDiskNote(filename: string, description: string, notes: string): Promise<void> {
-    if (!this.db || !this.initialized) {
-      throw new Error('Database not initialized');
-    }
-
-    return new Promise((resolve, reject) => {
-      this.db!.run(
-        `INSERT INTO disk_notes (filename, description, notes, updated_at)
-         VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-         ON CONFLICT(filename) DO UPDATE SET
-           description = excluded.description,
-           notes = excluded.notes,
-           updated_at = CURRENT_TIMESTAMP`,
-        [filename, description, notes],
-        (err) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          resolve();
-        }
-      );
-    });
+    this.ensureInitialized();
+    this.db!.prepare(
+      `INSERT INTO disk_notes (filename, description, notes, updated_at)
+       VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(filename) DO UPDATE SET
+         description = excluded.description,
+         notes = excluded.notes,
+         updated_at = CURRENT_TIMESTAMP`
+    ).run(filename, description, notes);
   }
 
   /**
-   * Update or insert cassette note
+   * Update or insert cassette note.
    */
   async upsertCassetteNote(filename: string, description: string, notes: string): Promise<void> {
-    if (!this.db || !this.initialized) {
-      throw new Error('Database not initialized');
-    }
-
-    return new Promise((resolve, reject) => {
-      this.db!.run(
-        `INSERT INTO cassette_notes (filename, description, notes, updated_at)
-         VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-         ON CONFLICT(filename) DO UPDATE SET
-           description = excluded.description,
-           notes = excluded.notes,
-           updated_at = CURRENT_TIMESTAMP`,
-        [filename, description, notes],
-        (err) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          resolve();
-        }
-      );
-    });
+    this.ensureInitialized();
+    this.db!.prepare(
+      `INSERT INTO cassette_notes (filename, description, notes, updated_at)
+       VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(filename) DO UPDATE SET
+         description = excluded.description,
+         notes = excluded.notes,
+         updated_at = CURRENT_TIMESTAMP`
+    ).run(filename, description, notes);
   }
 
   /**
-   * Delete disk note
+   * Delete disk note.
    */
   async deleteDiskNote(filename: string): Promise<void> {
-    if (!this.db || !this.initialized) {
-      throw new Error('Database not initialized');
-    }
-
-    return new Promise((resolve, reject) => {
-      this.db!.run(
-        'DELETE FROM disk_notes WHERE filename = ?',
-        [filename],
-        (err) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          resolve();
-        }
-      );
-    });
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM disk_notes WHERE filename = ?').run(filename);
   }
 
   /**
-   * Delete cassette note
+   * Delete cassette note.
    */
   async deleteCassetteNote(filename: string): Promise<void> {
-    if (!this.db || !this.initialized) {
-      throw new Error('Database not initialized');
-    }
-
-    return new Promise((resolve, reject) => {
-      this.db!.run(
-        'DELETE FROM cassette_notes WHERE filename = ?',
-        [filename],
-        (err) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          resolve();
-        }
-      );
-    });
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM cassette_notes WHERE filename = ?').run(filename);
   }
 
   /**
-   * Get all drive assignments
+   * Get all drive assignments.
    */
   async getAllDriveAssignments(): Promise<DriveAssignment[]> {
-    if (!this.db || !this.initialized) {
-      throw new Error('Database not initialized');
-    }
-
-    return new Promise((resolve, reject) => {
-      this.db!.all(
-        'SELECT * FROM drive_assignments ORDER BY drive_id',
-        (err, rows: DriveAssignment[]) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          resolve(rows || []);
-        }
-      );
-    });
+    this.ensureInitialized();
+    return this.db!.prepare('SELECT * FROM drive_assignments ORDER BY drive_id').all() as DriveAssignment[];
   }
 
   /**
-   * Save drive assignment (mount)
+   * Save drive assignment (mount).
    */
   async saveDriveAssignment(driveId: number, filename: string, readonly: boolean): Promise<void> {
-    if (!this.db || !this.initialized) {
-      throw new Error('Database not initialized');
-    }
-
-    return new Promise((resolve, reject) => {
-      this.db!.run(
-        `INSERT INTO drive_assignments (drive_id, filename, readonly, updated_at)
-         VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-         ON CONFLICT(drive_id) DO UPDATE SET
-           filename = excluded.filename,
-           readonly = excluded.readonly,
-           updated_at = CURRENT_TIMESTAMP`,
-        [driveId, filename, readonly ? 1 : 0],
-        (err) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          resolve();
-        }
-      );
-    });
+    this.ensureInitialized();
+    this.db!.prepare(
+      `INSERT INTO drive_assignments (drive_id, filename, readonly, updated_at)
+       VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(drive_id) DO UPDATE SET
+         filename = excluded.filename,
+         readonly = excluded.readonly,
+         updated_at = CURRENT_TIMESTAMP`
+    ).run(driveId, filename, readonly ? 1 : 0);
   }
 
   /**
-   * Clear drive assignment (unmount)
+   * Clear drive assignment (unmount).
    */
   async clearDriveAssignment(driveId: number): Promise<void> {
-    if (!this.db || !this.initialized) {
-      throw new Error('Database not initialized');
-    }
-
-    return new Promise((resolve, reject) => {
-      this.db!.run(
-        'DELETE FROM drive_assignments WHERE drive_id = ?',
-        [driveId],
-        (err) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          resolve();
-        }
-      );
-    });
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM drive_assignments WHERE drive_id = ?').run(driveId);
   }
 
   /**
-   * Clear all drive assignments
+   * Clear all drive assignments.
    */
   async clearAllDriveAssignments(): Promise<void> {
-    if (!this.db || !this.initialized) {
-      throw new Error('Database not initialized');
-    }
-
-    return new Promise((resolve, reject) => {
-      this.db!.run(
-        'DELETE FROM drive_assignments',
-        (err) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          resolve();
-        }
-      );
-    });
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM drive_assignments').run();
   }
 
   /**
-   * Close database connection
+   * Close database connection.
    */
   async close(): Promise<void> {
-    if (!this.db) {
-      return;
-    }
-
-    return new Promise((resolve, reject) => {
-      this.db!.close((err) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        this.initialized = false;
-        this.db = null;
-        resolve();
-      });
-    });
+    if (!this.db) return;
+    this.db.close();
+    this.initialized = false;
+    this.db = null;
   }
 
   /**
-   * Check if database is initialized
+   * Check if database is initialized.
    */
   isInitialized(): boolean {
     return this.initialized;
+  }
+
+  private ensureInitialized(): void {
+    if (!this.db || !this.initialized) {
+      throw new Error('Database not initialized');
+    }
   }
 }
 
@@ -448,7 +268,7 @@ export class Database {
 let databaseInstance: Database | null = null;
 
 /**
- * Get singleton database instance
+ * Get singleton database instance.
  */
 export function getDatabase(dbPath?: string): Database {
   if (!databaseInstance && dbPath) {
