@@ -77,13 +77,39 @@ export const api = {
 
   // CP/M
   getCpmInfo: (filename: string) =>
-    request(`/api/images/${encodeURIComponent(filename)}/cpm/info`),
+    request<{
+      params: { tracks: number; sectrk: number; blocksize: number; maxdir: number; boottrk: number };
+      freeSpace: {
+        freeBlocks: number;
+        freeBytes: number;
+        totalBlocks: number;
+        totalBytes: number;
+        usedBlocks: number;
+        usedBytes: number;
+        directoryEntriesFree: number;
+        directoryEntriesTotal: number;
+      };
+      fileCount: number;
+      mounted: number | false;
+    }>(`/api/images/${encodeURIComponent(filename)}/cpm/info`),
   listCpmFiles: (filename: string) =>
     request<{ files: CpmFileInfo[] }>(`/api/images/${encodeURIComponent(filename)}/cpm/files`),
   downloadCpmFile: (diskFilename: string, cpmFile: string) =>
     fetch(`/api/images/${encodeURIComponent(diskFilename)}/cpm/files/${encodeURIComponent(cpmFile)}`),
   deleteCpmFile: (diskFilename: string, cpmFile: string) =>
     request(`/api/images/${encodeURIComponent(diskFilename)}/cpm/files/${encodeURIComponent(cpmFile)}`, { method: 'DELETE' }),
+  uploadCpmFile: async (diskFilename: string, file: File, cpmFilename?: string) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (cpmFilename) form.append('cpmFilename', cpmFilename);
+    const res = await fetch(
+      `/api/images/${encodeURIComponent(diskFilename)}/cpm/files`,
+      { method: 'POST', body: form }
+    );
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    return body as { success: boolean; filename: string; size: number };
+  },
 
   // Cassettes
   listCassettes: () => request<{ cassettes: CassetteInfo[] }>('/api/cassettes/details'),

@@ -14,7 +14,7 @@
   import Led from '$lib/components/shared/Led.svelte';
   import PageHeader from '$lib/components/shared/PageHeader.svelte';
   import LabelStrip from '$lib/components/shared/LabelStrip.svelte';
-  import type { DiskImageInfo, DriveState } from '$lib/types/api';
+  import type { DiskImageInfo, DriveState, CpmFileInfo } from '$lib/types/api';
 
   let images = $state<DiskImageInfo[]>([]);
   let searchQuery = $state('');
@@ -42,6 +42,18 @@
   let newDiskExtension = $state('.img');
 
   let fileInputRef = $state<HTMLInputElement | null>(null);
+
+  // CP/M files browser
+  type CpmInfoResp = Awaited<ReturnType<typeof api.getCpmInfo>>;
+  let cpmDisk = $state<DiskImageInfo | null>(null);
+  let cpmInfo = $state<CpmInfoResp | null>(null);
+  let cpmFiles = $state<CpmFileInfo[]>([]);
+  let cpmLoading = $state(false);
+  let cpmError = $state<string | null>(null);
+  let cpmUploading = $state(false);
+  let cpmDragOver = $state(false);
+  let cpmFileInputRef = $state<HTMLInputElement | null>(null);
+  let cpmMounted = $derived(cpmInfo && cpmInfo.mounted !== false);
 
   function formatSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
@@ -212,6 +224,135 @@
       mountingDrive = null;
       mountingImage = null;
     }
+  }
+
+  // ---------------- CP/M file browser ----------------
+
+  function cpmFormatName(f: CpmFileInfo): string {
+    const name = f.filename.trimEnd();
+    const ext = f.extension.trimEnd();
+    return ext ? `${name}.${ext}` : name;
+  }
+
+  function cpmFileId(f: CpmFileInfo): string {
+    return `${f.user}:${cpmFormatName(f)}`;
+  }
+
+  async function refreshCpm(filename: string) {
+    cpmLoading = true;
+    cpmError = null;
+    try {
+      const [info, list] = await Promise.all([
+        api.getCpmInfo(filename),
+        api.listCpmFiles(filename),
+      ]);
+      cpmInfo = info;
+      cpmFiles = list.files;
+    } catch (err: any) {
+      cpmError = err.message;
+      cpmFiles = [];
+      cpmInfo = null;
+    } finally {
+      cpmLoading = false;
+    }
+  }
+
+  function openCpmBrowser(image: DiskImageInfo) {
+    cpmDisk = image;
+    cpmInfo = null;
+    cpmFiles = [];
+    cpmError = null;
+    refreshCpm(image.name);
+  }
+
+  function closeCpmBrowser() {
+    cpmDisk = null;
+    cpmInfo = null;
+    cpmFiles = [];
+    cpmError = null;
+    cpmDragOver = false;
+  }
+
+  async function downloadCpmFile(f: CpmFileInfo) {
+    if (!cpmDisk) return;
+    try {
+      const res = await api.downloadCpmFile(cpmDisk.name, cpmFileId(f));
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(body.error || res.statusText);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = cpmFormatName(f);
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      showToast(`Download failed: ${err.message}`, 'error');
+    }
+  }
+
+  async function deleteCpmFile(f: CpmFileInfo) {
+    if (!cpmDisk) return;
+    if (cpmMounted) {
+      showToast('Unmount the disk before modifying files', 'warning');
+      return;
+    }
+    const label = cpmFormatName(f);
+    if (!confirm(`Delete CP/M file "${label}" from ${cpmDisk.name}?`)) return;
+    try {
+      await api.deleteCpmFile(cpmDisk.name, cpmFileId(f));
+      showToast(`Deleted ${label}`, 'success');
+      await refreshCpm(cpmDisk.name);
+    } catch (err: any) {
+      showToast(`Delete failed: ${err.message}`, 'error');
+    }
+  }
+
+  async function uploadCpmFiles(files: FileList | File[]) {
+    if (!cpmDisk) return;
+    if (cpmMounted) {
+      showToast('Unmount the disk before uploading files', 'warning');
+      return;
+    }
+    if (!files || files.length === 0) return;
+    cpmUploading = true;
+    try {
+      for (const file of files) {
+        await api.uploadCpmFile(cpmDisk.name, file);
+        showToast(`Uploaded ${file.name}`, 'success');
+      }
+      await refreshCpm(cpmDisk.name);
+    } catch (err: any) {
+      showToast(`Upload failed: ${err.message}`, 'error');
+    } finally {
+      cpmUploading = false;
+    }
+  }
+
+  function handleCpmUpload(event: Event) {
+    const input = event.target as HTMLInputElement;
+    if (input.files) uploadCpmFiles(input.files);
+    input.value = '';
+  }
+
+  function handleCpmDrop(event: DragEvent) {
+    event.preventDefault();
+    cpmDragOver = false;
+    const files = event.dataTransfer?.files;
+    if (files && files.length > 0) uploadCpmFiles(files);
+  }
+
+  function handleCpmDragOver(event: DragEvent) {
+    event.preventDefault();
+    if (!cpmMounted) cpmDragOver = true;
+  }
+
+  function handleCpmDragLeave() {
+    cpmDragOver = false;
   }
 
   onMount(() => {
@@ -552,6 +693,7 @@
                           </div>
                         {/if}
                       </div>
+                      <IconButton icon="folder_open" size={16} title="Browse CP/M files (experimental)" onclick={() => openCpmBrowser(img)} />
                       <IconButton icon="content_copy" size={16} title="Clone image" onclick={() => cloneDisk(img.name)} />
                       <IconButton icon="edit_note" size={18} title="Edit notes" onclick={() => openEditNotes(img)} />
                       <IconButton icon="delete" size={16} title="Delete image" onclick={() => deleteDisk(img.name)} />
@@ -628,6 +770,216 @@
       <div style="display: flex; justify-content: flex-end; gap: 8px;">
         <Button variant="ghost" onclick={() => (editingNotes = null)}>Cancel</Button>
         <Button variant="filled" icon="check" onclick={saveNotes}>Save</Button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- CP/M files browser modal (experimental) -->
+{#if cpmDisk}
+  <div
+    role="dialog"
+    aria-modal="true"
+    aria-label="Browse CP/M files"
+    tabindex="-1"
+    onkeydown={(e: KeyboardEvent) => { if (e.key === 'Escape') closeCpmBrowser(); }}
+    style="
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      background: var(--surface-overlay);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    "
+  >
+    <button
+      type="button"
+      onclick={closeCpmBrowser}
+      aria-label="Close"
+      style="position: absolute; inset: 0; background: transparent; border: none; cursor: default;"
+    ></button>
+    <div
+      role="document"
+      style="
+        position: relative;
+        background: var(--surface-raised);
+        border: 1px solid var(--border-2);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--elev-4);
+        width: 100%;
+        max-width: 720px;
+        max-height: 85vh;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        overflow: hidden;
+      "
+    >
+      <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;">
+        <div style="min-width: 0;">
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <LabelStrip>CP/M files</LabelStrip>
+            <Chip color="amber" icon="science">Experimental</Chip>
+          </div>
+          <h3
+            class="fdc-mono"
+            style="font-size: 16px; color: var(--accent); margin: 4px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+            title={cpmDisk.name}
+          >
+            {cpmDisk.name}
+          </h3>
+        </div>
+        <IconButton icon="close" size={18} title="Close" onclick={closeCpmBrowser} />
+      </div>
+
+      <!-- Experimental + safety notice -->
+      <div
+        style="
+          padding: 10px 12px;
+          background: color-mix(in oklab, var(--accent) 10%, var(--surface-raised));
+          border: 1px solid color-mix(in oklab, var(--accent) 30%, var(--border-1));
+          border-radius: var(--radius-md);
+          font: var(--text-body-sm);
+          color: var(--fg-2);
+          line-height: 1.5;
+        "
+      >
+        <strong style="color: var(--fg-1);">Experimental.</strong>
+        This editor walks the CP/M filesystem inside the image and writes
+        directly to the .dsk on disk. Back up images before making changes.
+        Uploads and deletes are blocked while the image is mounted on a drive.
+      </div>
+
+      <!-- Status bar -->
+      {#if cpmLoading && !cpmInfo}
+        <div style="font: var(--text-body-sm); color: var(--fg-3);">Loading CP/M filesystem…</div>
+      {:else if cpmError}
+        <div
+          style="
+            padding: 10px 12px;
+            background: var(--error-container);
+            border: 1px solid color-mix(in oklab, var(--error) 35%, var(--border-1));
+            border-radius: var(--radius-md);
+            font: var(--text-body-sm);
+            color: var(--fg-1);
+          "
+        >
+          Could not read CP/M filesystem: {cpmError}
+        </div>
+      {:else if cpmInfo}
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          {#if cpmMounted}
+            <Chip color="amber" icon="lock">Mounted on drive {cpmInfo.mounted} (read-only)</Chip>
+          {:else}
+            <Chip color="green" icon="lock_open">Unmounted (writable)</Chip>
+          {/if}
+          <Chip>{cpmFiles.length} file{cpmFiles.length === 1 ? '' : 's'}</Chip>
+          <Chip>{formatSize(cpmInfo.freeSpace.usedBytes)} used</Chip>
+          <Chip>{formatSize(cpmInfo.freeSpace.freeBytes)} free</Chip>
+          <Chip>{cpmInfo.freeSpace.directoryEntriesFree}/{cpmInfo.freeSpace.directoryEntriesTotal} dir slots free</Chip>
+        </div>
+      {/if}
+
+      <!-- File list -->
+      <div style="flex: 1; min-height: 0; overflow-y: auto; border: 1px solid var(--border-1); border-radius: var(--radius-md);">
+        {#if cpmFiles.length === 0 && !cpmLoading && !cpmError}
+          <div style="padding: 24px; text-align: center; font: var(--text-body-sm); color: var(--fg-3);">
+            No CP/M files on this image.
+          </div>
+        {:else if cpmFiles.length > 0}
+          <table style="width: 100%; border-collapse: collapse;">
+            <thead style="position: sticky; top: 0; background: var(--surface-raised); z-index: 1;">
+              <tr style="border-bottom: 1px solid var(--border-1);">
+                <th class="fdc-label-strip" style="text-align: left; padding: 8px 12px;">User</th>
+                <th class="fdc-label-strip" style="text-align: left; padding: 8px 12px;">Filename</th>
+                <th class="fdc-label-strip" style="text-align: right; padding: 8px 12px;">Size</th>
+                <th class="fdc-label-strip" style="text-align: left; padding: 8px 12px;">Attrs</th>
+                <th class="fdc-label-strip" style="text-align: right; padding: 8px 12px;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each cpmFiles as f (cpmFileId(f))}
+                <tr style="border-bottom: 1px solid var(--border-1);">
+                  <td class="fdc-mono" style="padding: 6px 12px; font-size: 11px; color: var(--fg-3);">{f.user}</td>
+                  <td class="fdc-mono" style="padding: 6px 12px; font-size: 12px; color: var(--fg-1);">
+                    {cpmFormatName(f)}
+                  </td>
+                  <td class="fdc-mono" style="padding: 6px 12px; text-align: right; font-size: 11px; color: var(--fg-2); white-space: nowrap;">
+                    {formatSize(f.size)}
+                  </td>
+                  <td style="padding: 6px 12px;">
+                    <div style="display: inline-flex; gap: 4px;">
+                      {#if f.readonly}<Chip color="amber">RO</Chip>{/if}
+                      {#if f.system}<Chip color="cyan">SYS</Chip>{/if}
+                      {#if !f.readonly && !f.system}<span style="color: var(--fg-3); font-size: 11px;">—</span>{/if}
+                    </div>
+                  </td>
+                  <td style="padding: 6px 12px; text-align: right; white-space: nowrap;">
+                    <IconButton icon="download" size={16} title="Download" onclick={() => downloadCpmFile(f)} />
+                    <IconButton
+                      icon="delete"
+                      size={16}
+                      title={cpmMounted ? 'Unmount to delete' : 'Delete from disk'}
+                      disabled={!!cpmMounted}
+                      onclick={() => deleteCpmFile(f)}
+                    />
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {/if}
+      </div>
+
+      <!-- Upload zone -->
+      <div
+        role="region"
+        aria-label="Upload file to CP/M image"
+        ondragover={handleCpmDragOver}
+        ondragleave={handleCpmDragLeave}
+        ondrop={handleCpmDrop}
+        style="
+          padding: 14px;
+          text-align: center;
+          border: 1px dashed {cpmDragOver ? 'var(--accent)' : 'var(--border-2)'};
+          border-radius: var(--radius-md);
+          color: {cpmMounted ? 'var(--fg-3)' : 'var(--fg-2)'};
+          font: var(--text-body-sm);
+          background: {cpmDragOver ? 'color-mix(in oklab, var(--accent) 8%, transparent)' : 'transparent'};
+          {cpmMounted ? 'opacity: 0.6;' : ''}
+        "
+      >
+        {#if cpmMounted}
+          Eject this disk from drive {cpmInfo?.mounted} to upload files.
+        {:else if cpmUploading}
+          Uploading…
+        {:else}
+          Drop a file here, or
+          <button
+            type="button"
+            onclick={() => cpmFileInputRef?.click()}
+            style="background: none; border: none; color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline; padding: 0;"
+          >
+            choose a file
+          </button>
+          to add it to the CP/M filesystem. Filename is auto-shortened to 8.3.
+        {/if}
+        <input
+          type="file"
+          bind:this={cpmFileInputRef}
+          onchange={handleCpmUpload}
+          style="display: none;"
+        />
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 8px;">
+        <Button variant="ghost" icon="refresh" onclick={() => cpmDisk && refreshCpm(cpmDisk.name)} disabled={cpmLoading}>
+          Refresh
+        </Button>
+        <Button variant="filled" onclick={closeCpmBrowser}>Close</Button>
       </div>
     </div>
   </div>
