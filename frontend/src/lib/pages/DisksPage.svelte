@@ -38,7 +38,7 @@
   let editNotesText = $state('');
   let showCreateDialog = $state(false);
   let newDiskName = $state('');
-  let newDiskFormat = $state('8dssd');
+  let newDiskFormat = $state('8inch');
   let newDiskExtension = $state('.img');
 
   let fileInputRef = $state<HTMLInputElement | null>(null);
@@ -543,9 +543,9 @@
           <div>
             <label class="fdc-label-strip" for="new-disk-format" style="display: block; margin-bottom: 4px;">Format</label>
             <Select id="new-disk-format" bind:value={newDiskFormat}>
-              <option value="8dssd">8" SSSD (250 KB)</option>
-              <option value="8dsdd">8" SSDD (500 KB)</option>
-              <option value="5dsdd">5.25" DSDD (360 KB)</option>
+              <option value="8inch">8" Lifeboat (330 KB, 77 tracks)</option>
+              <option value="minidisk">Minidisk (75 KB, 17 tracks)</option>
+              <option value="8mb">8 MB (1863 tracks)</option>
             </Select>
           </div>
           <div>
