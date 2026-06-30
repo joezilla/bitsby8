@@ -34,8 +34,10 @@
   let uploading = $state(false);
   let dragOver = $state(false);
   let editingNotes = $state<DiskImageInfo | null>(null);
+  let editFilename = $state('');
   let editDescription = $state('');
   let editNotesText = $state('');
+  let savingEdit = $state(false);
   let showCreateDialog = $state(false);
   let newDiskName = $state('');
   let newDiskFormat = $state('8inch');
@@ -184,20 +186,44 @@
   function handleDragOver(event: DragEvent) { event.preventDefault(); dragOver = true; }
   function handleDragLeave() { dragOver = false; }
 
-  async function saveNotes() {
+  async function saveEdit() {
     if (!editingNotes) return;
+    const oldName = editingNotes.name;
+    const newName = editFilename.trim();
+    if (!newName) {
+      showToast('Filename cannot be empty', 'warning');
+      return;
+    }
+    if (newName.includes('/') || newName.includes('\\') || newName.includes('..')) {
+      showToast('Filename cannot contain "/", "\\", or ".."', 'warning');
+      return;
+    }
+
+    savingEdit = true;
     try {
-      await api.updateImageNotes(editingNotes.name, editDescription, editNotesText);
-      showToast(`Notes updated for ${editingNotes.name}`, 'success');
+      // Rename first (if changed). If this fails, don't touch notes.
+      let resolvedName = oldName;
+      if (newName !== oldName) {
+        const res = await api.renameImage(oldName, newName);
+        resolvedName = res.filename;
+        showToast(`Renamed ${oldName} → ${resolvedName}`, 'success');
+      }
+      await api.updateImageNotes(resolvedName, editDescription, editNotesText);
+      if (newName === oldName) {
+        showToast(`Notes updated for ${resolvedName}`, 'success');
+      }
       editingNotes = null;
       await loadImages();
     } catch (err: any) {
-      showToast(`Failed to save notes: ${err.message}`, 'error');
+      showToast(`Save failed: ${err.message}`, 'error');
+    } finally {
+      savingEdit = false;
     }
   }
 
   function openEditNotes(image: DiskImageInfo) {
     editingNotes = image;
+    editFilename = image.name;
     editDescription = image.description ?? '';
     editNotesText = image.notes ?? '';
   }
@@ -754,10 +780,17 @@
       "
     >
       <div>
-        <LabelStrip>Edit notes</LabelStrip>
-        <h3 class="fdc-mono" style="font-size: 16px; color: var(--accent); margin: 4px 0 0;">
+        <LabelStrip>Edit disk image</LabelStrip>
+        <h3 class="fdc-mono" style="font-size: 16px; color: var(--accent); margin: 4px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
           {editingNotes.name}
         </h3>
+      </div>
+      <div>
+        <label class="fdc-label-strip" for="edit-filename" style="display: block; margin-bottom: 4px;">Filename</label>
+        <Input id="edit-filename" placeholder="disk.dsk" bind:value={editFilename} />
+        <div class="fdc-label-strip" style="margin-top: 4px; text-transform: none; letter-spacing: 0; color: var(--fg-3);">
+          Renames the file on disk. Fails if the image is mounted on a drive.
+        </div>
       </div>
       <div>
         <label class="fdc-label-strip" for="edit-desc" style="display: block; margin-bottom: 4px;">Description</label>
@@ -768,8 +801,10 @@
         <TextArea id="edit-notes" rows={4} placeholder="Additional notes…" bind:value={editNotesText} />
       </div>
       <div style="display: flex; justify-content: flex-end; gap: 8px;">
-        <Button variant="ghost" onclick={() => (editingNotes = null)}>Cancel</Button>
-        <Button variant="filled" icon="check" onclick={saveNotes}>Save</Button>
+        <Button variant="ghost" disabled={savingEdit} onclick={() => (editingNotes = null)}>Cancel</Button>
+        <Button variant="filled" icon="check" disabled={savingEdit} onclick={saveEdit}>
+          {savingEdit ? 'Saving…' : 'Save'}
+        </Button>
       </div>
     </div>
   </div>

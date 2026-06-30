@@ -74,6 +74,14 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ description, notes }),
     }),
+  renameImage: (filename: string, newFilename: string) =>
+    request<{ success: boolean; filename: string }>(
+      `/api/images/${encodeURIComponent(filename)}/rename`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ newFilename }),
+      }
+    ),
 
   // CP/M
   getCpmInfo: (filename: string) =>

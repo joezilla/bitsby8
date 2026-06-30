@@ -626,4 +626,145 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
       res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
+
+  /**
+   * @openapi
+   * /api/images/{filename}/rename:
+   *   put:
+   *     tags: [Images]
+   *     summary: Rename a disk image
+   *     description: Rename a disk image file. Fails if the image is mounted on any drive, if the target filename already exists, or if the new name contains path separators / traversal sequences. Carries the description and notes over to the new filename.
+   *     parameters:
+   *       - in: path
+   *         name: filename
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Current disk image filename
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [newFilename]
+   *             properties:
+   *               newFilename:
+   *                 type: string
+   *                 description: Desired new filename (basename only, no slashes)
+   *     responses:
+   *       200:
+   *         description: Rename successful
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                 filename:
+   *                   type: string
+   *                   description: New filename
+   *       400:
+   *         description: Missing or invalid filename
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *       404:
+   *         description: Source file not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *       409:
+   *         description: Mounted, or target name already exists
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *       500:
+   *         description: Server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ErrorResponse'
+   */
+  router.put('/api/images/:filename/rename', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const filename = req.params.filename;
+      const newFilenameRaw = req.body?.newFilename;
+
+      if (!filename) {
+        res.status(400).json({ error: 'Filename is required' });
+        return;
+      }
+      if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+        res.status(400).json({ error: 'Invalid filename' });
+        return;
+      }
+      if (typeof newFilenameRaw !== 'string') {
+        res.status(400).json({ error: 'newFilename is required' });
+        return;
+      }
+      const newFilename = newFilenameRaw.trim();
+      if (!newFilename) {
+        res.status(400).json({ error: 'newFilename cannot be empty' });
+        return;
+      }
+      if (newFilename.includes('..') || newFilename.includes('/') || newFilename.includes('\\')) {
+        res.status(400).json({ error: 'Invalid new filename: path separators not allowed' });
+        return;
+      }
+      if (newFilename.startsWith('.')) {
+        res.status(400).json({ error: 'Invalid new filename: cannot start with a dot' });
+        return;
+      }
+      if (newFilename.length > 200) {
+        res.status(400).json({ error: 'New filename is too long (max 200 chars)' });
+        return;
+      }
+
+      // No-op rename: succeed without touching anything.
+      if (newFilename === filename) {
+        res.json({ success: true, filename });
+        return;
+      }
+
+      const sourcePath = safeResolvePath(deps.config.disksDir, filename);
+      if (!sourcePath) {
+        res.status(404).json({ error: 'File not found' });
+        return;
+      }
+
+      // Refuse to rename a mounted image — the open fd would dangle.
+      for (let i = 0; i < MAX_DRIVES; i++) {
+        const driveState = deps.driveManager.getDriveState(i);
+        if (driveState && driveState.mounted && driveState.filename) {
+          if (path.basename(driveState.filename) === filename) {
+            res.status(409).json({
+              error: `Cannot rename: image is mounted on drive ${i}`,
+            });
+            return;
+          }
+        }
+      }
+
+      // Don't clobber an existing image.
+      const destPath = path.join(deps.config.disksDir, newFilename);
+      if (existsSync(destPath)) {
+        res.status(409).json({ error: 'A disk image with that name already exists' });
+        return;
+      }
+
+      await fs.rename(sourcePath, destPath);
+
+      // Migrate the notes record (no-op if no row existed).
+      await deps.database.renameDiskNote(filename, newFilename);
+
+      res.json({ success: true, filename: newFilename });
+    } catch (error) {
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
 }

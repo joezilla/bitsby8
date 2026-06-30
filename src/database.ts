@@ -194,6 +194,18 @@ export class Database {
   }
 
   /**
+   * Move a disk note from one filename to another. No-op if no row matched.
+   * If the destination key already has a row, this throws (SQLite UNIQUE
+   * constraint) — callers should clear the destination first or treat as error.
+   */
+  async renameDiskNote(oldFilename: string, newFilename: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare(
+      `UPDATE disk_notes SET filename = ?, updated_at = CURRENT_TIMESTAMP WHERE filename = ?`
+    ).run(newFilename, oldFilename);
+  }
+
+  /**
    * Delete cassette note.
    */
   async deleteCassetteNote(filename: string): Promise<void> {
