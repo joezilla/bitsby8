@@ -196,10 +196,13 @@ export class FdcServer {
       }
     }
 
-    // Build status word (bit map of mounted drives)
+    // Build status word (bit map of mounted drives).
+    // Drives currently inside a swap invalidation window are deliberately
+    // reported not-ready so the FDC+ firmware discards its cached trackBuf
+    // for the previous image before we start serving the new one.
     let statusData = 0;
     for (let i = 0; i < MAX_DRIVES; i++) {
-      if (this.driveManager.isMounted(i)) {
+      if (this.driveManager.isMounted(i) && !this.driveManager.isInSwapWindow(i)) {
         statusData |= 1 << i;
       }
     }

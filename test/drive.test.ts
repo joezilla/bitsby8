@@ -444,6 +444,148 @@ describe('DriveManager', () => {
     });
   });
 
+  describe('swap invalidation window', () => {
+    // Wall-clock-driven behavior: pin Date.now() so we can assert timing
+    // without the tests being flaky under CI load.
+    beforeEach(() => {
+      (fs.access as jest.Mock).mockResolvedValue(undefined);
+      (fs.open as jest.Mock).mockResolvedValue(mockFileHandle);
+      mockFileHandle.close.mockResolvedValue(undefined);
+      mockFileHandle.datasync = jest.fn().mockResolvedValue(undefined);
+      jest.useFakeTimers({ now: 1_700_000_000_000 });
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    test('fresh mount on a cold slot leaves window closed', async () => {
+      await driveManager.mountDrive(0, 'test.dsk');
+
+      expect(driveManager.isInSwapWindow(0)).toBe(false);
+      expect(driveManager.getDriveState(0)?.unavailableUntil).toBeNull();
+    });
+
+    test('mount over an already-mounted slot opens a ~2500 ms window', async () => {
+      await driveManager.mountDrive(0, 'first.dsk');
+      expect(driveManager.isInSwapWindow(0)).toBe(false);
+
+      // Second mount over the same slot — this is the disk-swap case.
+      const replacementHandle = { ...mockFileHandle, fd: 7 };
+      (fs.open as jest.Mock).mockResolvedValue(replacementHandle);
+      await driveManager.mountDrive(0, 'second.dsk');
+
+      const state = driveManager.getDriveState(0);
+      expect(state?.mounted).toBe(true);
+      expect(state?.filename).toBe('second.dsk');
+      expect(state?.unavailableUntil).toBe(1_700_000_000_000 + 2500);
+      expect(driveManager.isInSwapWindow(0)).toBe(true);
+
+      // Closes the old handle so we don't leak an fd on bare re-mount.
+      expect(mockFileHandle.close).toHaveBeenCalled();
+
+      // Window closes exactly at the boundary.
+      jest.setSystemTime(1_700_000_000_000 + 2499);
+      expect(driveManager.isInSwapWindow(0)).toBe(true);
+      jest.setSystemTime(1_700_000_000_000 + 2500);
+      expect(driveManager.isInSwapWindow(0)).toBe(false);
+    });
+
+    test('unmount stamps a window so remount within 2.5 s stays not-ready', async () => {
+      await driveManager.mountDrive(0, 'first.dsk');
+
+      // t = 0: unmount stamps unavailableUntil = t + 2500.
+      await driveManager.unmountDrive(0);
+      expect(driveManager.isInSwapWindow(0)).toBe(true);
+      expect(driveManager.getDriveState(0)?.unavailableUntil).toBe(
+        1_700_000_000_000 + 2500
+      );
+
+      // t = 500 ms: user remounts a different image. Because we're still in
+      // the prior window, the window is extended to now + 2500 = 3000.
+      jest.setSystemTime(1_700_000_000_000 + 500);
+      const replacementHandle = { ...mockFileHandle, fd: 8 };
+      (fs.open as jest.Mock).mockResolvedValue(replacementHandle);
+      await driveManager.mountDrive(0, 'second.dsk');
+
+      expect(driveManager.getDriveState(0)?.unavailableUntil).toBe(
+        1_700_000_000_000 + 500 + 2500
+      );
+      expect(driveManager.isInSwapWindow(0)).toBe(true);
+    });
+
+    test('remount well after the window elapses does NOT reopen it', async () => {
+      await driveManager.mountDrive(0, 'first.dsk');
+      await driveManager.unmountDrive(0);
+
+      // t + 3000 ms: prior window has already closed.
+      jest.setSystemTime(1_700_000_000_000 + 3000);
+      expect(driveManager.isInSwapWindow(0)).toBe(false);
+
+      // Fresh mount on a truly cold slot — no window needed, FDC+ had
+      // been getting not-ready for 3 s already.
+      const replacementHandle = { ...mockFileHandle, fd: 9 };
+      (fs.open as jest.Mock).mockResolvedValue(replacementHandle);
+      await driveManager.mountDrive(0, 'second.dsk');
+
+      expect(driveManager.isInSwapWindow(0)).toBe(false);
+    });
+
+    test('readTrack refuses while the window is active', async () => {
+      await driveManager.mountDrive(0, 'first.dsk');
+      const replacementHandle = { ...mockFileHandle, fd: 10 };
+      (fs.open as jest.Mock).mockResolvedValue(replacementHandle);
+      await driveManager.mountDrive(0, 'second.dsk');
+
+      await expect(driveManager.readTrack(0, 0, 4384)).rejects.toThrow(
+        /swap window active/
+      );
+      expect(driveManager.fdcErrno).toBe(FdcError.NOT_READY);
+
+      // After the window closes, reads flow through to the new handle.
+      jest.setSystemTime(1_700_000_000_000 + 2500);
+      replacementHandle.read = jest
+        .fn()
+        .mockResolvedValue({ bytesRead: 4384, buffer: Buffer.alloc(4384) });
+      await driveManager.readTrack(0, 0, 4384);
+      expect(replacementHandle.read).toHaveBeenCalled();
+    });
+
+    test('writeTrack refuses while the window is active', async () => {
+      await driveManager.mountDrive(0, 'first.dsk');
+      const replacementHandle = { ...mockFileHandle, fd: 11 };
+      (fs.open as jest.Mock).mockResolvedValue(replacementHandle);
+      await driveManager.mountDrive(0, 'second.dsk');
+
+      const trackData = Buffer.alloc(4384);
+      await expect(
+        driveManager.writeTrack(0, 0, 4384, trackData)
+      ).rejects.toThrow(/swap window active/);
+      expect(driveManager.fdcErrno).toBe(FdcError.NOT_READY);
+    });
+
+    test('canWrite returns false while the window is active', async () => {
+      await driveManager.mountDrive(0, 'first.dsk');
+      const replacementHandle = {
+        ...mockFileHandle,
+        fd: 12,
+        datasync: jest.fn().mockResolvedValue(undefined),
+      };
+      (fs.open as jest.Mock).mockResolvedValue(replacementHandle);
+      await driveManager.mountDrive(0, 'second.dsk');
+
+      expect(await driveManager.canWrite(0)).toBe(false);
+
+      jest.setSystemTime(1_700_000_000_000 + 2500);
+      expect(await driveManager.canWrite(0)).toBe(true);
+    });
+
+    test('isInSwapWindow returns false for invalid drive numbers', () => {
+      expect(driveManager.isInSwapWindow(-1)).toBe(false);
+      expect(driveManager.isInSwapWindow(MAX_DRIVES)).toBe(false);
+    });
+  });
+
   describe('canWrite', () => {
     beforeEach(async () => {
       (fs.access as jest.Mock).mockResolvedValue(undefined);

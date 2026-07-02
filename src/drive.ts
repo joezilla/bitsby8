@@ -23,6 +23,9 @@ export class DriveManager {
   public fdcErrno: FdcError;
   private readonly MAX_RETRIES = 3;
   private readonly RETRY_DELAY_MS = 100;
+  // ≥2 s per FDC+ firmware analysis (covers minidisk 1.6 s motor timeout and
+  // 8" 1.3 s idle-invalidation); 500 ms cushion for STAT poll jitter.
+  private readonly SWAP_INVALIDATE_WINDOW_MS = 2500;
   private debug: boolean = false;
 
   constructor() {
@@ -41,6 +44,7 @@ export class DriveManager {
         hdld: false,
         track: 0,
         lastIo: null,
+        unavailableUntil: null,
       });
     }
   }
@@ -105,6 +109,33 @@ export class DriveManager {
       console.log(`[DEBUG] DriveManager.mountDrive: drive=${drive}, filename=${filename}, readonly=${driveState.readonly}, mode=${mode === fsSync.constants.O_RDONLY ? 'O_RDONLY' : 'O_RDWR'}`);
     }
 
+    const now = Date.now();
+    const wasMounted = driveState.mounted;
+    const stillInPriorWindow =
+      driveState.unavailableUntil !== null && now < driveState.unavailableUntil;
+
+    // If a handle is already open (bare mountDrive over an already-mounted slot),
+    // close it now so we don't leak the fd when we open the replacement below.
+    const existingHandle = this.fileHandles.get(drive);
+    if (existingHandle) {
+      try {
+        await existingHandle.close();
+      } catch (error) {
+        console.error(`Error closing previous file handle for drive ${drive}:`, error);
+      }
+      this.fileHandles.delete(drive);
+      driveState.fd = null;
+    }
+
+    // Open the not-ready window BEFORE opening the new handle: any READ that
+    // races through between fs.open and the next STAT must see NOT_READY.
+    if (wasMounted || stillInPriorWindow) {
+      driveState.unavailableUntil = now + this.SWAP_INVALIDATE_WINDOW_MS;
+      if (this.debug) {
+        console.log(`[DEBUG] DriveManager.mountDrive: swap window opened, unavailableUntil=${driveState.unavailableUntil} (${this.SWAP_INVALIDATE_WINDOW_MS} ms)`);
+      }
+    }
+
     try {
       // Check if file exists
       await fs.access(filename, fsSync.constants.F_OK);
@@ -153,6 +184,7 @@ export class DriveManager {
 
     const driveState = this.drives.get(drive)!;
     const fileHandle = this.fileHandles.get(drive);
+    const wasMounted = driveState.mounted;
 
     if (driveState.mounted && fileHandle) {
       try {
@@ -172,6 +204,13 @@ export class DriveManager {
     driveState.mounted = false;
     driveState.track = 0;
     driveState.hdld = false;
+
+    // Stamp the swap window so a remount within ~2.5 s still gives the FDC+
+    // a full not-ready span from the moment this drive first went away.
+    if (wasMounted) {
+      driveState.unavailableUntil =
+        Date.now() + this.SWAP_INVALIDATE_WINDOW_MS;
+    }
 
     // Update GPIO LEDs
     getGpioLedController().updateDriveStatus(drive, driveState);
@@ -294,6 +333,11 @@ export class DriveManager {
       throw new Error(`Invalid drive number: ${drive}`);
     }
 
+    if (this.isInSwapWindow(drive)) {
+      this.fdcErrno = FdcError.NOT_READY;
+      throw new Error(`Drive ${drive} unavailable (swap window active)`);
+    }
+
     const driveState = this.drives.get(drive)!;
     const fileHandle = this.fileHandles.get(drive);
 
@@ -359,6 +403,11 @@ export class DriveManager {
     if (drive >= MAX_DRIVES) {
       this.fdcErrno = FdcError.NOT_READY;
       throw new Error(`Invalid drive number: ${drive}`);
+    }
+
+    if (this.isInSwapWindow(drive)) {
+      this.fdcErrno = FdcError.NOT_READY;
+      throw new Error(`Drive ${drive} unavailable (swap window active)`);
     }
 
     const driveState = this.drives.get(drive)!;
@@ -506,6 +555,19 @@ export class DriveManager {
   }
 
   /**
+   * True while the drive must be reported not-ready to the FDC+ so its
+   * cached trackBuf for the prior image is discarded before serving reads
+   * from the newly mounted image.
+   */
+  isInSwapWindow(drive: number): boolean {
+    if (drive >= MAX_DRIVES) {
+      return false;
+    }
+    const until = this.drives.get(drive)?.unavailableUntil;
+    return until !== null && until !== undefined && Date.now() < until;
+  }
+
+  /**
    * Check if a drive is read-only
    */
   isReadOnly(drive: number): boolean {
@@ -521,6 +583,10 @@ export class DriveManager {
    */
   async canWrite(drive: number): Promise<boolean> {
     if (drive >= MAX_DRIVES) {
+      return false;
+    }
+
+    if (this.isInSwapWindow(drive)) {
       return false;
     }
 

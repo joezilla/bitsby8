@@ -10,6 +10,7 @@ import { FdcServer } from '../src/server';
 import { DriveManager } from '../src/drive';
 import { SerialPortManager } from '../src/serial';
 import {
+  CommandResponseBlock,
   createDefaultConfig,
 } from '../src/protocol';
 
@@ -38,6 +39,7 @@ describe('FdcServer', () => {
       track: 0,
     });
     mockDriveManager.isMounted = jest.fn().mockReturnValue(true);
+    mockDriveManager.isInSwapWindow = jest.fn().mockReturnValue(false);
     mockDriveManager.readTrack = jest.fn().mockResolvedValue(Buffer.alloc(4384));
     mockDriveManager.writeTrack = jest.fn().mockResolvedValue(4384);
 
@@ -153,6 +155,60 @@ describe('FdcServer', () => {
 
     test('should use injected serial manager', () => {
       expect((server as any).serialManager).toBe(mockSerialManager);
+    });
+  });
+
+  describe('STAT bitmap', () => {
+    // The FDC+ firmware uses transitions in this bitmap as its only signal to
+    // invalidate its per-drive/per-track cache; drives inside a swap window
+    // must be reported not-ready even though they are technically mounted.
+
+    async function invokeStat(driveNo: number): Promise<number> {
+      const cmd = new CommandResponseBlock('STAT', driveNo & 0xff, 0);
+      await (server as any).handleStatCommand(cmd);
+      // handleStatCommand mutates cmd.param2 with the ready bitmap.
+      return cmd.param2;
+    }
+
+    test('reports mounted drive as ready when not in swap window', async () => {
+      mockDriveManager.isMounted = jest
+        .fn()
+        .mockImplementation((d: number) => d === 0);
+      mockDriveManager.isInSwapWindow = jest.fn().mockReturnValue(false);
+
+      const bitmap = await invokeStat(0);
+
+      expect(bitmap & 0b1).toBe(0b1);
+    });
+
+    test('omits mounted drive from bitmap while its swap window is active', async () => {
+      mockDriveManager.isMounted = jest
+        .fn()
+        .mockImplementation((d: number) => d === 0 || d === 2);
+      mockDriveManager.isInSwapWindow = jest
+        .fn()
+        .mockImplementation((d: number) => d === 0);
+
+      const bitmap = await invokeStat(0);
+
+      // Drive 0: mounted but in swap window → bit must be 0.
+      expect(bitmap & 0b1).toBe(0);
+      // Drive 2: mounted, no swap window → bit must be 1.
+      expect(bitmap & 0b100).toBe(0b100);
+    });
+
+    test('restores drive to ready bitmap after swap window elapses', async () => {
+      let inWindow = true;
+      mockDriveManager.isMounted = jest
+        .fn()
+        .mockImplementation((d: number) => d === 0);
+      mockDriveManager.isInSwapWindow = jest
+        .fn()
+        .mockImplementation((d: number) => d === 0 && inWindow);
+
+      expect((await invokeStat(0)) & 0b1).toBe(0);
+      inWindow = false;
+      expect((await invokeStat(0)) & 0b1).toBe(0b1);
     });
   });
 

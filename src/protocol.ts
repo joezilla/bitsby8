@@ -55,6 +55,9 @@ export interface DriveState {
   hdld: boolean; // Head loaded
   track: number; // Current track number
   lastIo: number | null; // Epoch ms of most recent successful read/write
+  // Epoch ms until which this drive must be reported not-ready to the FDC+
+  // to force its per-track cache (trackBuf) to invalidate after an image swap.
+  unavailableUntil: number | null;
 }
 
 /**
