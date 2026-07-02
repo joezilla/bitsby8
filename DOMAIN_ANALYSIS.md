@@ -1,168 +1,185 @@
 # FDC+ Domain Analysis Report
 
-**Generated:** 2026-02-20
-**Analysis Scope:** Drive operations, CP/M filesystem, data structures, and build configuration
+**Generated:** 2026-07-02
+**Analysis Scope:** Backend under `src/` — drive I/O, CP/M filesystem, HTTP/WebSocket surface, middleware, MCP server, GPIO, database, protocol, and build configuration. Frontend (`frontend/`) and CLI (`cli/`) are covered separately in `FRONTEND_ANALYSIS.md` and `cli/README.md`.
 
 ---
 
 ## 1. DRIVE OPERATIONS (src/drive.ts)
 
 ### DriveManager Class
-The core drive management system handles all disk image I/O operations via in-memory file handles.
+The core drive-management layer. Owns the open `fs.FileHandle` for every mounted drive and translates track-level read/write requests into `pread`/`pwrite`+`fsync` against the disk image file.
 
 #### Key Properties
-- **drives**: `Map<number, DriveState>` - Drive state for all 16 drives
-- **fileHandles**: `Map<number, fs.FileHandle>` - Open file handles per drive
-- **trackBuffer**: `Buffer` - Reusable 4384-byte track buffer
-- **fdcErrno**: `FdcError` - Last operation error code
-- **MAX_RETRIES**: 3 - Retry attempts for transient errors
-- **RETRY_DELAY_MS**: 100 - Base retry delay (exponential backoff)
+- **drives**: `Map<number, DriveState>` — state for all 16 slots (only 0-3 are typically populated)
+- **fileHandles**: `Map<number, fs.FileHandle>` — open file handle per mounted drive
+- **trackBuffer**: `Buffer` — reusable buffer sized to `MAX_TRACK_LEN` (4384 bytes)
+- **fdcErrno**: `FdcError` — sticky last-error code, read by the protocol layer
+- **MAX_RETRIES**: 3
+- **RETRY_DELAY_MS**: 100 (base for exponential backoff)
 
 #### Core Operations
 
-**Mount/Unmount:**
+**Mount / Unmount:**
 ```typescript
 async mountDrive(drive: number, filename: string): Promise<number>
-// Opens disk image file, returns file descriptor
-// Updates DriveState with mount status, track 0, no head load
-// Supports RO/RW mode based on driveState.readonly flag
-// Throws on file not found or open failure
+// Opens the disk image with fs.open() using O_RDONLY or O_RDWR based on the
+// drive's current readonly flag. Populates DriveState, registers the file
+// handle, notifies GpioLedController, returns the numeric fd.
 
 async unmountDrive(drive: number): Promise<void>
-// Closes file handle, resets DriveState
-// Cleans up fileHandles map
+// Closes the file handle, resets DriveState fields to their empty values,
+// notifies GPIO.
 
 async unmountAll(): Promise<void>
-// Gracefully unmounts all mounted drives, collects errors
+// Iterates every mounted slot; collects errors but keeps unmounting.
+
+async cleanup(): Promise<void>
+// Alias for unmountAll(); called from the SIGINT/SIGTERM handler in index.ts.
 ```
 
-**Read/Write Track:**
+**Read / Write Track:**
 ```typescript
 async readTrack(drive: number, track: number, length: number): Promise<Buffer>
-// Reads physical track from disk image
-// Offset = track * length (byte offset)
-// Returns complete track buffer
-// Sets FdcError.NOT_READY on failures
+// pread at offset = track * length. Sets driveState.hdld = true and
+// driveState.track = track. On success stamps driveState.lastIo = Date.now().
+// On failure sets fdcErrno = NOT_READY and rethrows.
 
 async writeTrack(drive: number, track: number, length: number, buffer: Buffer): Promise<number>
-// Writes track data to disk image
-// Validates: readonly flag, handle validity, buffer size
-// Implements 3-retry loop for transient errors (EAGAIN, EBUSY, EINTR, EIO)
-// Calls fileHandle.sync() for data integrity
-// Returns bytes written
-// Sets FdcError.WRITE_ERR on write failures or readonly violation
+// Validates mount, non-readonly state, and handle writability via a
+// preflight datasync() (catches EBADF/EACCES from a stale handle).
+// Retries EAGAIN/EBUSY/EINTR/EIO up to MAX_RETRIES with exponential
+// backoff (RETRY_DELAY_MS * 2^attempt). Calls fileHandle.sync() after a
+// successful write for durability. Stamps lastIo, returns bytes written.
+// Sets fdcErrno = WRITE_ERR on failure / readonly / bad params.
 ```
 
 **Protection & State:**
 ```typescript
 async writeProtect(drive: number, flag: boolean): Promise<void>
-// Sets readonly flag on drive
-// If mounted and flag changed, remounts with correct file mode (O_RDONLY vs O_RDWR)
+// Updates driveState.readonly. If the flag actually changed and the drive
+// is mounted, calls the private remountWithMode() to reopen the file with
+// the correct O_RDONLY / O_RDWR mode — this prevents EBADF errors that
+// would otherwise appear the next time we try to write.
 
-async remountWithMode(drive: number, readonly: boolean): Promise<void>
-// Private method to close/reopen file with new mode
-// Prevents EBADF errors when mode doesn't match actual file open flags
+private async remountWithMode(drive: number, readonly: boolean): Promise<void>
+// Closes the current handle, reopens the same filename with the new mode,
+// updates fd + fileHandles. On open failure, marks the drive unmounted.
 
 getDriveState(drive: number): DriveState | null
 getAllDriveStates(): Map<number, DriveState>
 isMounted(drive: number): boolean
 isReadOnly(drive: number): boolean
 async canWrite(drive: number): Promise<boolean>
-// Tests datasync() to check actual writable status
+// Does a datasync() probe to verify the handle really is writable
+// (mount flag says one thing, kernel might disagree).
 ```
 
-#### DriveState Interface
+#### DriveState Interface (from src/protocol.ts)
 ```typescript
 interface DriveState {
-  fd: number | null;           // File descriptor or null if unmounted
-  filename: string | null;      // Full path to mounted image
-  mounted: boolean;             // Is drive mounted?
-  readonly: boolean;            // Write protected?
-  hdld: boolean;               // Head loaded (set during read/write)
-  track: number;               // Current track number
+  fd: number | null;      // File descriptor, or null if unmounted
+  filename: string | null;// Full path to the mounted image
+  mounted: boolean;
+  readonly: boolean;      // Write-protected
+  hdld: boolean;          // Head loaded (set during any read/write)
+  track: number;          // Current track
+  lastIo: number | null;  // Epoch ms of the most recent successful I/O
 }
 ```
+`lastIo` is what the web UI uses to render the "recently active" LED for a drive.
 
 #### Error Handling
-- **FdcError.OK** (0x00) - Successful operation
-- **FdcError.NOT_READY** (0x01) - Drive not mounted or file handle invalid
-- **FdcError.CHKSUM_ERR** (0x02) - Checksum mismatch (not used in drive.ts)
-- **FdcError.WRITE_ERR** (0x03) - Write protected or write failure
+- `fdcErrno` is set to the appropriate `FdcError` enum value on failure and read by the FDC protocol layer for the wire response.
+- File-system exceptions propagate out of the DriveManager for the caller to handle.
 
 #### Debug Logging
-- `setDebug(enabled: boolean)` enables verbose operation logging
-- Logs mount/unmount operations with file descriptors
-- Logs read/write attempts with track, offset, and results
-- Logs retry attempts with backoff strategy
+`setDebug(true)` emits verbose `[DEBUG] DriveManager.*` traces to stdout: mount attempts, file sizes, read/write offsets, retry attempts.
+
+The module also imports `getGpioLedController()` from `./gpio` and notifies it after every mount, unmount, and writeProtect so that drive LEDs on a Raspberry Pi stay in sync with the software state.
 
 ---
 
 ## 2. CP/M FILESYSTEM OPERATIONS (src/cpm-filesystem.ts)
 
-### Overview
-Pure immutable-first filesystem implementation that operates on in-memory buffers. All operations create new buffers or modify internal state without mutating the original imageData.
+Pure in-memory reader/writer for CP/M 2.2 filesystems inside a CDBL-framed disk image. All operations run against a defensive `Buffer` copy of the image — no file I/O is performed here; the route handlers read the whole image, mutate it via `CpmFilesystem`, and write it back atomically.
 
-### CDBL Sector Framing
-CP/M logical sectors (128 bytes) are wrapped in CDBL physical sector format (137 bytes):
+### Sector framing — dual-format
+
+The historical assumption that every physical sector uses one framing was wrong for real Altair 8" SD Lifeboat disks: those disks use two different physical layouts within a single image. Tracks 0-5 (the cold-start loader / CP/M system image / directory) use **boot framing**; tracks 6+ (user data) use **data framing** laid down by the BIOS during normal file I/O. Writing boot framing onto a data track corrupts the frame and CP/M reports `Bdos Err on B: Bad Sector` the next time it reads. Newly written files on data tracks were the trigger for finding this.
+
+Both framings share offset 0 (sync = `track | 0x80`) and bytes 3-130 (the 128-byte CP/M payload). They diverge in bytes 1-2 and 131-136:
 
 ```
-Offset  Bytes  Field
-------  -----  -----
-0       1      Track (with 0x80 sync bit)
-1       2      File byte count / reserved
-3       128    CP/M data payload
-131     1      Marker (0xFF)
-132     1      Checksum (8-bit sum of 128 data bytes)
-133-136 4      Spare
-------
-Total: 137 bytes per physical sector
+Boot framing (tracks 0-5 on 8" Lifeboat, or entire disk if systemTracks unset):
+  [0]      track | 0x80
+  [1-2]    file byte count / unused
+  [3-130]  128 data bytes
+  [131]    0xFF stop byte
+  [132]    8-bit checksum (sum of bytes 3-130)
+  [133-136] spare
+
+Data framing (tracks 6+ on 8" Lifeboat):
+  [0]      track | 0x80
+  [1]      physical-sector position (phys * 17 mod 256)
+  [2]      0x01
+  [3-130]  128 data bytes
+  [131-134] MUST be zero — 0xFF here would look like the stop byte to the BIOS
+  [135]    0xFF stop byte
+  [136]    0x00
 ```
 
-**2:1 Interleave Mapping** (physical → logical):
-- Even physical sectors (0,2,4,...,30) → logical (0,1,...,15)
-- Odd physical sectors (1,3,5,...,31) → logical (16,17,...,31)
+The switch is driven by `CpmDiskParams.systemTracks`. `PARAMS_8INCH` sets it to `ALTAIR_8INCH_SYSTEM_TRACKS = 6`; `PARAMS_MINIDISK` leaves it undefined, which defaults to "boot framing everywhere" — the minidisk format has no separate BIOS data-track layout.
 
 #### Key Constants
 ```typescript
-CDBL = {
-  SECTOR_SIZE: 137,           // Total physical sector size
-  DATA_OFFSET: 3,             // Byte offset to 128-byte payload
-  DATA_SIZE: 128,             // CP/M logical sector size
-  SECTORS_PER_TRACK: 32,      // Physical sectors per track
-  TRACK_SIZE: 4384,           // 137 * 32
-  MARKER_OFFSET: 131,         // 0xFF marker position
-  CHECKSUM_OFFSET: 132,       // Checksum byte position
-}
+export const CDBL = {
+  SECTOR_SIZE: 137,        // Total bytes per physical sector record
+  DATA_OFFSET: 3,          // Byte offset to start of 128-byte data payload
+  DATA_SIZE: 128,          // CP/M logical sector size
+  SECTORS_PER_TRACK: 32,   // Physical sectors per track
+  TRACK_SIZE: 137 * 32,    // 4384 bytes per track
+  MARKER_OFFSET: 131,      // Boot-track 0xFF marker position
+  CHECKSUM_OFFSET: 132,    // Boot-track checksum position
+  DATA_MARKER_OFFSET: 135, // Data-track 0xFF marker position
+  DATA_END_OFFSET: 136,    // Data-track terminator (0x00)
+} as const;
+
+export const ALTAIR_8INCH_SYSTEM_TRACKS = 6;
 ```
+
+**2:1 interleave** (physical → logical):
+- Even physical sectors (0, 2, 4, ..., 30) → logical 0-15
+- Odd physical sectors (1, 3, 5, ..., 31) → logical 16-31
+
+Both directions are materialized at module load as `INTERLEAVE_TABLE` and `REVERSE_INTERLEAVE_TABLE`.
 
 #### Disk Parameter Sets
 
-**8-inch (Standard):**
 ```typescript
-PARAMS_8INCH = {
-  seclen: 128,      // Logical sector size
-  tracks: 77,       // Total tracks
-  sectrk: 32,       // Sectors per track
-  blocksize: 2048,  // 2K allocation blocks
-  maxdir: 64,       // 64 directory entries
-  boottrk: 2,       // 2 boot tracks (reserved)
+export interface CpmDiskParams {
+  seclen: number;          // Logical sector size (always 128 for CP/M)
+  tracks: number;          // Total tracks on disk
+  sectrk: number;          // Logical sectors per track
+  blocksize: number;       // Allocation block size in bytes
+  maxdir: number;          // Maximum directory entries
+  boottrk: number;         // Number of reserved boot tracks
+  systemTracks?: number;   // Tracks that use boot framing; tracks >= this
+                           // use data framing. Undefined = boot everywhere.
+  dpbAL0?: number;
+  dpbAL1?: number;
 }
-// Total capacity: 315 blocks × 2K = 630 KB
-// Data area: blocks 2-314 (313 blocks available)
-```
 
-**Minidisk:**
-```typescript
-PARAMS_MINIDISK = {
-  seclen: 128,
-  tracks: 17,
-  sectrk: 32,
-  blocksize: 1024,  // 1K allocation blocks
-  maxdir: 32,
-  boottrk: 2,
-}
-// Total capacity: 65 blocks × 1K = 65 KB
-// Data area: blocks 2-64 (63 blocks available)
+export const PARAMS_8INCH: CpmDiskParams = {
+  seclen: 128, tracks: 77, sectrk: 32,
+  blocksize: 2048, maxdir: 64, boottrk: 2,
+  systemTracks: ALTAIR_8INCH_SYSTEM_TRACKS,   // 6
+};
+
+export const PARAMS_MINIDISK: CpmDiskParams = {
+  seclen: 128, tracks: 17, sectrk: 32,
+  blocksize: 1024, maxdir: 32, boottrk: 2,
+};
 ```
 
 ### CpmFilesystem Class
@@ -170,497 +187,616 @@ PARAMS_MINIDISK = {
 #### Constructor
 ```typescript
 constructor(imageData: Buffer, params?: CpmDiskParams)
-// Creates defensive copy of imageData
-// Auto-detects params if not provided
-// Determines pointer size (8-bit vs 16-bit) based on total blocks > 255
+// Defensively copies imageData. Auto-detects params via detectParams() if
+// not supplied. Picks 8-bit vs 16-bit block pointers based on total blocks
+// > 255 (useLargePointers).
 ```
 
-#### Sector I/O Operations
-
+#### Sector I/O
 ```typescript
 readSector(track: number, logicalSector: number): Buffer
-// Maps logical sector through INTERLEAVE_TABLE to physical sector
-// Extracts 128-byte payload from CDBL frame
-// Returns new Buffer (defensive copy)
+// Interleave maps logical → physical, extracts the 128-byte payload.
 
 writeSector(track: number, logicalSector: number, data: Buffer): void
-// Validates data is exactly 128 bytes
-// Updates CDBL frame: track byte, marker, checksum
-// Modifies internal imageData buffer in-place
+// Writes byte 0 (sync) and bytes 3-130 (payload) identically for both
+// framings, then branches on (track < params.systemTracks):
+//   - boot framing: 0xFF at offset 131, checksum at 132
+//   - data framing: sets [1] (phys*17 & 0xFF), [2] = 0x01, zeroes bytes
+//     131-134, writes 0xFF at 135, 0x00 at 136
 ```
 
-#### Block I/O Operations
-
+#### Block I/O
 ```typescript
 readBlock(blockNumber: number): Buffer
-// Blocksize = 2048 (8-inch) or 1024 (minidisk)
-// Reads N sectors sequentially (2K block = 16 sectors)
-// Returns concatenated buffer
-
 writeBlock(blockNumber: number, data: Buffer): void
-// Validates data matches blocksize exactly
-// Writes data back to component sectors
+// blockSize / seclen sectors per block. Block 0 starts at boottrk.
 ```
 
-#### Directory Operations
-
-**Directory Entry Structure (32 bytes):**
+#### Directory Entry Structure (32 bytes)
 ```typescript
-interface CpmDirEntry {
-  status: number;           // 0x00-0x0F = user #, 0xE5 = deleted
-  filename: string;         // 8 chars, space-padded
-  extension: string;        // 3 chars, space-padded
-  extentLow: number;        // XL - low 5 bits of extent
+export interface CpmDirEntry {
+  status: number;          // 0x00-0x0F = user #, 0xE5 = deleted
+  filename: string;        // 8 chars, space-padded, high bits stripped
+  extension: string;       // 3 chars, space-padded, high bits stripped
+  extentLow: number;       // XL - low 5 bits of extent number
   bc: number;              // BC - byte count in last record (0 = full)
-  extentHigh: number;      // XH - high 6 bits of extent
-  rc: number;              // RC - records in last extent (0-128)
-  blockPointers: number[]; // 16 (8-bit) or 8 (16-bit) blocks
-  rawAttributes: number;   // Packed attribute bits
-  readonly: boolean;       // T1' attribute (R/O)
-  system: boolean;        // T2' attribute (SYS)
-  archive: boolean;       // T3' attribute (ARC)
+  extentHigh: number;      // XH - high bits of extent number
+  rc: number;              // RC - records in this extent (0-128)
+  blockPointers: number[]; // 16 (8-bit) or 8 (16-bit) block numbers
+  rawAttributes: number;
+  readonly: boolean;       // T1' bit (high bit of ext[0])
+  system: boolean;         // T2' bit (high bit of ext[1])
+  archive: boolean;        // T3' bit (high bit of ext[2])
 }
 ```
+Attribute bits live in the high bit of each extension character; `parseDirEntry` and `serializeDirEntry` transparently split them from the printable name.
 
-**Attribute Storage:** High bit of ext[0]/ext[1]/ext[2] encodes R/O, SYS, ARC flags.
-
-**Directory Operations:**
+#### Directory Operations
 ```typescript
 readDirectory(): CpmDirEntry[]
-// Reads all directory entries from disk (blocks 0 onwards)
-// Parses each 32-byte entry, handles deleted (0xE5) entries
-
 writeDirectory(entries: CpmDirEntry[]): void
-// Writes all entries back to directory blocks
-// Fills unused entries with 0xE5 (deleted marker)
-// Serializes attributes back to extension bytes
-
-private parseDirEntry(buf: Buffer, off: number): CpmDirEntry
-// Extracts 32-byte entry from buffer offset
-// Decodes attributes from high bits of extension bytes
-
-private serializeDirEntry(entry: CpmDirEntry, buf: Buffer, off: number): void
-// Writes entry back to buffer with proper byte layout
-// Encodes attributes back to high bits
+// Directory occupies ceil(maxdir / (blocksize/32)) blocks starting at
+// block 0. writeDirectory fills unused slots with 0xE5.
 ```
 
-### File Operations
+### File-level operations
 
-**File Representation (Assembled from extents):**
 ```typescript
-interface CpmFile {
-  user: number;          // User number (0-15)
-  filename: string;      // Trimmed to 8 chars
-  extension: string;     // Trimmed to 3 chars
-  size: number;          // Computed size in bytes
-  extents: CpmDirEntry[]; // All directory entries for this file
-  readonly: boolean;     // Aggregate of all extents
+export interface CpmFile {
+  user: number;
+  filename: string;        // Trimmed
+  extension: string;       // Trimmed
+  size: number;            // Computed from extents/RC/BC
+  extents: CpmDirEntry[];
+  readonly: boolean;
   system: boolean;
   archive: boolean;
 }
-```
 
-**File Operations:**
-```typescript
 listFiles(): CpmFile[]
-// Reads all directory entries
-// Groups by user:filename:extension into extent lists
-// Sorts extents by extent number
-// Computes file sizes using EXM (extent mask) formula
-// Returns sorted array (by user, then filename)
+// Groups directory entries by status:filename:extension. Sorts extents by
+// (extentHigh * 32 + extentLow). Computes size:
+//   sum of (used blocks * records/block) for every entry except the last
+//   + subExtent*128 + last.rc  for the last entry (subExtent = extentLow & exm)
+//   * seclen, adjusted by BC if the last record is partial.
 
-readFile(filename: string, ext: string, user?: number): Buffer
-// Finds file in directory
-// Collects all blocks from all extents
-// Trims to computed file size
-// Returns complete file data as Buffer
+readFile(name, ext, user=0): Buffer
+// Collects blocks in extent order, trims to computed size.
 
-writeFile(filename: string, ext: string, data: Buffer, user?: number): void
-// Deletes existing file with same name
-// Allocates required blocks (via allocateBlocks)
-// Writes data to allocated blocks
-// Creates directory entries (one per blocksize capacity)
-// Handles multi-extent files (EXM determines extents per entry)
+writeFile(name, ext, data, user=0): void
+// Deletes any existing file with the same name, allocates blocksNeeded
+// blocks, writes them, then creates directory entries. blocksPerExtent =
+// pointers per entry (16 for 8-bit, 8 for 16-bit); logicalExtentsPerEntry
+// governs how extentLow / extentHigh advance across entries. Fills the
+// last entry's RC (record count) and BC (byte count in final record).
 
-deleteFile(filename: string, ext: string, user?: number): void
-// Marks all directory entries for file as 0xE5 (deleted)
-// Does NOT deallocate blocks (orphaned until re-allocated)
+deleteFile(name, ext, user=0): void
+// Sets status = 0xE5 on every matching directory entry. Blocks are freed
+// implicitly the next time buildAllocationBitmap() scans the directory.
 ```
 
-### Size Calculation (Complex)
-
-CP/M extent numbering:
-- **Logical extent** = 128 records (CP/M 2.2 definition)
-- **EXM (extent mask)** = extents per directory entry - 1
-- **8-inch 2K blocks**: 16 pointers/entry × (2048/128) records = 256 records = 2 logical extents → EXM = 1
-- **8-inch 2K blocks (16-bit)**: 8 pointers × 256 records = 256 records = 1 logical extent per entry → EXM = 0
-
-**Size computation:**
-```
-totalRecords = sum of (all blocks in all but last extent)
-             + (subExtent × 128 + rc) where subExtent = lastExtLow & exm
-size = totalRecords × 128
-if (bc > 0 && rc > 0): size -= 128; size += bc;  // Last record byte count
-```
-
-### Block Allocation
-
+### Block allocation
 ```typescript
 buildAllocationBitmap(): boolean[]
-// Creates bitmap of allocated blocks
-// Marks directory blocks as allocated
-// Marks all blocks referenced by active directory entries
-// Returns array where true = in use
+// Directory blocks always marked in use, then walks every active dir
+// entry and marks the block pointers it references.
 
 allocateBlocks(count: number): number[]
-// Scans bitmap for free blocks
-// Returns array of N free block numbers
-// Throws "Disk full" if insufficient free space
+// First-fit scan of the bitmap; throws "Disk full" if not enough.
 
 getFreeSpace(): CpmFreeSpace
-// Returns detailed space info:
-interface CpmFreeSpace {
-  freeBlocks: number;
-  freeBytes: number;
-  totalBlocks: number;
-  totalBytes: number;
-  usedBlocks: number;
-  usedBytes: number;
-  directoryEntriesFree: number;
-  directoryEntriesTotal: number;
-}
+// { freeBlocks, freeBytes, totalBlocks, totalBytes, usedBlocks, usedBytes,
+//   directoryEntriesFree, directoryEntriesTotal }
 ```
 
-### Utilities
-
+### Static utilities
 ```typescript
 static detectParams(imageData: Buffer): CpmDiskParams | null
-// Determines disk type by image size
-// 74528-74624 bytes → minidisk (17 tracks)
-// 337568-337664 bytes → 8-inch (77 tracks)
-// Validates directory area to confirm CP/M filesystem
+// Size sniff: ~74528 → minidisk, ~337568 → 8", else derive from image length.
+// Then validateDirectory() sanity-checks the first 4 directory entries.
 
-static normalizeFilename(name: string): {filename, extension}
-// Parses "USER:FILENAME.EXT" or "FILENAME.EXT"
-// Returns uppercase, trimmed to 8.3 format
-// Strips user prefix if present
-
-static parseFilenameParam(param: string): {user, filename, extension}
-// Like normalizeFilename but extracts user number
-// Returns {user: 0, filename: 'NAME', extension: 'EXT'}
-
-getImageData(): Buffer
-// Returns defensive copy of modified imageData
-
-getParams(): CpmDiskParams
-// Returns current disk parameters
+static normalizeFilename(name: string): { filename, extension }
+static parseFilenameParam(param: string): { user, filename, extension }
+// Parses "USER:NAME.EXT" or "NAME.EXT", returns 8.3 uppercase.
 ```
+
+`getImageData()` returns a defensive copy of the mutated image; the route handlers write that Buffer straight back to disk via `fs.writeFile`.
 
 ---
 
-## 3. DATA STRUCTURES & TYPES
+## 3. PROTOCOL (src/protocol.ts)
 
-### From protocol.ts
+Unchanged in shape since the C port — this file is stable.
 
-**Fundamental Constants:**
 ```typescript
-MAX_DRIVES = 16
-MAX_TRACKS = 77
-MAX_TRACK_LEN = 4384  // 137 * 32 (CDBL format)
-MAX_DISK_SIZE = 337,568  // 77 * 4384
-MAX_PATH = 128
+export const FDCSDS_NAME    = 'FDC+ Serial Drive Server';
+export const FDCSDS_VERSION = '2.0.0';
 
-enum BaudRate {
-  B9600, B19200, B38400, B57600, B76800, B230400, B403200, B460800
+export const MAX_DRIVES     = 16;
+export const MAX_TRACKS     = 77;
+export const MAX_TRACK_LEN  = 137 * 32;      // 4384
+export const MAX_DISK_SIZE  = MAX_TRACK_LEN * MAX_TRACKS;
+export const MAX_PATH       = 128;
+
+export enum BaudRate {
+  B9600 = 9600, B19200 = 19200, B38400 = 38400, B57600 = 57600,
+  B76800 = 76800, B230400 = 230400, B403200 = 403200 /* macOS only */,
+  B460800 = 460800,
 }
-DEFAULT_BAUD_RATE = B460800
+export const DEFAULT_BAUD_RATE = BaudRate.B460800;
 
-enum FdcError {
-  OK = 0x00, NOT_READY = 0x01, CHKSUM_ERR = 0x02, WRITE_ERR = 0x03
+export enum FdcError {
+  OK = 0x00, NOT_READY = 0x01, CHKSUM_ERR = 0x02, WRITE_ERR = 0x03,
 }
 
-enum FdcCommand {
-  STAT = 'STAT', READ = 'READ', WRIT = 'WRIT'
+export enum FdcCommand {
+  STAT = 'STAT', READ = 'READ', WRIT = 'WRIT',
 }
-```
 
-**CommandResponseBlock (8-byte protocol packet):**
-```typescript
-class CommandResponseBlock {
-  cmd: string;      // 4-byte ASCII command
-  param1: number;   // uint16 LE
-  param2: number;   // uint16 LE
-
+export class CommandResponseBlock {
+  cmd: string;    // 4-byte ASCII
+  param1: number; // uint16 LE
+  param2: number; // uint16 LE
   toBuffer(): Buffer
   static fromBuffer(buffer: Buffer): CommandResponseBlock
-  static create(cmd: FdcCommand, param1: number, param2: number): CommandResponseBlock
+  static create(cmd: FdcCommand, p1: number, p2: number): CommandResponseBlock
   getCommand(): FdcCommand | null
 }
 
-class ByteUtils {
-  static LSB(word: number): number    // word & 0xff
-  static MSB(word: number): number    // (word >> 8) & 0xff
-  static WORD(lsb: number, msb: number): number  // (msb << 8) | lsb
-}
-```
-
-### From config.ts
-
-**ConfigFile Interface:**
-```typescript
-interface ConfigFile {
-  // Serial connection
-  port?: string;      // e.g., "/dev/ttyUSB0"
-  baud?: number;      // e.g., 230400
-
-  // Drive mounts (startup mounts)
-  drive0?: string;    // e.g., "disks/cpm22.dsk"
-  drive1?: string;
-  drive2?: string;
-  drive3?: string;
-
-  // Write protection
-  readonly?: number[]; // [0, 2] = drives 0 and 2 read-only
-
-  // Display
-  verbose?: boolean;
-  debug?: boolean;
-  logFile?: string;
-
-  // Web interface
-  web?: boolean;
-  webPort?: number;   // e.g., 3000
-  webHost?: string;   // e.g., "localhost"
-
-  // Terminal serial (secondary connection)
-  terminalPort?: string;
-  terminalBaud?: number;
-  terminalAutoconnect?: boolean;
-
-  // GPIO indicators (Raspberry Pi)
-  gpioLeds?: GpioLedConfig;
-}
-```
-
-### From web-server.ts
-
-**WebServerConfig:**
-```typescript
-interface WebServerConfig {
-  port: number;          // HTTP port (3000)
-  host: string;          // Bind address ("0.0.0.0")
-  disksDir: string;      // Path to disk images
-  cassettesDir: string;  // Path to cassette files
-  scriptsDir: string;    // Path to scripts
-  uploadsDir?: string;   // Upload destination
+export class ByteUtils {
+  static LSB(word: number): number
+  static MSB(word: number): number
+  static WORD(lsb: number, msb: number): number
 }
 
-interface PreferredTerminalSettings {
-  port?: string;
-  baud?: number;
+export interface Config {
+  port: string | null;
+  baudRate: BaudRate;
+  verbose: boolean;
+  debug: boolean;
+  drives: Map<number, string>;
+  readonlyDrives: Set<number>;
 }
+export function createDefaultConfig(): Config;
+
+export const TIMEOUT_DEFAULT = 5000;
+export const TIMEOUT_BYTE    = 1000;
+export const TIMEOUT_BUFFER  = 5000;
 ```
 
 ---
 
-## 4. BUILD CONFIGURATION (tsconfig.json)
+## 4. HTTP SURFACE (src/web-server.ts + src/routes/*)
+
+`src/web-server.ts` is a thin orchestrator: it constructs Express + Socket.IO, resolves the database, builds a `Dependencies` bag, wires middleware, and hands the router to each route module.
+
+```typescript
+export class WebServer {
+  constructor(
+    config: WebServerConfig,
+    driveManager: DriveManager,
+    serialManager: SerialPortManager,
+    terminalManager: TerminalSerialManager,
+    preferredTerminalSettings?: PreferredTerminalSettings,
+    options?: { server?: FdcServer; runtimeConfig?: ConfigFile; database?: Database }
+  )
+  async start(): Promise<void>       // Binds HTTP, starts 1 s status broadcast
+  async startServer(): Promise<void> // Starts the FdcServer under WebServer control
+  async stop(): Promise<void>
+  broadcastStatus(): void            // Emits 'status' to all Socket.IO clients
+  cancelActiveTransfer(): void       // Cancels replay / XMODEM
+}
+```
+
+The `Dependencies` type in `src/types.ts` is the shared bag threaded through routes, services, WebSocket handlers, and the MCP server:
+
+```typescript
+export interface Dependencies {
+  config: WebServerConfig;
+  driveManager: DriveManager;
+  serialManager: SerialPortManager;
+  terminalManager: TerminalSerialManager;
+  preferredTerminalSettings: PreferredTerminalSettings;
+  io: SocketIOServer;
+  database: Database;
+  runtimeConfig: ConfigFile | null;
+  server: FdcServer | null;
+  diskServingEnabled: boolean;
+  serverTask: Promise<void> | null;
+  replayEngine: ReplayEngine | null;
+  xmodemSender: XmodemSender | null;
+  audioPlayer: any;
+  currentAudioProcess: any;
+}
+```
+
+### Route modules
+
+Every module exports `register<Name>Routes(router, deps)` and attaches its endpoints to the Express app. Each handler carries `@openapi` JSDoc that `swagger-jsdoc` consumes to generate the committed `openapi.json`.
+
+**`src/routes/health.ts`**
+- `GET /api/health` — liveness probe
+- `GET /api/status` — full status snapshot (serial + disk-serving + drives + system)
+
+**`src/routes/config.ts`**
+- `GET /api/config` — returns the current runtime `ConfigFile`
+- `POST /api/config` — accepts partial updates; only `verbose` takes effect without restart (propagated to `FdcServer` and `TerminalSerialManager`)
+
+**`src/routes/serial.ts`**
+- `GET /api/serial/ports` — enumerates ports via `TerminalSerialManager.listPorts()`
+- `PUT /api/serial/config` — closes the primary port, reopens with new device / baud, pauses the `FdcServer` during the swap, updates `runtimeConfig`
+
+**`src/routes/disk-serving.ts`**
+- `POST /api/disk-serving/enable` — opens primary serial if needed, lazily constructs `FdcServer`, starts serving
+- `POST /api/disk-serving/disable` — stops the server, closes the primary port
+
+**`src/routes/drives.ts`**
+- `GET /api/drives` — per-drive status via `getDrivesStatus(deps)`
+- `POST /api/drives/:id/mount` — mounts a `.dsk` from `disksDir` and persists the assignment
+- `POST /api/drives/:id/unmount` — unmounts, clears the DB row
+- `PUT /api/drives/:id/readonly` — toggles write protection (may remount)
+
+**`src/routes/images.ts`**
+- `GET /api/images` — filenames of `.dsk` / `.img` / `.ima` files
+- `GET /api/images/details` — same with size + notes joined from `disk_notes`
+- `POST /api/images/upload` — multer disk-storage upload, magic-bytes check rejecting ZIP/ELF/PE/JPEG/PNG masquerading as disk images (10 MB cap, its own rate limiter)
+- `POST /api/images/:filename/clone` — copies to `name-copy[N].ext`
+- `POST /api/images/create` — creates a zero-filled image; `format` is `8inch` (77 tracks), `minidisk` (17 tracks), or `8mb` (1863 tracks)
+- `DELETE /api/images/:filename` — refuses (409) if mounted; also deletes the `disk_notes` row
+- `PUT /api/images/:filename/notes` — upserts the `disk_notes` row
+- `PUT /api/images/:filename/rename` — renames the file on disk **and** migrates the `disk_notes` row via `database.renameDiskNote(old, new)`; refuses (409) if mounted or if the target name already exists; same-name renames are no-ops; validates that the new name contains no path separators, does not start with `.`, and is ≤ 200 chars
+
+**`src/routes/cpm.ts`** — all endpoints scoped to a single disk image file
+- `GET /api/images/:filename/cpm/info` — returns `params`, `freeSpace`, `fileCount`, and `mounted` (drive number or `false`)
+- `GET /api/images/:filename/cpm/files` — CP/M directory listing
+- `GET /api/images/:filename/cpm/files/:cpmFile` — downloads a single CP/M file as `application/octet-stream`; `cpmFile` is `USER:NAME.EXT` (e.g. `0:ASM.COM`)
+- `POST /api/images/:filename/cpm/files` — uploads a file into the CP/M filesystem via `writeFile`; 256 KB cap, memory storage, refuses (409) if the disk is mounted
+- `DELETE /api/images/:filename/cpm/files/:cpmFile` — deletes a CP/M file; refuses (409) if mounted
+
+**`src/routes/cassettes.ts`**
+- `GET /api/cassettes/details` — list with size + notes
+- `POST /api/cassettes/upload` — `.wav` only, 100 MB cap
+- `DELETE /api/cassettes/:filename`
+- `PUT /api/cassettes/:filename/notes`
+- `GET /api/cassettes/:filename/stream` — pipes the WAV to the client
+- `POST /api/cassettes/:filename/play` — server-side playback via `play-sound`
+- `POST /api/cassettes/stop` — kills the currently playing audio process
+
+**`src/routes/terminal.ts`**
+- `GET /api/terminal/status`
+- `GET /api/terminal/ports`
+- `POST /api/terminal/open` — opens the secondary port
+- `POST /api/terminal/close`
+- `PUT /api/terminal/config` — updates baud / bits / parity on an open port
+
+**`src/routes/scripts.ts`**
+- `GET /api/scripts` — file names + sizes
+- `GET /api/scripts/:name` — content for `.txt`, metadata only for binaries
+- `POST /api/scripts` — create new text script (409 if exists)
+- `PUT /api/scripts/:name` — overwrite
+- `DELETE /api/scripts/:name`
+- `POST /api/scripts/upload` — any file, 1 MB cap
+
+**`src/routes/replay.ts`**
+- `POST /api/replay/start` — `mode` is `raw` or `xmodem`; passes chunk size / delays / line ending or CRC flag through to `ReplayEngine` / `XmodemSender`
+- `POST /api/replay/cancel`
+- `GET /api/replay/status` — active + last progress snapshot
+
+Filename validation across every route rejects `..`, `/`, `\`, and the `safeResolvePath()` helper in `src/utils/safe-path.ts` `realpathSync`-resolves and verifies the result stays under the configured root, guarding against symlink escapes.
+
+---
+
+## 5. SERVICES (src/services/)
+
+Small pure helpers that route modules and the MCP server share.
+
+**`services/status.ts`**
+- `getStatus(deps)` — combined serial + disk-serving + drives + system status; the payload the `status` Socket.IO event carries every second
+- `getDrivesStatus(deps)` — 4-element array (drives 0-3) of `{ id, mounted, filename, fullPath, readonly, headLoaded, track, lastIo }`
+- `getTerminalStatus(deps)` — terminal open/close + config + preferred settings
+
+**`services/disk-serving.ts`**
+- `enableDiskServing(deps)` — opens serial port if needed, constructs a fresh `FdcServer` if none exists, launches `server.start()` as a background task, sets `diskServingEnabled = true`
+- `disableDiskServing(deps)` — stops the server, closes the port
+- `broadcastStatus(deps)` — one-liner around `deps.io.emit('status', getStatus(deps))`
+
+**`services/transfer.ts`**
+- `startRawReplay(deps, path, name, chunkSize?, interByteDelayMs?, interLineDelayMs?, lineEnding?)`
+- `startXmodemSend(deps, path, name, useCrc?)`
+- `cancelActiveTransfer(deps)` — cancels whichever of `replayEngine` / `xmodemSender` is running
+- Both starters lazily instantiate the underlying engine and wire `progress` → `deps.io.emit('replay:progress', ...)`
+
+**`services/file-listing.ts`**
+- `listDiskImages(deps)` — filenames only
+- `listDiskImagesWithDetails(deps)` — joins the `disk_notes` map for descriptions
+- `listCassettesWithDetails(deps)` — same for cassette WAVs
+
+**`services/audio.ts`**
+- `getAudioPlayer(deps)` — lazy `play-sound` init, caches on `deps.audioPlayer`; falls back to a stub that throws so route handlers can report a clean error on hosts without an audio backend.
+
+---
+
+## 6. MIDDLEWARE (src/middleware/)
+
+**`middleware/security.ts`** — `setupSecurityMiddleware(app, config, apiKey?)`
+- Helmet with a CSP allowing `'self'`, inline scripts, Google Fonts (for Material Symbols), `ws:` / `wss:` connect; HSTS and `upgradeInsecureRequests` are deliberately disabled because this server is intended for plain HTTP on LAN / localhost (Safari's implicit HTTPS upgrade blanks the page otherwise)
+- CORS allow-list is `[http://host:port, http://localhost:port, http://127.0.0.1:port]` from `buildAllowedOrigins()`
+- `express-rate-limit` on `/api/`: 200 req/min, exempt for `127.0.0.1`/`::1`
+- `createAuthMiddleware(apiKey)` mounted on `/api/`
+- `express.json()` body parser last
+
+**`middleware/auth.ts`** — `createAuthMiddleware(apiKey)`
+- Returns an Express middleware that passes through when `apiKey` is null / empty / undefined
+- Always allows `/api/docs*` (Swagger UI unaffected by auth)
+- Otherwise requires `Authorization: Bearer <key>`; 401 if missing, 403 on mismatch
+
+**`middleware/static.ts`** — `setupStaticMiddleware(app)`
+- Resolves the SPA build directory in this order: `${cwd}/frontend/dist` first, then `${__dirname}/../../frontend/dist`. The cwd path wins under `pnpm dev`; the `__dirname` path is what a Debian install at `/usr/lib/fdcsds/dist/middleware/` resolves to (i.e. `/usr/lib/fdcsds/frontend/dist`)
+- Serves `express.static(publicDir)`
+- Mounts Swagger UI at `/api/docs` and the raw spec at `/api/docs.json`
+- SPA fallback route on `GET /` sends `index.html`
+
+---
+
+## 7. WEBSOCKET (src/websocket/handlers.ts)
+
+`setupWebSocket(io, deps)` wires all Socket.IO events. On connection it emits current `status` + `terminal:status`, then handles:
+
+Client → server:
+- `request-status` — re-emits status to just that socket
+- `terminal:write` — buffered write to the terminal serial port
+- `terminal:control` — sets DTR or RTS
+- `replay:start` — kicks off raw or XMODEM (409-equivalent via `replay:progress` error if already running)
+- `replay:cancel`
+
+Server → client (also broadcast, not just to the connecting socket):
+- `status` — every second, driven by `WebServer.start()`
+- `terminal:data` — outgoing serial bytes as a `number[]` (piped from `terminalManager.onData`)
+- `terminal:error`, `terminal:status`
+- `replay:progress`
+
+---
+
+## 8. DATABASE (src/database.ts)
+
+SQLite via `better-sqlite3` — synchronous underneath, though method signatures return `Promise` so the rest of the codebase can stay `async`. Do **not** `await` these operations expecting them to yield the event loop; they run straight through.
+
+Schema (created by migration 0 in a transaction):
+- `disk_notes(filename PK, description, notes, updated_at)`
+- `cassette_notes(filename PK, description, notes, updated_at)`
+- `drive_assignments(drive_id PK, filename, readonly INTEGER 0/1, updated_at)`
+
+Migrations are gated by a `schema_version` table; each entry in the `MIGRATIONS` array runs in a transaction and records itself. WAL mode is on. The DB file is `chmod 0600` after creation (non-fatal if it fails).
+
+Key methods (all `async`, but synchronous under the hood):
+```typescript
+getDiskNote(filename): Promise<DiskNote | null>
+getAllDiskNotes(): Promise<Map<string, DiskNote>>
+upsertDiskNote(filename, description, notes): Promise<void>
+deleteDiskNote(filename): Promise<void>
+renameDiskNote(oldFilename, newFilename): Promise<void>  // no-op if no row
+
+getCassetteNote / getAllCassetteNotes / upsertCassetteNote / deleteCassetteNote
+
+getAllDriveAssignments(): Promise<DriveAssignment[]>
+saveDriveAssignment(driveId, filename, readonly): Promise<void>
+clearDriveAssignment(driveId): Promise<void>
+clearAllDriveAssignments(): Promise<void>
+```
+
+`renameDiskNote` is what makes `PUT /api/images/:filename/rename` carry a disk's notes forward to its new filename.
+
+The singleton is exposed via `getDatabase(dbPath?)` and initialized in `src/index.ts` at `${dataDir}/fdcplus.db`.
+
+---
+
+## 9. MCP SERVER (src/mcp-server.ts)
+
+Opt-in via `--mcp` on the CLI entry point. When set, `startMcpStdio(deps)` is called instead of the usual web-server / FDC-server startup and the process reads / writes MCP messages over stdio (via `StdioServerTransport` from `@modelcontextprotocol/sdk`).
+
+Resources (JSON snapshots at fetch time):
+- `fdcplus://status`
+- `fdcplus://drives`
+- `fdcplus://images`
+- `fdcplus://terminal`
+
+Tools — 29 total, grouped by domain:
+- **Server / status:** `get_status`
+- **Serial:** `list_serial_ports`, `configure_serial`, `enable_disk_serving`, `disable_disk_serving`
+- **Drives:** `list_drives`, `mount_disk`, `unmount_disk`, `set_drive_readonly`
+- **Disk images:** `list_disk_images`, `create_disk_image`, `clone_disk_image`, `delete_disk_image`, `update_disk_notes`
+- **CP/M filesystem:** `get_cpm_disk_info`, `list_cpm_files`, `read_cpm_file`, `write_cpm_file`, `delete_cpm_file`
+- **Terminal:** `get_terminal_status`, `list_terminal_ports`, `open_terminal`, `close_terminal`, `send_to_terminal`
+- **Replay / transfer:** `list_scripts`, `start_replay`, `cancel_replay`, `get_replay_status`
+- **Cassettes:** `list_cassettes`
+
+The tools delegate to the same `services/*` helpers the HTTP routes use, so a single change of behavior (e.g. a new mount-check) shows up in both surfaces automatically.
+
+---
+
+## 10. GPIO SUBSYSTEM (src/gpio/)
+
+Optional LED status output on Raspberry Pi, no-op elsewhere.
+
+**`gpio-manager.ts`** — `GpioLedManager` (singleton)
+- `require('onoff')` sits behind a `try / catch`; if the module isn't installed (macOS, or an armv6 build that skipped optional deps) the `Gpio` reference stays `null` and every operation becomes a no-op. `onoff` is declared under `optionalDependencies` in `package.json` for this reason.
+- Detects platform via `os.platform() === 'linux'` and `Gpio.accessible === true`
+- Reads `/sys/kernel/debug/gpio` to compute the kernel-side chip base offset (e.g. 512 on newer Pi kernels)
+- Async write queue with 10 ms debounce, coalescing per-pin, plus a separate blink debounce map so RX/TX activity storms don't produce O(N) `write` syscalls
+- Reports stats (`totalWrites`, `queuedWrites`, `coalescedWrites`, `errors`, `lastFlush`)
+
+**`gpio-controller.ts`** — `GpioLedController` (singleton)
+- High-level mapping from application state (`DriveState`, terminal open/data, replay progress) to LED pins
+- Config shape (`GpioLedConfig`) covers 4 drives × 3 pins (enable / headLoad / readOnly), 3 terminal pins (rx / tx / connected), an activity LED, blink durations, and an active-low toggle
+- Exposed via `getGpioLedController()` and called from `DriveManager` (mount / unmount / write-protect) and `TerminalSerialManager` (data / connect / disconnect)
+
+---
+
+## 11. CLI ENTRY (src/index.ts)
+
+Commander-driven. Flags include the drive mounts (`-0` through `-3`), serial port + baud (`-p` / `-b`), read-only markers (`-r`), verbose / debug, web toggle + host + port, terminal port / baud / autoconnect, `--terminal-only`, `--gpio-leds` / `--no-gpio-leds` / `--gpio-active-low`, `--data-dir`, `-c/--config`, `--example-config`, `--show-persistent-paths`, and `--mcp`.
+
+Startup sequence:
+1. Load `.fdcsds.config` (or `--config` path), merge with CLI options (CLI wins)
+2. Resolve `dataDir`, print merged config
+3. Instantiate singletons: `DriveManager`, `SerialPortManager`, `TerminalSerialManager`, `GpioLedController`, `Logger`
+4. Enable file logging if `--log-file`
+5. Initialize GPIO if configured (blinks all LEDs once as a self-test)
+6. Set write-protect on configured drives, mount them, open primary serial (soft-fail continues)
+7. Auto-connect terminal port if requested
+8. Open the database, restore saved `drive_assignments` from the previous run (only when `--web`)
+9. Construct `FdcServer` unless `--terminal-only`
+10. If `--mcp`: build a minimal `Dependencies`, call `startMcpStdio` and return (mutually exclusive with the web server)
+11. Otherwise construct `WebServer` if `--web`, register SIGINT / SIGTERM / SIGHUP / uncaught handlers, start the FDC server under web-server management (or standalone), then park on an unresolved promise
+
+Shutdown runs cancel-transfer → stop FDC → stop web → close serial ports → unmount drives → clean up temp uploads → GPIO shutdown → DB close → logger close, all racing a 5 s timeout so a wedged handle can't hold the process open.
+
+---
+
+## 12. BUILD CONFIGURATION (tsconfig.json)
 
 ```json
 {
   "compilerOptions": {
-    "target": "ES2022",           // Modern JavaScript
-    "module": "commonjs",         // Node.js modules
-    "lib": ["ES2022"],            // Standard library
-    "outDir": "./dist",           // Compiled output
-    "rootDir": "./src",           // Source root
-
-    "strict": true,               // Full type checking
-    "noUnusedLocals": true,       // Error on unused variables
-    "noUnusedParameters": true,   // Error on unused params
-    "noImplicitReturns": true,    // Must explicitly return
-    "noFallthroughCasesInSwitch": true,
-
-    "esModuleInterop": true,      // CommonJS interop
+    "target": "ES2022",
+    "module": "commonjs",
+    "lib": ["ES2022"],
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "strict": true,
+    "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "declaration": true,          // Generate .d.ts files
+    "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
     "moduleResolution": "node",
-    "allowSyntheticDefaultImports": true
+    "allowSyntheticDefaultImports": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "test"]
 }
 ```
 
-**Build Process:**
-```bash
-npx tsc                     # Compile all src/**/*.ts → dist/
-npm run build              # Same as above
-npm run dev               # ts-node (direct TS execution)
-npm run clean             # rm -rf dist
-```
-
-**Key Compiler Flags:**
-- `strict: true` = `noImplicitAny`, `strictNullChecks`, `strictFunctionTypes`, etc.
-- `noUnusedLocals/Parameters` are **ENFORCED** - must delete unused code
-- ES2022 target means async/await, optional chaining, nullish coalescing supported
+`noUnusedLocals` and `noUnusedParameters` are enforced; the codebase actively prefixes intentionally unused Express handler args with `_`.
 
 ---
 
-## 5. DEPENDENCIES (package.json v2.0.0)
+## 13. PACKAGE METADATA (package.json)
 
-### Production Dependencies
+`fds-ts` v2.0.0, GPL-3.0. pnpm workspace: root package is the backend, `frontend/` is the Svelte SPA (managed by pnpm-workspace.yaml). Node `>= 18`, pinned pnpm 11.2.2.
 
-**Core Server:**
-- `express@^4.18.0` - HTTP server
-- `socket.io@^4.6.0` - WebSocket communication
-- `cors@^2.8.5` - CORS middleware
-- `multer@^2.0.2` - File upload handling
-- `serialport@^12.0.0` - Serial communication with FDC+ hardware
+### Runtime dependencies
+- HTTP + realtime: `express@^4.18.0`, `socket.io@^4.6.0`, `cors@^2.8.5`
+- Security / rate: `helmet@^8.1.0`, `express-rate-limit@^8.3.2`
+- Upload: `multer@^2.0.2`
+- OpenAPI: `swagger-jsdoc@^6.2.8`, `swagger-ui-express@^5.0.1`
+- Validation: `zod@^4.4.3` (used by the MCP tool schemas)
+- Storage: `better-sqlite3@^12.9.0` (sync)
+- Serial: `serialport@^12.0.0`
+- Audio: `play-sound@^1.1.6`
+- MCP: `@modelcontextprotocol/sdk@^1.29.0`
+- CLI / TUI: `commander@^11.0.0`, `blessed@^0.1.81`
+- Logging: `pino@^10.3.1`, `pino-pretty@^13.1.3`
 
-**CLI & Config:**
-- `commander@^11.0.0` - Command-line parsing
-- `blessed@^0.1.81` - Terminal UI framework
+### Optional dependency
+- `onoff@^6.0.3` — guarded via try/require in `src/gpio/gpio-manager.ts`, absent-safe on macOS and non-Pi Linux
 
-**Storage:**
-- `sqlite3@^5.1.7` - Database (drive assignments, settings)
-
-**Audio:**
-- `play-sound@^1.1.6` - Play audio clips (floppy sounds)
-
-**Hardware GPIO (Optional):**
-- `onoff@^6.0.3` - GPIO control (Raspberry Pi LEDs)
-
-**Type Definitions:**
-- `@types/multer`, `@types/blessed`, `@types/cors`, `@types/express`, `@types/sqlite3`, `@types/play-sound` - TypeScript definitions
-- `@types/node@^20.0.0` - Node.js types
-
-### Dev Dependencies
-
-- `typescript@^5.3.0` - TypeScript compiler
-- `ts-jest@^29.0.0` - Jest with TypeScript support
-- `jest@^29.0.0` - Test framework
-- `ts-node@^10.9.0` - Direct TypeScript execution
-- `@types/jest@^29.0.0` - Jest types
+### Dev dependencies
+- TypeScript 5.3, ts-node 10.9, jest 29, ts-jest 29, concurrently 9
 
 ### Scripts
-
 ```json
-{
-  "build": "tsc",                 // Compile TypeScript
-  "start": "node dist/index.js",  // Run compiled server
-  "dev": "ts-node src/index.ts",  // Run with direct TS
-  "test": "jest",                 // Run all tests
-  "clean": "rm -rf dist"
-}
+"build":      "tsc && pnpm run docs",
+"build:all":  "pnpm run build && pnpm --filter fdcplus-frontend build",
+"docs":       "ts-node scripts/generate-openapi.ts",
+"docs:check": "ts-node scripts/generate-openapi.ts --check",
+"start":      "node dist/index.js",
+"dev":        "ts-node src/index.ts",
+"dev:all":    "concurrently backend + Vite frontend",
+"test":       "jest --runInBand",
+"typecheck":  "tsc --noEmit",
+"lint":       "echo 'lint: no ESLint configured' && exit 0",
+"check":      "typecheck + lint + docs:check + test + frontend svelte-check",
+"clean":      "rm -rf dist coverage frontend/dist"
 ```
+
+`docs:check` fails CI if `openapi.json` is out of sync with the JSDoc; regenerate with `pnpm docs`. `--runInBand` is the default for tests because the serial-port mock has a known cross-worker race.
 
 ### Binaries
-
-```json
-{
-  "fdcsds": "./dist/index.js",
-  "create-boot-disk": "./create-boot-disk.js"
-}
-```
-
-**Node Requirements:** `>= 18.0.0`
+- `fdcsds` → `dist/index.js`
+- `create-boot-disk` → `create-boot-disk.js`
 
 ---
 
-## 6. KEY ARCHITECTURAL INSIGHTS
+## 14. KEY ARCHITECTURAL INSIGHTS
 
-### Separation of Concerns
+### Separation of concerns
 
-1. **Drive Layer** (`drive.ts`)
-   - Low-level file handle management
-   - Track-based I/O operations
-   - Error codes propagated to callers
-   - No filesystem knowledge
+1. **Drive layer (`drive.ts`)** — file-handle lifecycle, track-level I/O, retry policy, GPIO notification. Has no filesystem knowledge and no HTTP awareness.
+2. **CP/M layer (`cpm-filesystem.ts`)** — pure in-memory Buffer manipulation. No file I/O; route handlers own the read-mutate-writeback cycle.
+3. **Route layer (`routes/*.ts`)** — HTTP concerns only, delegates business logic to services.
+4. **Service layer (`services/*.ts`)** — shared helpers used by HTTP routes, WebSocket handlers, and the MCP tools so every surface stays in sync.
+5. **Middleware (`middleware/*.ts`)** — cross-cutting: Helmet + CSP, rate limit, optional Bearer auth, SPA + Swagger UI serving.
+6. **Transport (`server.ts`, `serial.ts`, `terminal-serial.ts`)** — FDC protocol loop and raw serial abstraction.
+7. **MCP (`mcp-server.ts`)** — parallel entry point that reuses the service layer.
 
-2. **Filesystem Layer** (`cpm-filesystem.ts`)
-   - In-memory buffer-based operations
-   - CP/M directory and allocation logic
-   - File-level abstraction (listFiles, readFile, writeFile)
-   - Immutable design (defensive copies)
-   - No I/O operations (pure computation)
+### The dual-framing gotcha
 
-3. **Web Interface Layer** (`web-server.ts`)
-   - REST API for drive management
-   - Socket.IO for real-time status
-   - File upload/download
-   - Configuration management
+Any code path that writes CP/M sectors on a real 8" SD Lifeboat image must go through `CpmFilesystem` so that `writeSector` picks boot vs data framing based on `params.systemTracks`. Directly patching bytes 131-134 with anything but zero on tracks >= 6 produces "Bad Sector" errors on read, because the BIOS scans for 0xFF as a sector-end sentinel and the boot-framing marker at 131 hits first.
 
-### Critical Implementation Details
+### Write integrity
 
-**Error Handling:**
-- Drive errors set `fdcErrno` enum for protocol-level errors
-- File operations throw exceptions
-- Web layer catches and returns HTTP status codes
+`DriveManager.writeTrack` combines:
+- Preflight `datasync()` to detect a stale handle (`EBADF` / `EACCES`) before touching the disk
+- Transient-error retries (`EAGAIN` / `EBUSY` / `EINTR` / `EIO`) with exponential backoff
+- Post-write `sync()` for durability
+- Read-only remount when the readonly flag is toggled, so subsequent writes can't silently fail with `EBADF`
 
-**Transient Error Handling:**
-- Write operations retry up to 3 times for EAGAIN/EBUSY/EINTR/EIO
-- Exponential backoff: delay × 2^attempt
-- Non-transient errors fail immediately
+### Mount-guard invariants
 
-**File Mode Integrity:**
-- readonly flag changes trigger remount to ensure file mode matches
-- Prevents EBADF errors from mode mismatches
-- datasync() used to detect invalid file handles
+Any endpoint that could corrupt live state refuses (409) while the target image is mounted:
+- `DELETE /api/images/:filename`
+- `PUT  /api/images/:filename/rename`
+- `POST /api/images/:filename/cpm/files` (upload)
+- `DELETE /api/images/:filename/cpm/files/:cpmFile`
 
-**Block Allocation Strategy:**
-- Simple first-fit allocation (scan from block 0)
-- Directory blocks always allocated first (blocks 0-N)
-- EXM (extent mask) determines multi-extent file handling
-- No free space defragmentation
+The check walks all 16 drives comparing `path.basename(driveState.filename)` against the requested filename.
 
-**Type Safety:**
-- TypeScript strict mode enforced
-- No unused variables or parameters allowed
-- All buffer operations validated (size checks)
-- Protocol packets validated (8-byte requirement)
+### Symlink-safe path resolution
+
+`safeResolvePath(root, filename)` `realpathSync`-resolves both root and target, then verifies the resolved target begins with `resolvedRoot + sep`. That defeats a symlink planted inside the disks directory that points at `/etc/passwd`.
+
+### Types actually shared with the CLI
+
+The CLI at `cli/` (a separate pnpm package, `fdcplus-cli`) talks to the backend over `socket.io-client` — it consumes JSON events, not the backend's TypeScript types directly. There is no source-level type import from `src/` into `cli/src/`. The wire contract is instead the OpenAPI schema in `openapi.json` (also served at `/api/docs.json`).
+
+If shared types ever become useful for the CLI or third-party integrations, natural extraction candidates are:
+- `CpmFile`, `CpmFreeSpace`, `CpmDiskParams` — CP/M browse data
+- `DriveState` — drive status shape
+- `FdcError`, `FdcCommand`, `BaudRate`, `MAX_DRIVES`, `MAX_TRACK_LEN` — protocol constants
+- `ReplayProgress` — transfer progress payload
 
 ---
 
-## 7. SHARED TYPE OPPORTUNITIES FOR CLI
+## 15. BUILD ARTIFACTS
 
-These types/interfaces would be useful in a CLI client and could be shared via a separate npm package or exported from domain modules:
+`tsc` emits to `dist/`:
+- CommonJS `.js` files, source maps (`.js.map`), and declarations (`.d.ts`, `.d.ts.map`)
+- `dist/drive.js`, `dist/cpm-filesystem.js`, `dist/protocol.js`, `dist/database.js`, `dist/web-server.js`, `dist/mcp-server.js`, `dist/routes/*.js`, `dist/services/*.js`, `dist/middleware/*.js`, `dist/gpio/*.js`, `dist/websocket/*.js`
 
-### Essential Types
-- `CpmFile` - File metadata structure
-- `CpmFreeSpace` - Disk usage information
-- `DriveState` - Drive mount status
-- `FdcError`, `FdcCommand` - Protocol enums
-- `CpmDiskParams` - Disk parameter set (8-inch, minidisk)
+`openapi.json` at the repo root is regenerated by `pnpm docs` (running `scripts/generate-openapi.ts`) and committed. `pnpm docs:check` fails CI if it drifts.
 
-### Utility Functions
-- `CpmFilesystem.normalizeFilename()`
-- `CpmFilesystem.parseFilenameParam()`
-- `CpmFilesystem.detectParams()`
-- `CommandResponseBlock.toBuffer()` / `fromBuffer()`
-- `ByteUtils` helpers
+Debian package output lands in `build/` (the `.gitignore` covers it). `debian/rules` runs `pnpm --config.node-linker=hoisted install` so `node_modules` is a flat `npm`-style tree, then `override_dh_auto_install` stages:
+- `debian/fdcsds/usr/lib/fdcsds/dist/` — compiled backend
+- `debian/fdcsds/usr/lib/fdcsds/frontend/dist/` — compiled Svelte SPA (this is what `middleware/static.ts` resolves via `__dirname/../../frontend/dist`)
+- `debian/fdcsds/usr/lib/fdcsds/node_modules/` — hoisted runtime tree
+- `debian/fdcsds/usr/lib/fdcsds/{package.json,pnpm-lock.yaml,openapi.json}`
+- `debian/fdcsds/usr/bin/fdcsds` — symlink to `/usr/lib/fdcsds/dist/index.js`
 
-### Configuration
-- `ConfigFile` interface
-- Baud rate constants
-- Path constants (MAX_DRIVES, MAX_TRACKS)
-
----
-
-## 8. BUILD ARTIFACTS
-
-After `npx tsc`:
-- TypeScript compiled to CommonJS in `dist/`
-- Source maps generated (`.js.map`)
-- Type declarations generated (`.d.ts`, `.d.ts.map`)
-- Ready for `npm install` via local path or published package
-
-**Key Compiled Files:**
-- `dist/drive.js` - DriveManager class + getDriveManager()
-- `dist/cpm-filesystem.js` - CpmFilesystem, all interfaces/constants
-- `dist/protocol.js` - FdcError, FdcCommand, CommandResponseBlock
-- `dist/config.js` - ConfigFile interface, loadConfigFile()
-- `dist/web-server.js` - WebServer REST/Socket.IO implementation
+Runtime is managed by `debian/fdcsds.service` (systemd).
