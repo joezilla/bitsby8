@@ -541,9 +541,15 @@ export class CpmFilesystem {
       // But we can simplify: just use the extent number for all but the
       // last entry, and for the last entry count its actual records.
 
-      // Determine EXM for this disk
-      const pointersPerEntry = this.useLargePointers ? 8 : 16;
-      const recordsPerEntry = pointersPerEntry * (this.params.blocksize / this.params.seclen);
+      // Determine EXM for this disk.
+      //
+      // CP/M 2.2 always reserves 8 allocation slots per directory entry
+      // (`ALLOCS_PER_EXT = 16` bytes; either 8 uint8 or 8 uint16LE).
+      // Records per entry = 8 * (blocksize / seclen). EXM =
+      // recordsPerEntry / 128 - 1 (0 for standard 8" 2K blocks, 1 for a
+      // 4K-block hard disk, etc.). Verified against altair_tools'
+      // disk_recs_per_extent() = ((recs_per_alloc * 8) + 127)/128 * 128.
+      const recordsPerEntry = 8 * (this.params.blocksize / this.params.seclen);
       const exm = Math.max(0, Math.floor(recordsPerEntry / 128) - 1);
 
       const lastExtLow = last.extentLow & 0x1F;
@@ -697,15 +703,14 @@ export class CpmFilesystem {
       this.writeBlock(allocatedBlocks[i], blockData);
     }
 
-    // Create directory entries (may need multiple extents)
-    // Each directory entry holds pointersPerExtent block pointers.
-    // The CP/M logical extent size is 16K (128 records × 128 bytes).
-    // EXM (extent mask) determines how many logical extents fit in one
-    // directory entry:  EXM = (blocksize / 128) * pointersPerEntry / 128 - 1
-    // For 8-bit ptrs with 2K blocks: EXM = (2048/128)*16/128 - 1 = 1
-    // For 16-bit ptrs with 2K blocks: EXM = (2048/128)*8/128 - 1 = 0
-    const pointersPerExtent = this.useLargePointers ? 8 : 16;
-    const blocksPerExtent = pointersPerExtent;
+    // Create directory entries. CP/M 2.2 uses 8 allocation slots per
+    // directory entry regardless of pointer size (8-bit or 16-bit).
+    // Slots 8..15 of the 16-byte allocation area stay zero on 8-bit
+    // disks. Each entry covers `recordsPerEntry = 8 * (blocksize/seclen)`
+    // records, spanning `logicalExtentsPerEntry = recordsPerEntry / 128`
+    // logical extents (EXM = that - 1). altair_tools computes the same
+    // as `disk_recs_per_extent()`.
+    const blocksPerExtent = 8;
     const recordsPerEntry = blocksPerExtent * (this.params.blocksize / this.params.seclen);
     const logicalExtentsPerEntry = Math.max(1, Math.floor(recordsPerEntry / 128));
     const dirEntryCount = Math.ceil(blocksNeeded / blocksPerExtent);
@@ -1040,6 +1045,60 @@ export class CpmFilesystem {
 
     const norm = CpmFilesystem.normalizeFilename(cleanName);
     return { user, filename: norm.filename, extension: norm.extension };
+  }
+
+  /**
+   * Build a freshly-formatted MITS 8" style disk image of the given
+   * `params`. Every physical sector gets the correct framing bytes,
+   * sector ID, stop byte, zero terminator and checksum — matching the
+   * `mits8in_format_disk()` routine in altair_tools. Data area (bytes
+   * 3-130 on boot tracks, 7-134 on data tracks) is filled with 0xE5,
+   * which is CP/M's "unused" marker in the directory and elsewhere.
+   */
+  static formatImage(params: CpmDiskParams = PARAMS_8INCH): Buffer {
+    const systemTracks = params.systemTracks ?? params.tracks;
+    const imageSize = params.tracks * CDBL.SECTORS_PER_TRACK * CDBL.SECTOR_SIZE;
+    const image = Buffer.alloc(imageSize, 0);
+
+    for (let track = 0; track < params.tracks; track++) {
+      for (let phys = 0; phys < CDBL.SECTORS_PER_TRACK; phys++) {
+        const base = (track * CDBL.SECTORS_PER_TRACK + phys) * CDBL.SECTOR_SIZE;
+        // Start every sector as 0xE5 across the whole 137 bytes so the
+        // data payload is 0xE5-filled by default; framing bytes below
+        // overwrite the metadata positions.
+        image.fill(0xE5, base, base + CDBL.SECTOR_SIZE);
+        image[base] = track | 0x80;
+
+        if (track < systemTracks) {
+          // Boot framing: data at [3..130], stop at 131, csum at 132,
+          // zero-fill 133..136. Byte 1 = 0x00, byte 2 = 0x01 per
+          // altair_tools' format function.
+          image[base + 1] = 0x00;
+          image[base + 2] = 0x01;
+          image[base + CDBL.BOOT_STOP_OFFSET] = 0xFF;
+          image[base + 133] = 0;
+          image[base + 134] = 0;
+          image[base + 135] = 0;
+          image[base + 136] = 0;
+          // Checksum = sum of data[0..127] with data = 0xE5.
+          image[base + CDBL.BOOT_CSUM_OFFSET] = (0xE5 * CDBL.DATA_SIZE) & 0xFF;
+        } else {
+          // Data framing: byte 1 = sector ID, byte 2 = 0x01, data at
+          // [7..134], stop at 135, zero at 136. Bytes 3, 5, 6 stay 0xE5
+          // from the fill — they're "unused" but summed into the
+          // checksum, matching altair_tools' initial buffer state.
+          image[base + CDBL.DATA_SECT_OFFSET] = (phys * 17) & 31;
+          image[base + 2] = 0x01;
+          image[base + CDBL.DATA_STOP_OFFSET] = 0xFF;
+          image[base + CDBL.DATA_END_OFFSET] = 0x00;
+          // Checksum = sum(data[0..127]) + bytes 2, 3, 5, 6.
+          const dataSum = (0xE5 * CDBL.DATA_SIZE) & 0xFF;
+          const csum = (dataSum + image[base + 2] + image[base + 3] + image[base + 5] + image[base + 6]) & 0xFF;
+          image[base + CDBL.DATA_CSUM_OFFSET] = csum;
+        }
+      }
+    }
+    return image;
   }
 
   /**

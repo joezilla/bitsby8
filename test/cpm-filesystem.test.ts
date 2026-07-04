@@ -689,6 +689,81 @@ describe('CpmFilesystem', () => {
       expect(() => cpm.allocateBlocks(200)).toThrow(/full/);
     });
 
+    test('formatImage produces a MITS 8" layout that matches altair_tools', () => {
+      // Byte-for-byte spot checks against the reference format spec so
+      // a future refactor of writeSector or the skew tables can't
+      // silently break disks freshly created here.
+      const img = CpmFilesystem.formatImage(PARAMS_8INCH);
+      expect(img.length).toBe(77 * 32 * CDBL.SECTOR_SIZE);
+
+      // Data-track sector (track 6, phys 0): sector ID = 0, byte 2 = 0x01,
+      // stop at 135, zero at 136, checksum at 4.
+      const dataBase = (6 * 32 + 0) * CDBL.SECTOR_SIZE;
+      expect(img[dataBase + 0]).toBe(6 | 0x80);
+      expect(img[dataBase + 1]).toBe(0);           // (0 * 17) mod 32
+      expect(img[dataBase + 2]).toBe(0x01);
+      expect(img[dataBase + CDBL.DATA_STOP_OFFSET]).toBe(0xFF);
+      expect(img[dataBase + CDBL.DATA_END_OFFSET]).toBe(0x00);
+      // Data area (bytes 7..134) is 0xE5.
+      for (let i = 7; i <= 134; i++) expect(img[dataBase + i]).toBe(0xE5);
+      // Checksum = sum(data) + bytes 2, 3, 5, 6, all mod 256.
+      let expectedCsum = 0;
+      for (let i = 0; i < 128; i++) expectedCsum = (expectedCsum + img[dataBase + 7 + i]) & 0xFF;
+      expectedCsum = (expectedCsum + img[dataBase + 2] + img[dataBase + 3]
+                    + img[dataBase + 5] + img[dataBase + 6]) & 0xFF;
+      expect(img[dataBase + CDBL.DATA_CSUM_OFFSET]).toBe(expectedCsum);
+
+      // Non-trivial phys — verify sector-ID follows (phys * 17) mod 32.
+      for (let p = 0; p < 32; p++) {
+        const base = (6 * 32 + p) * CDBL.SECTOR_SIZE;
+        expect(img[base + 1]).toBe((p * 17) & 31);
+      }
+
+      // Boot-track sector (track 2, phys 0): stop at 131, csum at 132.
+      const bootBase = (2 * 32 + 0) * CDBL.SECTOR_SIZE;
+      expect(img[bootBase + 0]).toBe(2 | 0x80);
+      expect(img[bootBase + 1]).toBe(0x00);
+      expect(img[bootBase + 2]).toBe(0x01);
+      expect(img[bootBase + CDBL.BOOT_STOP_OFFSET]).toBe(0xFF);
+      // Data area (bytes 3..130) is 0xE5.
+      for (let i = 3; i <= 130; i++) expect(img[bootBase + i]).toBe(0xE5);
+      // Bytes 133..136 are zero.
+      for (let i = 133; i <= 136; i++) expect(img[bootBase + i]).toBe(0);
+
+      // A CpmFilesystem should treat the fresh image as an empty CP/M disk.
+      const cpm = new CpmFilesystem(img);
+      expect(cpm.listFiles()).toEqual([]);
+      expect(cpm.getFreeSpace().directoryEntriesFree).toBe(64);
+
+      // Round-trip write on the freshly formatted disk.
+      cpm.writeFile('HELLO', 'TXT', Buffer.from('hello, cp/m\r\n'));
+      const files = cpm.listFiles();
+      expect(files.length).toBe(1);
+      expect(files[0].filename).toBe('HELLO');
+    });
+
+    test('writeFile uses 8 allocation slots per directory entry', () => {
+      // CP/M 2.2 spec / altair_tools convention: each directory entry
+      // carries at most 8 block pointers regardless of pointer size.
+      // Files bigger than 8 blocks (= 16 KiB on standard 8") must spill
+      // to additional extents rather than pack 16 pointers into one
+      // entry. That's what real CP/M writes, and any deviation trips
+      // multi-extent readers.
+      const img = CpmFilesystem.formatImage(PARAMS_8INCH);
+      const cpm = new CpmFilesystem(img);
+      // 20 KiB → 10 blocks → needs two directory entries at 8 blocks each.
+      cpm.writeFile('BIG', 'DAT', Buffer.alloc(20480, 0x42));
+      const entries = cpm.readDirectory().filter(e => e.filename.trimEnd() === 'BIG');
+      expect(entries.length).toBe(2);
+      const first = entries.find(e => e.extentLow === 0)!;
+      const second = entries.find(e => e.extentLow === 1)!;
+      expect(first.blockPointers.filter(p => p !== 0).length).toBe(8);
+      expect(second.blockPointers.filter(p => p !== 0).length).toBe(2);
+      // File is readable back with correct size.
+      const file = cpm.listFiles().find(f => f.filename === 'BIG')!;
+      expect(file.size).toBe(20480);
+    });
+
     test('writeFile emits S1=0 and pads the last record with 0x1A', () => {
       // Regression for the LUNAR.BAS corruption observed on a real Altair:
       // some CP/M 2.2 BIOSes (Burcon-derived, at least) misinterpret a

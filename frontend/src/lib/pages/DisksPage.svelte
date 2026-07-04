@@ -338,6 +338,27 @@
     }
   }
 
+  async function formatCpmDisk() {
+    if (!cpmDisk) return;
+    if (cpmMounted) {
+      showToast('Unmount the disk before formatting', 'warning');
+      return;
+    }
+    const ok = confirm(
+      `Format ${cpmDisk.name}?\n\n` +
+      `This will erase every file on the disk and lay down a fresh CP/M layout. ` +
+      `This cannot be undone.`,
+    );
+    if (!ok) return;
+    try {
+      await api.formatImage(cpmDisk.name);
+      showToast(`Formatted ${cpmDisk.name}`, 'success');
+      await refreshCpm(cpmDisk.name);
+    } catch (err: any) {
+      showToast(`Format failed: ${err.message}`, 'error');
+    }
+  }
+
   async function uploadCpmFiles(files: FileList | File[]) {
     if (!cpmDisk) return;
     if (cpmMounted) {
@@ -867,7 +888,16 @@
             {cpmDisk.name}
           </h3>
         </div>
-        <IconButton icon="close" size={18} title="Close" onclick={closeCpmBrowser} />
+        <div style="display: flex; align-items: center; gap: 4px;">
+          <IconButton
+            icon="restart_alt"
+            size={18}
+            title={cpmMounted ? 'Unmount before formatting' : 'Format disk (erases everything)'}
+            disabled={!!cpmMounted}
+            onclick={formatCpmDisk}
+          />
+          <IconButton icon="close" size={18} title="Close" onclick={closeCpmBrowser} />
+        </div>
       </div>
 
       <!-- Experimental + safety notice -->

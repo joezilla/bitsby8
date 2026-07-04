@@ -69,6 +69,14 @@ export const api = {
     }),
   deleteImage: (filename: string) =>
     request(`/api/images/${encodeURIComponent(filename)}`, { method: 'DELETE' }),
+  formatImage: (filename: string, format?: string) =>
+    request<{ success: boolean; filename: string; size: number; format: string }>(
+      `/api/images/${encodeURIComponent(filename)}/format`,
+      {
+        method: 'POST',
+        body: JSON.stringify(format ? { format } : {}),
+      },
+    ),
   updateImageNotes: (filename: string, description: string, notes: string) =>
     request(`/api/images/${encodeURIComponent(filename)}/notes`, {
       method: 'PUT',

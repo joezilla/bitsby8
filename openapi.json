@@ -1692,6 +1692,53 @@
         }
       }
     },
+    "/api/images/{filename}/format": {
+      "post": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Reformat a disk image",
+        "description": "Erases every byte on the image and lays down a fresh MITS 8\" sector layout. Fails if the disk is mounted.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "8inch",
+                      "minidisk",
+                      "8mb"
+                    ],
+                    "description": "Target format. Omit to derive from the current image size."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Image reformatted"
+          },
+          "409": {
+            "description": "Disk is mounted"
+          }
+        }
+      }
+    },
     "/api/images/{filename}/notes": {
       "put": {
         "tags": [
