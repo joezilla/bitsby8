@@ -93,22 +93,26 @@ export const PARAMS_MINIDISK: CpmDiskParams = {
 };
 
 // ---------------------------------------------------------------------------
-// 2:1 interleave table  –  maps logical sector → physical sector
-// CDBL reads evens first (0,2,4,...,30) then odds (1,3,5,...,31)
+// Skew-17 interleave table — maps logical sector → physical sector.
+//
+// The Altair 88-DCDD 8" format used by MITS, Lifeboat, Burcon and every
+// other CP/M distribution we've inspected stores logical sector L at
+// physical sector (L * 17) mod 32. gcd(17, 32) = 1 so this is a valid
+// permutation, and 17 is self-inverse in mod 32 (17*17 = 289 = 9*32 + 1),
+// so byte 1 of each physical sector — the "sector ID" the BIOS uses to
+// locate a logical sector — is also (physSector * 17) mod 32.
+//
+// A prior draft of this file used a 2:1 EVEN-then-ODD scheme. It was
+// self-consistent (round-trip through this filesystem worked) but wrote
+// data at physical positions the real BIOS didn't expect, and files
+// created that way came back scrambled on real hardware.
 // ---------------------------------------------------------------------------
+export const CDBL_SKEW = 17;
+
 function buildInterleaveTable(): number[] {
   const table: number[] = new Array(32);
-  let phys = 0;
-  // Even physical sectors first (logical 0..15 → physical 0,2,4,...,30)
-  for (let log = 0; log < 16; log++) {
-    table[log] = phys;
-    phys += 2;
-  }
-  // Odd physical sectors next (logical 16..31 → physical 1,3,5,...,31)
-  phys = 1;
-  for (let log = 16; log < 32; log++) {
-    table[log] = phys;
-    phys += 2;
+  for (let log = 0; log < 32; log++) {
+    table[log] = (log * CDBL_SKEW) & 31;
   }
   return table;
 }
@@ -246,8 +250,10 @@ export class CpmFilesystem {
     } else {
       // Data-track framing (tracks 6+ on 8" Lifeboat). Bytes 131-134 must
       // not contain 0xFF — that would look like a stop byte to the BIOS
-      // and produce "Bad Sector" on read.
-      this.imageData[sectorBase + 1] = (physSector * 17) & 0xFF;
+      // and produce "Bad Sector" on read. Byte 1 is the sector ID the
+      // BIOS matches against: the logical sector number stored at this
+      // physical position, which is (physSector * 17) mod 32.
+      this.imageData[sectorBase + 1] = (physSector * CDBL_SKEW) & 31;
       this.imageData[sectorBase + 2] = 0x01;
       this.imageData[sectorBase + 131] = 0;
       this.imageData[sectorBase + 132] = 0;

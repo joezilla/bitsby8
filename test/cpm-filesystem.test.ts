@@ -54,7 +54,7 @@ function buildTestDisk(
         image[base + CDBL.MARKER_OFFSET] = 0xFF;
         image[base + CDBL.CHECKSUM_OFFSET] = 0;
       } else {
-        image[base + 1] = (sec * 17) & 0xFF;
+        image[base + 1] = (sec * 17) & 31;
         image[base + 2] = 0x01;
         image[base + CDBL.DATA_MARKER_OFFSET] = 0xFF;
         image[base + CDBL.DATA_END_OFFSET] = 0x00;
@@ -129,15 +129,11 @@ describe('CpmFilesystem', () => {
   // Interleave table
   // =========================================================================
   describe('interleave table', () => {
-    test('maps logical sectors 0-15 to even physical sectors', () => {
-      for (let log = 0; log < 16; log++) {
-        expect(INTERLEAVE_TABLE[log]).toBe(log * 2);
-      }
-    });
-
-    test('maps logical sectors 16-31 to odd physical sectors', () => {
-      for (let log = 16; log < 32; log++) {
-        expect(INTERLEAVE_TABLE[log]).toBe((log - 16) * 2 + 1);
+    test('maps logical sector L to physical (L * 17) mod 32', () => {
+      // Standard Altair 88-DCDD skew-17 interleave. The formula also
+      // determines the sector-ID byte the BIOS matches against.
+      for (let log = 0; log < 32; log++) {
+        expect(INTERLEAVE_TABLE[log]).toBe((log * 17) % 32);
       }
     });
 
@@ -210,7 +206,9 @@ describe('CpmFilesystem', () => {
       const base = (24 * 32 + physSec) * CDBL.SECTOR_SIZE;
 
       expect(raw[base]).toBe(24 | 0x80);
-      expect(raw[base + 1]).toBe((physSec * 17) & 0xFF);
+      // Byte 1 = sector ID = (physSector * 17) mod 32, matching what
+      // Lifeboat / games.dsk store.
+      expect(raw[base + 1]).toBe((physSec * 17) & 31);
       expect(raw[base + 2]).toBe(0x01);
       // Bytes 131-134 must NOT be 0xFF (false stop byte trap).
       expect(raw[base + 131]).not.toBe(0xFF);
