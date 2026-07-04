@@ -162,7 +162,7 @@ See [DEBIAN-PACKAGE.md](DEBIAN-PACKAGE.md) for complete Debian package documenta
 
 #### Prerequisites
 
-- **Node.js** 18+
+- **Node.js** 22+
 - **npm** or **yarn**
 - Serial port access permissions
 
