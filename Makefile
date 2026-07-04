@@ -26,6 +26,14 @@ GIT_SHA      := $(shell git rev-parse --short=7 HEAD 2>/dev/null || echo unknown
 GIT_DIRTY    := $(shell git diff-index --quiet HEAD 2>/dev/null || echo .dirty.$$(date +%s))
 VERSION      := $(VERSION_BASE)-$(GIT_COUNT)+g$(GIT_SHA)$(GIT_DIRTY)
 
+# CI=true makes pnpm skip the interactive "remove modules directory?"
+# prompt that fires whenever the on-disk pnpm major version differs from
+# the one that populated node_modules (common on the Pi after we
+# downgraded pnpm 11→10 to work around a Node 20 incompatibility).
+# The `.npmrc` also sets `confirm-modules-purge=false`, but that setting
+# isn't honored on all pnpm 10.x invocation paths — CI=true always is.
+export CI := true
+
 all: build
 
 # Build the TypeScript project (both trees: backend + Svelte SPA)
