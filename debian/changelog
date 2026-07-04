@@ -1,3 +1,26 @@
+fdcsds (2.0.1-1) unstable; urgency=medium
+
+  * CP/M filesystem: adopt altair_tools' authoritative MITS 8" layout —
+    correct sector skew, byte-7 data on data tracks, byte-4 checksum,
+    8 allocation slots per directory entry. Files written by this
+    version are now readable by real Altair CP/M, and files created by
+    Lifeboat / MITS / Burcon CP/M can be read back cleanly.
+  * CP/M filesystem: format-disk function + web UI (mount-guarded).
+  * CP/M upload: raised multer ceiling to 8 MB and surface limit
+    errors as clean JSON rather than a stack trace.
+  * Reserve BIOS-opaque gap blocks so uploads don't clobber directory
+    extensions on non-standard formats.
+  * Drives: report NOT_READY on swap so FDC+ invalidates its track cache.
+  * Build: derive Debian version from git so every commit produces a
+    unique, monotonic .deb; require Node 22.
+  * CI: dedicated release workflow that publishes the .deb to GitHub
+    Releases on `v*` tag push.
+  * Docs consolidated under docs/; retired obsolete planning files.
+  * Marked as `unstable` because this is a release candidate; will be
+    promoted to `stable` for the 2.0.1 final tag.
+
+ -- Joe Toppe <mreppot@gmail.com>  Sat, 04 Jul 2026 18:00:00 +0000
+
 fdcsds (2.0.0-1) stable; urgency=medium
 
   * Initial Debian package release
