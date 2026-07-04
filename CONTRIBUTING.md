@@ -4,7 +4,6 @@ Thank you for considering a contribution. This project is a small, hobbyist-and-
 
 ## Before you start
 
-- Read [AGENTS.md](AGENTS.md) for terse repo conventions (filename casing, scripts, testing rules, what NOT to commit).
 - If you're working with an AI assistant, the load-bearing context lives in `_bmad-output/project-context.md` (locally generated, gitignored).
 - The maintainer is solo. Hardware-touching PRs (serial, GPIO, FDC+ protocol) may sit until the maintainer can test on real Altair gear. Not a stall — a constraint. Account for it in expectations.
 

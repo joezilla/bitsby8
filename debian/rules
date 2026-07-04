@@ -97,7 +97,6 @@ override_dh_auto_install:
 	cp README.md debian/fdcsds/usr/share/doc/fdcsds/
 	cp CONTRIBUTING.md debian/fdcsds/usr/share/doc/fdcsds/ || true
 	cp WEB-INTERFACE.md debian/fdcsds/usr/share/doc/fdcsds/ || true
-	cp QUICKSTART.md debian/fdcsds/usr/share/doc/fdcsds/ || true
 	cp LAUNCHER-USAGE.md debian/fdcsds/usr/share/doc/fdcsds/ || true
 	cp TROUBLESHOOTING.md debian/fdcsds/usr/share/doc/fdcsds/ || true
 	cp AUTHORS debian/fdcsds/usr/share/doc/fdcsds/ || true

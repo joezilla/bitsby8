@@ -34,7 +34,6 @@ For a connected Altair (Pi target), see [Installation](#installation) and the GP
 ## Contributing & architecture
 
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to send a PR, what the pre-PR gate runs
-- [`AGENTS.md`](AGENTS.md) — terse repo conventions (filename casing, scripts, testing rules)
 - [`_bmad-output/project-context.md`](_bmad-output/project-context.md) (gitignored) — AI-agent context with the load-bearing details: tokens, primitives, stack traps, vintage-hardware invariants
 
 ---

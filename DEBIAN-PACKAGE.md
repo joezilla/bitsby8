@@ -313,9 +313,8 @@ The service runs as the `fdcsds` system user with:
 | Path | Description |
 |------|-------------|
 | `/usr/share/doc/fdcsds/` | Documentation directory |
-| `/usr/share/doc/fdcsds/README.md` | Main documentation |
+| `/usr/share/doc/fdcsds/README.md` | Main documentation (includes Quickstart section) |
 | `/usr/share/doc/fdcsds/WEB-INTERFACE.md` | Web interface guide |
-| `/usr/share/doc/fdcsds/QUICKSTART.md` | Quick start guide |
 
 ### Sample Files
 
@@ -608,9 +607,8 @@ debsums fdcsds
 
 ## Additional Resources
 
-- **Main Documentation:** `/usr/share/doc/fdcsds/README.md`
+- **Main Documentation:** `/usr/share/doc/fdcsds/README.md` (includes `## Quickstart`)
 - **Web Interface Guide:** `/usr/share/doc/fdcsds/WEB-INTERFACE.md`
-- **Quick Start:** `/usr/share/doc/fdcsds/QUICKSTART.md`
 - **Troubleshooting:** `/usr/share/doc/fdcsds/TROUBLESHOOTING.md`
 
 ---
