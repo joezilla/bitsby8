@@ -669,6 +669,45 @@ describe('CpmFilesystem', () => {
       expect(() => cpm.allocateBlocks(200)).toThrow(/full/);
     });
 
+    test('reserves gap between dirBlocks and lowest used block', () => {
+      // Simulates a disk formatted with a BIOS that reserves extra blocks
+      // beyond the directory (via AL0/AL1 in the DPB) — a reservation
+      // that isn't recorded on the disk itself. If an existing file's
+      // lowest block pointer is N (> dirBlocks), we must treat 1..N-1 as
+      // reserved to avoid stomping opaque BIOS data.
+      const image = buildTestDisk(PARAMS_8INCH, {
+        files: [
+          // Seed one 128-byte file. buildTestDisk uses writeFile which
+          // uses our own allocator — it'll place it in block 1. To
+          // simulate the "gap" case we then rewrite its directory entry
+          // by hand to point at block 5, leaving blocks 1..4 orphaned.
+          { filename: 'SEED', extension: 'DAT', data: Buffer.from([0x01]) },
+        ],
+      });
+      const cpm = new CpmFilesystem(image, PARAMS_8INCH);
+      const entries = cpm.readDirectory();
+      const seed = entries.find(e => e.filename.trimEnd() === 'SEED');
+      expect(seed).toBeDefined();
+      // Rewrite the seed entry to reference block 5 (simulating a disk
+      // whose real first data block sits at 5, with 1..4 opaquely
+      // reserved).
+      seed!.blockPointers = seed!.blockPointers.map((_, i) => i === 0 ? 5 : 0);
+      cpm.writeDirectory(entries);
+
+      const bitmap = cpm.buildAllocationBitmap();
+      expect(bitmap[0]).toBe(true);       // directory
+      expect(bitmap[1]).toBe(true);       // gap-reserved
+      expect(bitmap[2]).toBe(true);       // gap-reserved
+      expect(bitmap[3]).toBe(true);       // gap-reserved
+      expect(bitmap[4]).toBe(true);       // gap-reserved
+      expect(bitmap[5]).toBe(true);       // used by SEED.DAT
+      expect(bitmap[6]).toBe(false);      // first genuinely free
+
+      // Allocating a new file must land at block 6, not overwrite the
+      // gap-reserved 1..4.
+      expect(cpm.allocateBlocks(1)).toEqual([6]);
+    });
+
     test('free space decreases after writing files', () => {
       const image = buildTestDisk(PARAMS_8INCH);
       const cpm = new CpmFilesystem(image, PARAMS_8INCH);
@@ -918,6 +957,71 @@ describe('CpmFilesystem', () => {
           const base = (track * CDBL.SECTORS_PER_TRACK + sec) * CDBL.SECTOR_SIZE;
           expect(imageData[base + CDBL.DATA_MARKER_OFFSET]).toBe(0xFF);
         }
+      }
+    });
+
+    realImageTest('writeFile to games.dsk does not clobber BIOS-reserved gap blocks', () => {
+      // Regression for the "Bdos Err on D: Bad Sector" bug: some disk
+      // formats reserve blocks beyond block 0 for the BIOS (boot-loader
+      // extension, warm-start image, etc.) via the DPB's AL0/AL1. Those
+      // reservations aren't recorded on the disk. `buildAllocationBitmap`
+      // must treat any block between our declared directory area and the
+      // first block an existing file uses as reserved, or writing there
+      // corrupts opaque BIOS data and the real machine reads garbage.
+      //
+      // games.dsk exhibits this: our defaults declare 1 directory block
+      // but its first file allocates block 4, meaning blocks 1..3 are
+      // reserved from the BIOS's perspective.
+      const imgPath = path.join(disksDir, 'games.dsk');
+      if (!fs.existsSync(imgPath)) return;
+
+      const imageData = fs.readFileSync(imgPath);
+      const cpm = new CpmFilesystem(imageData);
+
+      // Confirm the "gap" precondition — otherwise this test isn't
+      // covering the intended case and should be updated to point at a
+      // different fixture.
+      const activeBlocks = new Set<number>();
+      for (const e of cpm.readDirectory()) {
+        if (e.status === 0xE5 || e.status > 0x1F) continue;
+        for (const bp of e.blockPointers) if (bp > 0) activeBlocks.add(bp);
+      }
+      const minUsed = Math.min(...activeBlocks);
+      expect(minUsed).toBeGreaterThan(1);
+
+      // Snapshot every gap-block sector so we can prove we didn't touch
+      // them. Blocks 1..minUsed-1 map to logical sectors on the
+      // directory track that games.dsk's BIOS considers opaque.
+      const params = cpm.getParams();
+      const sectorsPerBlock = params.blocksize / params.seclen;
+      const gapSnapshots: { off: number; byte: number }[] = [];
+      for (let block = 1; block < minUsed; block++) {
+        for (let i = 0; i < sectorsPerBlock; i++) {
+          const absSec = block * sectorsPerBlock + i;
+          const track = params.boottrk + Math.floor(absSec / params.sectrk);
+          const logSec = absSec % params.sectrk;
+          const physSec = INTERLEAVE_TABLE[logSec];
+          const base = (track * CDBL.SECTORS_PER_TRACK + physSec) * CDBL.SECTOR_SIZE;
+          for (let b = 0; b < CDBL.SECTOR_SIZE; b++) {
+            gapSnapshots.push({ off: base + b, byte: imageData[base + b] });
+          }
+        }
+      }
+
+      cpm.writeFile('SMALL', 'TXT', Buffer.from('hello, cp/m\r\n'));
+      const raw = cpm.getImageData();
+
+      for (const { off, byte } of gapSnapshots) {
+        expect(raw[off]).toBe(byte);
+      }
+
+      // Round-trip must succeed and every original file must remain
+      // listable after the write.
+      const cpm2 = new CpmFilesystem(raw);
+      expect(cpm2.readFile('SMALL', 'TXT')).toEqual(Buffer.from('hello, cp/m\r\n'));
+      const namesAfter = new Set(cpm2.listFiles().map(f => `${f.filename}.${f.extension}`));
+      for (const originalName of cpm.listFiles().map(f => `${f.filename}.${f.extension}`)) {
+        expect(namesAfter.has(originalName)).toBe(true);
       }
     });
 

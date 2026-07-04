@@ -751,12 +751,28 @@ export class CpmFilesystem {
 
     // Mark blocks referenced by active directory entries
     const entries = this.readDirectory();
+    let firstUsed = Infinity;
     for (const entry of entries) {
       if (entry.status === 0xE5 || entry.status > 0x1F) continue;
       for (const bp of entry.blockPointers) {
         if (bp > 0 && bp < totalBlocks) {
           bitmap[bp] = true;
+          if (bp < firstUsed) firstUsed = bp;
         }
+      }
+    }
+
+    // Reserve any gap between our expected dirBlocks and the first block
+    // an existing file actually uses. CP/M formats vary in how many blocks
+    // they reserve for the directory (via AL0/AL1 in the DPB), and that
+    // reservation isn't stored on the disk. If a disk was formatted with
+    // maxdir larger than ours and its files start at block N > dirBlocks,
+    // blocks dirBlocks..N-1 hold directory entries our default maxdir
+    // doesn't see. Allocating into them would clobber live directory
+    // sectors and yield "Bdos Err: Bad Sector" on the real machine.
+    if (firstUsed !== Infinity && firstUsed > dirBlocks) {
+      for (let i = dirBlocks; i < firstUsed && i < bitmap.length; i++) {
+        bitmap[i] = true;
       }
     }
 
