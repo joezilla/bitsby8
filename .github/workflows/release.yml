@@ -1,0 +1,78 @@
+name: Release
+
+# Build the Debian package and publish it to GitHub Releases whenever a
+# semver tag is pushed. `debian/control` declares `Architecture: all`, so
+# the same .deb installs on any Pi (arm64 or armhf).
+#
+# Cutting a release:
+#   git tag v2.0.0
+#   git push origin v2.0.0
+#
+# A pre-release tag with a hyphen (v2.0.0-rc1) auto-flips `prerelease: true`
+# so the "Latest release" badge stays on the last stable.
+on:
+  push:
+    tags: ['v*']
+  # Also allow one-off runs from the Actions tab (e.g. re-run a release
+  # after fixing a workflow bug without minting a new tag).
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build (e.g. v2.0.0)'
+        required: true
+
+permissions:
+  contents: write   # required for softprops/action-gh-release
+
+jobs:
+  build-deb:
+    name: Build .deb and publish release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          # `make deb` derives the Debian revision from `git rev-list --count`,
+          # so shallow clones would produce a version like "2.0.0-1+g..." on
+          # every build. Fetch everything.
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          # Keep in sync with `packageManager` in package.json and .github/workflows/ci.yml.
+          version: 11.2.2
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Debian packaging tools
+        run: sudo apt-get update && sudo apt-get install -y debhelper devscripts
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build .deb
+        run: make deb
+
+      - name: Show built artifacts
+        run: ls -la build/
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          # Include the .deb plus the buildinfo/changes for anyone who
+          # wants to verify the build.
+          files: |
+            build/*.deb
+            build/*.buildinfo
+            build/*.changes
+          generate_release_notes: true
+          draft: false
+          # v1.2.3-rc1 → prerelease; v1.2.3 → stable.
+          prerelease: ${{ contains(github.ref_name, '-') }}
