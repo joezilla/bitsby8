@@ -103,6 +103,24 @@ function buildTestDisk(
 }
 
 // ---------------------------------------------------------------------------
+// CP/M 2.2 files always occupy a whole number of 128-byte records. writeFile
+// pads the tail of the last record with 0x1A (Ctrl-Z, the CP/M text EOF
+// marker). Round-trip assertions therefore expect: original bytes followed by
+// 0x1A padding out to the next record boundary.
+// ---------------------------------------------------------------------------
+function expectCpmContentMatches(readBack: Buffer, source: Buffer): void {
+  const SECLEN = 128;
+  const paddedSize = Math.ceil(source.length / SECLEN) * SECLEN;
+  expect(readBack.length).toBe(paddedSize);
+  expect(readBack.subarray(0, source.length)).toEqual(source);
+  const paddingLen = paddedSize - source.length;
+  if (paddingLen > 0) {
+    const expectedPad = Buffer.alloc(paddingLen, 0x1A);
+    expect(readBack.subarray(source.length)).toEqual(expectedPad);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -362,9 +380,9 @@ describe('CpmFilesystem', () => {
       const file = files.find(f => f.filename === 'SIZE');
 
       expect(file).toBeDefined();
-      // RC = ceil(300/128) = 3, BC = 300 % 128 = 44
-      // Size = (3-1)*128 + 44 = 300
-      expect(file!.size).toBe(300);
+      // File size is reported at CP/M's granularity — the number of
+      // 128-byte records that hold the file. 300 bytes → 3 records → 384.
+      expect(file!.size).toBe(384);
     });
 
     test('handles multi-extent files', () => {
@@ -381,7 +399,8 @@ describe('CpmFilesystem', () => {
 
       expect(file).toBeDefined();
       expect(file!.extents.length).toBeGreaterThan(1);
-      expect(file!.size).toBe(40000);
+      // 40000 bytes rounds up to 313 records (313 * 128 = 40064).
+      expect(file!.size).toBe(40064);
     });
 
     test('separates files by user number', () => {
@@ -400,8 +419,9 @@ describe('CpmFilesystem', () => {
 
       expect(user0).toBeDefined();
       expect(user1).toBeDefined();
-      expect(user0!.size).toBe(10);
-      expect(user1!.size).toBe(20);
+      // Both files are shorter than one record → both round up to 128.
+      expect(user0!.size).toBe(128);
+      expect(user1!.size).toBe(128);
     });
 
     test('returns empty array for empty disk', () => {
@@ -423,11 +443,11 @@ describe('CpmFilesystem', () => {
       });
 
       const cpm = new CpmFilesystem(image, PARAMS_8INCH);
-      const result = cpm.readFile('FOX', 'TXT');
-      expect(result.toString()).toBe(content.toString());
+      expectCpmContentMatches(cpm.readFile('FOX', 'TXT'), content);
     });
 
     test('reads binary file correctly', () => {
+      // 512 bytes is exactly 4 records — no tail padding.
       const binary = Buffer.alloc(512);
       for (let i = 0; i < 512; i++) binary[i] = i & 0xFF;
 
@@ -457,8 +477,8 @@ describe('CpmFilesystem', () => {
       });
 
       const cpm = new CpmFilesystem(image, PARAMS_8INCH);
-      expect(cpm.readFile('MULTI', 'TXT', 0).toString()).toBe('user zero');
-      expect(cpm.readFile('MULTI', 'TXT', 1).toString()).toBe('user one');
+      expectCpmContentMatches(cpm.readFile('MULTI', 'TXT', 0), data0);
+      expectCpmContentMatches(cpm.readFile('MULTI', 'TXT', 1), data1);
     });
   });
 
@@ -472,8 +492,7 @@ describe('CpmFilesystem', () => {
 
       const content = Buffer.from('Hello from the CP/M filesystem test!');
       cpm.writeFile('HELLO', 'TXT', content);
-      const result = cpm.readFile('HELLO', 'TXT');
-      expect(result.toString()).toBe(content.toString());
+      expectCpmContentMatches(cpm.readFile('HELLO', 'TXT'), content);
     });
 
     test('write overwrites existing file', () => {
@@ -485,8 +504,7 @@ describe('CpmFilesystem', () => {
       const newContent = Buffer.from('new content replaced');
       cpm.writeFile('OVER', 'WRT', newContent);
 
-      const result = cpm.readFile('OVER', 'WRT');
-      expect(result.toString()).toBe('new content replaced');
+      expectCpmContentMatches(cpm.readFile('OVER', 'WRT'), newContent);
     });
 
     test('handles exact block-boundary size', () => {
@@ -529,7 +547,7 @@ describe('CpmFilesystem', () => {
       cpm.writeFile('TREK', 'BAS', trekBytes);
 
       // Round-trip
-      expect(cpm.readFile('TREK', 'BAS')).toEqual(trekBytes);
+      expectCpmContentMatches(cpm.readFile('TREK', 'BAS'), trekBytes);
 
       // Find which blocks TREK.BAS used, then verify every physical sector
       // in those blocks has data-track framing.
@@ -578,8 +596,7 @@ describe('CpmFilesystem', () => {
       }
 
       for (const f of files) {
-        const result = cpm.readFile(f.name, f.ext);
-        expect(result).toEqual(f.data);
+        expectCpmContentMatches(cpm.readFile(f.name, f.ext), f.data);
       }
     });
   });
@@ -667,6 +684,43 @@ describe('CpmFilesystem', () => {
       const image = buildTestDisk(PARAMS_8INCH);
       const cpm = new CpmFilesystem(image, PARAMS_8INCH);
       expect(() => cpm.allocateBlocks(200)).toThrow(/full/);
+    });
+
+    test('writeFile emits S1=0 and pads the last record with 0x1A', () => {
+      // Regression for the LUNAR.BAS corruption observed on a real Altair:
+      // some CP/M 2.2 BIOSes (Burcon-derived, at least) misinterpret a
+      // non-zero S1 (byte 13 of the directory entry) as an internal
+      // BDOS scratch field, causing sequential reads to skip 4 sectors
+      // at each record advance. CP/M 2.2 spec requires S1 = 0 on disk;
+      // every entry on games.dsk confirms that convention.
+      const image = buildTestDisk(PARAMS_8INCH);
+      const cpm = new CpmFilesystem(image, PARAMS_8INCH);
+
+      // Content that ends mid-record so the padding path runs.
+      const content = Buffer.from('440 END\r\n');
+      cpm.writeFile('LUNAR', 'BAS', content);
+
+      const entries = cpm.readDirectory();
+      const entry = entries.find(e => e.filename.trimEnd() === 'LUNAR');
+      expect(entry).toBeDefined();
+      expect(entry!.bc).toBe(0); // S1 must be zero on disk
+      expect(entry!.rc).toBe(1);
+
+      // Verify the block's tail: content bytes followed by 0x1A padding.
+      const raw = cpm.getImageData();
+      const block = entry!.blockPointers[0];
+      const absSec = block * (PARAMS_8INCH.blocksize / PARAMS_8INCH.seclen);
+      const track = PARAMS_8INCH.boottrk + Math.floor(absSec / PARAMS_8INCH.sectrk);
+      const logSec = absSec % PARAMS_8INCH.sectrk;
+      const physSec = INTERLEAVE_TABLE[logSec];
+      const sectorBase = (track * CDBL.SECTORS_PER_TRACK + physSec) * CDBL.SECTOR_SIZE + CDBL.DATA_OFFSET;
+      const sectorPayload = raw.subarray(sectorBase, sectorBase + 128);
+      expect(sectorPayload.subarray(0, content.length)).toEqual(content);
+      // Tail of the record must be 0x1A (Ctrl-Z EOF markers), not zeros —
+      // MBASIC LOAD relies on 0x1A to terminate ASCII reads cleanly.
+      for (let i = content.length; i < 128; i++) {
+        expect(sectorPayload[i]).toBe(0x1A);
+      }
     });
 
     test('reserves gap between dirBlocks and lowest used block', () => {
@@ -830,9 +884,7 @@ describe('CpmFilesystem', () => {
       const cpm = new CpmFilesystem(image, PARAMS_8INCH);
 
       cpm.writeFile('ONE', 'BYT', Buffer.from([0x42]));
-      const result = cpm.readFile('ONE', 'BYT');
-      expect(result.length).toBe(1);
-      expect(result[0]).toBe(0x42);
+      expectCpmContentMatches(cpm.readFile('ONE', 'BYT'), Buffer.from([0x42]));
     });
 
     test('getParams returns copy of params', () => {
@@ -860,9 +912,9 @@ describe('CpmFilesystem', () => {
       const image = buildTestDisk(PARAMS_MINIDISK);
       const cpm = new CpmFilesystem(image, PARAMS_MINIDISK);
 
-      cpm.writeFile('MINI', 'TST', Buffer.from('minidisk test'));
-      const result = cpm.readFile('MINI', 'TST');
-      expect(result.toString()).toBe('minidisk test');
+      const content = Buffer.from('minidisk test');
+      cpm.writeFile('MINI', 'TST', content);
+      expectCpmContentMatches(cpm.readFile('MINI', 'TST'), content);
     });
   });
 
@@ -1018,7 +1070,7 @@ describe('CpmFilesystem', () => {
       // Round-trip must succeed and every original file must remain
       // listable after the write.
       const cpm2 = new CpmFilesystem(raw);
-      expect(cpm2.readFile('SMALL', 'TXT')).toEqual(Buffer.from('hello, cp/m\r\n'));
+      expectCpmContentMatches(cpm2.readFile('SMALL', 'TXT'), Buffer.from('hello, cp/m\r\n'));
       const namesAfter = new Set(cpm2.listFiles().map(f => `${f.filename}.${f.extension}`));
       for (const originalName of cpm.listFiles().map(f => `${f.filename}.${f.extension}`)) {
         expect(namesAfter.has(originalName)).toBe(true);
@@ -1039,7 +1091,7 @@ describe('CpmFilesystem', () => {
       for (let i = 0; i < trekBytes.length; i++) trekBytes[i] = (i * 13 + 7) & 0xFF;
       cpm.writeFile('TREK', 'BAS', trekBytes);
 
-      expect(cpm.readFile('TREK', 'BAS')).toEqual(trekBytes);
+      expectCpmContentMatches(cpm.readFile('TREK', 'BAS'), trekBytes);
 
       const file = cpm.listFiles().find(f => f.filename === 'TREK');
       expect(file).toBeDefined();

@@ -636,12 +636,23 @@ export class CpmFilesystem {
     // Allocate blocks
     const allocatedBlocks = this.allocateBlocks(blocksNeeded);
 
-    // Write data to blocks
+    // Write data to blocks. CP/M convention: pad the tail of the last
+    // used record with 0x1A (Ctrl-Z) — the standard EOF marker text
+    // tools (MBASIC's LOAD, ED, TYPE) stop at. Bytes past the last used
+    // record inside the same block stay zero. Files that are an exact
+    // multiple of 128 bytes get no 0x1A (nothing to pad).
+    const bytesInLastRecord = data.length % this.params.seclen;
     for (let i = 0; i < blocksNeeded; i++) {
       const blockData = Buffer.alloc(this.params.blocksize, 0);
       const srcOff = i * this.params.blocksize;
       const copyLen = Math.min(this.params.blocksize, data.length - srcOff);
       data.copy(blockData, 0, srcOff, srcOff + copyLen);
+      // If this is the final block AND the file ends mid-record, fill
+      // the remainder of that record with 0x1A.
+      if (i === blocksNeeded - 1 && bytesInLastRecord !== 0) {
+        const recordEnd = copyLen + (this.params.seclen - bytesInLastRecord);
+        blockData.fill(0x1A, copyLen, recordEnd);
+      }
       this.writeBlock(allocatedBlocks[i], blockData);
     }
 
@@ -670,9 +681,20 @@ export class CpmFilesystem {
       const endBlock = Math.min(startBlock + blocksPerExtent, blocksNeeded);
       const extentBlocks = allocatedBlocks.slice(startBlock, endBlock);
 
-      // Calculate RC (record count) for this directory entry
+      // Calculate RC (record count) for this directory entry.
+      //
+      // Byte 13 of the entry (S1 / "bc") is reserved in CP/M 2.2 — the
+      // spec says it must be 0. CP/M 3.x reused it as "byte count in
+      // last record," and some 2.2 clones misinterpret a non-zero S1 as
+      // an internal BDOS scratch field, corrupting sequential reads
+      // (observed as 4-sector jumps on a Burcon-derived CP/M 2.2).
+      // Every existing entry we've inspected on real Altair disks stores
+      // 0 here regardless of the true tail-byte count. Match that
+      // convention: always emit S1=0, round file size up to a full
+      // record, and rely on the last record's padding (0x00 for now) to
+      // signal end-of-data.
       let rc: number;
-      let bc = 0;
+      const bc = 0;
       if (dir_idx === dirEntryCount - 1) {
         // Last entry: calculate remaining records
         const bytesInPrevEntries = dir_idx * blocksPerExtent * this.params.blocksize;
@@ -680,9 +702,6 @@ export class CpmFilesystem {
         rc = Math.ceil(remainingBytes / this.params.seclen);
         // RC is modulo 128 (records within the last logical extent of this entry)
         if (rc > 128) rc = rc % 128 || 128;
-        // BC = byte count in last record
-        bc = remainingBytes % this.params.seclen;
-        if (bc === 0 && remainingBytes > 0) bc = 0; // full last record = 0
       } else {
         rc = recordsPerEntry > 128 ? 128 : recordsPerEntry;
       }
