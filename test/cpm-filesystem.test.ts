@@ -129,15 +129,16 @@ describe('CpmFilesystem', () => {
   // Interleave table
   // =========================================================================
   describe('interleave table', () => {
-    test('maps logical sectors 0-15 to even physical sectors', () => {
-      for (let log = 0; log < 16; log++) {
-        expect(INTERLEAVE_TABLE[log]).toBe(log * 2);
-      }
-    });
-
-    test('maps logical sectors 16-31 to odd physical sectors', () => {
-      for (let log = 16; log < 32; log++) {
-        expect(INTERLEAVE_TABLE[log]).toBe((log - 16) * 2 + 1);
+    test('matches MITS 8" base skew (boot-track flavour, 0-based)', () => {
+      // Table taken directly from altair_tools' mits_skew_table[] (1-based)
+      // then decremented — this is the interleave the BIOS uses when it
+      // reads the boot / directory tracks.
+      const expected = [
+         0,  8, 16, 24,  2, 10, 18, 26,  4, 12, 20, 28,  6, 14, 22, 30,
+         1,  9, 17, 25,  3, 11, 19, 27,  5, 13, 21, 29,  7, 15, 23, 31,
+      ];
+      for (let log = 0; log < 32; log++) {
+        expect(INTERLEAVE_TABLE[log]).toBe(expected[log]);
       }
     });
 
@@ -977,6 +978,34 @@ describe('CpmFilesystem', () => {
         const data = cpm.readFile(file.filename, file.extension, file.user);
         expect(data.length).toBe(file.size);
       }
+    });
+
+    realImageTest('reads real Lifeboat README as coherent ASCII text', () => {
+      // Regression: this file is what caught the bug where our data-track
+      // offset was byte 3 instead of byte 7 and our skew was self-invented
+      // rather than mits_skew_table. With those wrong, this file came
+      // back as scrambled binary; with them right it opens with the
+      // signature "READ-ME file for CP/M2 on Altair" header.
+      const imgPath = path.join(disksDir, 'LIFEBOAT-CPM22-48K.DSK');
+      if (!fs.existsSync(imgPath)) return;
+
+      const imageData = fs.readFileSync(imgPath);
+      const cpm = new CpmFilesystem(imageData);
+      const readme = cpm.listFiles().find(f => f.filename === 'READ-ME');
+      if (!readme) return; // fixture doesn't have it — skip rather than fail
+
+      const data = cpm.readFile(readme.filename, readme.extension, readme.user);
+      const head = data.subarray(0, 200).toString('latin1');
+      expect(head).toContain('READ-ME');
+      expect(head).toContain('CP/M');
+      // >90% of the first 512 bytes should be printable ASCII if we're
+      // decoding correctly — a scrambled read would be well under that.
+      const sample = data.subarray(0, 512);
+      let printable = 0;
+      for (const b of sample) {
+        if ((b >= 0x20 && b <= 0x7E) || b === 0x0A || b === 0x0D || b === 0x09) printable++;
+      }
+      expect(printable / sample.length).toBeGreaterThan(0.9);
     });
 
     realImageTest('getFreeSpace returns valid data for real disk', () => {
