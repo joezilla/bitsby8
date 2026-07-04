@@ -11,6 +11,9 @@ dist/
 # /api/status can report the actual deployed build/commit/timestamp.
 /build-info.json
 
+# Autoconf cache from a prior build system — not used by this project.
+autom4te.cache/
+
 # Dependencies
 node_modules/
 node_modules_back/
