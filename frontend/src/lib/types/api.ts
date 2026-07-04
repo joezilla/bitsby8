@@ -14,7 +14,11 @@ export interface ServerStatus {
   };
   drives: DriveState[];
   system: {
-    version: string;
+    version: string;                // "2.0.0" — upstream semver
+    build: string | null;           // "149+g76c38eb.dirty.1783199368" — git-derived revision
+    commit: string | null;          // "76c38eb"
+    dirty: boolean;
+    builtAt: string | null;         // ISO-8601 UTC
     uptimeSeconds: number;
   };
   timestamp: string;

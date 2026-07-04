@@ -37,11 +37,32 @@ export function registerCpmRoutes(router: Router, deps: Dependencies): void {
     return false;
   };
 
-  // Configure multer for CP/M file uploads (memory storage - small files)
+  // Configure multer for CP/M file uploads (memory storage - small files).
+  // Ceiling matches the largest disk format we support (8 MB) so any file
+  // that could plausibly fit on any target disk gets through here; the
+  // real "does it fit" check happens later against the target disk's
+  // free space.
   const cpmUpload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 256 * 1024 }, // 256KB max (CP/M file limit)
+    limits: { fileSize: 8 * 1024 * 1024 },
   });
+
+  // Wrap multer so its errors surface as clean JSON responses instead of
+  // the framework's default HTML stack trace.
+  const runCpmUpload = (req: Request, res: Response, next: () => void): void => {
+    cpmUpload.single('file')(req, res, (err: unknown) => {
+      if (err instanceof multer.MulterError) {
+        const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+        res.status(status).json({ error: err.message, code: err.code });
+        return;
+      }
+      if (err) {
+        res.status(400).json({ error: safeErrorMessage(err) });
+        return;
+      }
+      next();
+    });
+  };
 
   /**
    * @openapi
@@ -335,7 +356,7 @@ export function registerCpmRoutes(router: Router, deps: Dependencies): void {
    */
   router.post(
     '/api/images/:filename/cpm/files',
-    cpmUpload.single('file'),
+    runCpmUpload,
     async (req: Request, res: Response): Promise<void> => {
       try {
         const filePath = validateDiskFilename(req.params.filename, res);

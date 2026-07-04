@@ -411,7 +411,7 @@ export function createMcpServer(deps: Dependencies): McpServer {
     'Create a new blank disk image file',
     {
       filename: z.string().describe('Name for the new disk image (without extension)'),
-      format: z.enum(['8inch', 'minidisk', '8mb']).describe('Disk format: 8inch (77 tracks), minidisk (17 tracks), or 8mb (1863 tracks)'),
+      format: z.enum(['8inch', 'minidisk', '8mb']).describe('Disk format: 8inch = 8-inch floppy (77 tracks, 330 KB), minidisk = 5.25" mini-disk (17 tracks, 75 KB), 8mb = 8 MB hard disk (1863 tracks, ~7.8 MB)'),
       extension: z.enum(['.dsk', '.img', '.ima']).describe('File extension for the disk image'),
     },
     async ({ filename, format, extension }) => {

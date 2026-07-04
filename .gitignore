@@ -7,6 +7,10 @@ dist/
 # Debian build artifacts (Makefile collects `make deb` output here)
 /build/
 
+# Generated at build time by the Makefile; loaded at runtime so
+# /api/status can report the actual deployed build/commit/timestamp.
+/build-info.json
+
 # Dependencies
 node_modules/
 node_modules_back/

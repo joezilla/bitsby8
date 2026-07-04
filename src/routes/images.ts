@@ -8,6 +8,32 @@ import { Dependencies } from '../types';
 import { safeResolvePath, safeErrorMessage } from '../utils/safe-path';
 import { listDiskImages, listDiskImagesWithDetails } from '../services/file-listing';
 import { MAX_DRIVES } from '../protocol';
+import { CpmFilesystem, PARAMS_8INCH, PARAMS_MINIDISK, type CpmDiskParams } from '../cpm-filesystem';
+
+// Map a create-image `format` value to the disk-parameter block used
+// by CpmFilesystem.formatImage(). Keeps the enum → params translation
+// in one place so the create and reformat routes stay consistent.
+function paramsForFormat(format: string): CpmDiskParams | null {
+  switch (format) {
+    case '8inch':
+      return PARAMS_8INCH;
+    case 'minidisk':
+      return PARAMS_MINIDISK;
+    case '8mb':
+      // 8 MB hard-disk uses 4K blocks and 16-bit block pointers.
+      // Values mirror altair_tools' 8megAltairSIMH definition.
+      return {
+        seclen: 128,
+        tracks: 2048,
+        sectrk: 32,
+        blocksize: 4096,
+        maxdir: 1024,
+        boottrk: 6,
+      };
+    default:
+      return null;
+  }
+}
 
 export function registerImageRoutes(router: Router, deps: Dependencies): void {
   /**
@@ -314,7 +340,7 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
    *               format:
    *                 type: string
    *                 enum: [8inch, minidisk, 8mb]
-   *                 description: "Disk format: 8inch (77 tracks, 330K), minidisk (17 tracks, 75K), 8mb (1863 tracks)"
+   *                 description: "Disk format: 8inch = 8-inch floppy (77 tracks, 330K), minidisk = 5.25\" mini-disk (17 tracks, 75K), 8mb = 8 MB hard disk (1863 tracks, ~7.8 MB)"
    *               extension:
    *                 type: string
    *                 enum: [.dsk, .img, .ima]
@@ -385,30 +411,11 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
         return;
       }
 
-      // Calculate disk size based on format
-      const TRACK_SIZE = 137 * 32; // 4,384 bytes per track
-      let trackCount: number;
-      let formatLabel: string;
-
-      switch (format) {
-        case '8inch':
-          trackCount = 77;
-          formatLabel = '8-inch (330K)';
-          break;
-        case 'minidisk':
-          trackCount = 17;
-          formatLabel = 'Minidisk (75K)';
-          break;
-        case '8mb':
-          trackCount = 1863;
-          formatLabel = '8MB';
-          break;
-        default:
-          res.status(400).json({ error: 'Invalid format. Must be 8inch, minidisk, or 8mb' });
-          return;
+      const params = paramsForFormat(format);
+      if (!params) {
+        res.status(400).json({ error: 'Invalid format. Must be 8inch, minidisk, or 8mb' });
+        return;
       }
-
-      const diskSize = trackCount * TRACK_SIZE;
 
       // Construct full filename and path
       const fullFilename = filename.endsWith(extension) ? filename : `${filename}${extension}`;
@@ -420,15 +427,16 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
         return;
       }
 
-      // Create blank disk image (all zeros)
-      const zeroBuffer = Buffer.alloc(diskSize, 0);
-      await fs.writeFile(filePath, zeroBuffer);
+      // Format a proper MITS 8" style image — correct sector framing,
+      // 0xE5-filled data, ready for CP/M to mount and use.
+      const image = CpmFilesystem.formatImage(params);
+      await fs.writeFile(filePath, image);
 
       res.json({
         success: true,
         filename: fullFilename,
-        size: diskSize,
-        format: formatLabel,
+        size: image.length,
+        format,
       });
     } catch (error) {
       res.status(500).json({ error: safeErrorMessage(error) });
@@ -486,6 +494,81 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
    *             schema:
    *               $ref: '#/components/schemas/ErrorResponse'
    */
+  /**
+   * @openapi
+   * /api/images/{filename}/format:
+   *   post:
+   *     tags: [Images]
+   *     summary: Reformat a disk image
+   *     description: Erases every byte on the image and lays down a fresh MITS 8" sector layout. Fails if the disk is mounted.
+   *     parameters:
+   *       - in: path
+   *         name: filename
+   *         required: true
+   *         schema:
+   *           type: string
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               format:
+   *                 type: string
+   *                 enum: [8inch, minidisk, 8mb]
+   *                 description: Target format. Omit to derive from the current image size.
+   *     responses:
+   *       200:
+   *         description: Image reformatted
+   *       409:
+   *         description: Disk is mounted
+   */
+  router.post('/api/images/:filename/format', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const filename = req.params.filename;
+      if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+        res.status(400).json({ error: 'Invalid filename' });
+        return;
+      }
+      const filePath = safeResolvePath(deps.config.disksDir, filename);
+      if (!filePath) {
+        res.status(404).json({ error: 'File not found' });
+        return;
+      }
+
+      // Refuse if mounted anywhere.
+      for (let i = 0; i < MAX_DRIVES; i++) {
+        const state = deps.driveManager.getDriveState(i);
+        if (state && state.mounted && state.filename && path.basename(state.filename) === filename) {
+          res.status(409).json({ error: `Cannot format: image is mounted on drive ${i}` });
+          return;
+        }
+      }
+
+      // Pick format: explicit body wins; otherwise infer from current
+      // image size so a reformat on an 8" .dsk keeps its 8" geometry.
+      let format: string | undefined = req.body?.format;
+      if (!format) {
+        const stats = await fs.stat(filePath);
+        if (stats.size >= 74528 && stats.size <= 74624) format = 'minidisk';
+        else if (stats.size >= 337568 && stats.size <= 337664) format = '8inch';
+        else if (stats.size >= 8000000) format = '8mb';
+      }
+      const params = format ? paramsForFormat(format) : null;
+      if (!params) {
+        res.status(400).json({ error: 'Unknown format. Pass one of: 8inch, minidisk, 8mb' });
+        return;
+      }
+
+      const image = CpmFilesystem.formatImage(params);
+      await fs.writeFile(filePath, image);
+
+      res.json({ success: true, filename, size: image.length, format });
+    } catch (error) {
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+
   router.delete('/api/images/:filename', async (req: Request, res: Response): Promise<void> => {
     try {
       const filename = req.params.filename;

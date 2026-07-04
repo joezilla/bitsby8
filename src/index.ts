@@ -433,20 +433,22 @@ async function main(): Promise<void> {
               continue;
             }
 
-            // Check if drive is already mounted (from config)
+            // DB assignment is source of truth: if a slot was mounted from CLI/config
+            // with a different image, remount to match the DB. mountDrive() closes
+            // the existing handle before opening the new one.
             const driveState = driveManager.getDriveState(assignment.drive_id);
-            const alreadyMounted = driveState && driveState.mounted;
-            console.log(`DEBUG: Drive ${assignment.drive_id} state check: driveState=${JSON.stringify(driveState)}, alreadyMounted=${alreadyMounted}`);
+            const currentFilename = driveState?.mounted && driveState.filename
+              ? path.basename(driveState.filename)
+              : null;
 
-            if (alreadyMounted) {
-              // Drive already mounted from config - only update readonly status if different
-              console.log(`Drive ${assignment.drive_id} already mounted, updating readonly status to ${assignment.readonly ? 'RO' : 'RW'}`);
+            if (currentFilename === assignment.filename) {
               await driveManager.writeProtect(assignment.drive_id, !!assignment.readonly);
             } else {
-              // Drive not mounted yet - mount it now
+              if (currentFilename !== null) {
+                console.log(`Drive ${assignment.drive_id}: DB assignment overrides CLI/config (${currentFilename} → ${assignment.filename})`);
+              }
               await driveManager.mountDrive(assignment.drive_id, fullPath);
 
-              // Set readonly status after mounting
               if (assignment.readonly) {
                 await driveManager.writeProtect(assignment.drive_id, true);
               }

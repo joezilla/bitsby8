@@ -338,6 +338,27 @@
     }
   }
 
+  async function formatCpmDisk() {
+    if (!cpmDisk) return;
+    if (cpmMounted) {
+      showToast('Unmount the disk before formatting', 'warning');
+      return;
+    }
+    const ok = confirm(
+      `Format ${cpmDisk.name}?\n\n` +
+      `This will erase every file on the disk and lay down a fresh CP/M layout. ` +
+      `This cannot be undone.`,
+    );
+    if (!ok) return;
+    try {
+      await api.formatImage(cpmDisk.name);
+      showToast(`Formatted ${cpmDisk.name}`, 'success');
+      await refreshCpm(cpmDisk.name);
+    } catch (err: any) {
+      showToast(`Format failed: ${err.message}`, 'error');
+    }
+  }
+
   async function uploadCpmFiles(files: FileList | File[]) {
     if (!cpmDisk) return;
     if (cpmMounted) {
@@ -569,9 +590,9 @@
           <div>
             <label class="fdc-label-strip" for="new-disk-format" style="display: block; margin-bottom: 4px;">Format</label>
             <Select id="new-disk-format" bind:value={newDiskFormat}>
-              <option value="8inch">8" Lifeboat (330 KB, 77 tracks)</option>
-              <option value="minidisk">Minidisk (75 KB, 17 tracks)</option>
-              <option value="8mb">8 MB (1863 tracks)</option>
+              <option value="8inch">8-inch floppy (330 KB)</option>
+              <option value="minidisk">5.25" mini-disk (75 KB)</option>
+              <option value="8mb">8 MB hard disk (7.8 MB)</option>
             </Select>
           </div>
           <div>
@@ -867,7 +888,16 @@
             {cpmDisk.name}
           </h3>
         </div>
-        <IconButton icon="close" size={18} title="Close" onclick={closeCpmBrowser} />
+        <div style="display: flex; align-items: center; gap: 4px;">
+          <IconButton
+            icon="restart_alt"
+            size={18}
+            title={cpmMounted ? 'Unmount before formatting' : 'Format disk (erases everything)'}
+            disabled={!!cpmMounted}
+            onclick={formatCpmDisk}
+          />
+          <IconButton icon="close" size={18} title="Close" onclick={closeCpmBrowser} />
+        </div>
       </div>
 
       <!-- Experimental + safety notice -->

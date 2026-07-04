@@ -79,6 +79,34 @@ EOF
             chmod 644 /etc/fdcsds/fdcsds.config.json
         fi
 
+        # Rebuild native modules against the target system's Node ABI.
+        # The .deb is built once (usually on a Pi with Node 20) but pnpm's
+        # store may hand out a better-sqlite3 binary compiled against a
+        # different Node (Node 24 ABI 141 was the recurring offender). If
+        # the shipped binary's ABI doesn't match the running Node, DB init
+        # throws "compiled against a different Node.js version" and every
+        # API call that touches the DB returns 500. Force-recompile in
+        # place so the binary always matches whichever Node is installed.
+        #
+        # Runs in the pnpm virtual-store path since node-linker=hoisted
+        # leaves .pnpm/<pkg>/node_modules/<pkg>/ as the source of truth
+        # for the top-level symlink at node_modules/<pkg>/.
+        if command -v npm >/dev/null 2>&1; then
+            for pkg in better-sqlite3; do
+                pkg_dir=$(find /usr/lib/fdcsds/node_modules/.pnpm -maxdepth 1 \
+                    -type d -name "${pkg}@*" 2>/dev/null | head -1)
+                if [ -n "$pkg_dir" ] && [ -d "$pkg_dir/node_modules/$pkg" ]; then
+                    echo "Rebuilding $pkg for local Node ABI..."
+                    (cd "$pkg_dir/node_modules/$pkg" && npm rebuild --build-from-source) \
+                        || echo "WARNING: $pkg rebuild failed — DB features may not work."
+                fi
+            done
+        else
+            echo "WARNING: npm not on PATH — cannot rebuild native modules."
+            echo "         If the DB fails to init, install npm and run:"
+            echo "         cd /usr/lib/fdcsds/node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3 && npm rebuild"
+        fi
+
         # Reload systemd daemon to recognize new service
         if [ -d /run/systemd/system ]; then
             systemctl daemon-reload >/dev/null || true

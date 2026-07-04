@@ -7,44 +7,54 @@
  */
 
 // ---------------------------------------------------------------------------
-// Physical sector framing constants.
+// Physical sector layout for MITS 88-DCDD 8" disks.
 //
-// Altair 8" SD Lifeboat disks use TWO physical-sector layouts in the same
-// image. Tracks 0-5 hold the cold-start loader, the CP/M system image, and
-// the directory; they use the "boot" framing (a.k.a. CDBL). Tracks 6+ are
-// the user data area and use the longer "data" framing the BIOS lays down
-// during normal file I/O.
+// The controller writes 137-byte sectors with two very different framings
+// depending on the track. The layout below matches the altair_tools
+// reference implementation (see docs/altair_8in_fdd.md in that repo) —
+// prior attempts to reverse-engineer this from disk samples got several
+// details wrong, so treat that reference as authoritative.
 //
 //   Boot framing (tracks 0-5):
 //     [0]      track | 0x80
-//     [1-2]    file byte count (boot tracks) or unused
+//     [1-2]    unused (bytes 0x00 0x01 after formatting)
 //     [3-130]  128 data bytes
 //     [131]    0xFF stop byte
-//     [132]    8-bit checksum (sum of bytes 3-130)
-//     [133-136] spare
+//     [132]    checksum = sum(data[0..127]) mod 256
+//     [133-136] 0x00
 //
 //   Data framing (tracks 6-76):
 //     [0]      track | 0x80
-//     [1]      physical-sector position (phys × 17 mod 256)
-//     [2]      0x01
-//     [3-130]  128 data bytes
-//     [131-134] padding (must NOT contain 0xFF — would be a false stop byte)
+//     [1]      sector ID = (physSector * 17) mod 32 (physSector is 0..31)
+//     [2-3]    unused (included in checksum)
+//     [4]      checksum = sum(data[0..127]) + sector[2..3] + sector[5..6],
+//              all mod 256
+//     [5-6]    unused (included in checksum)
+//     [7-134]  128 data bytes
 //     [135]    0xFF stop byte
 //     [136]    0x00
-//
-// Writing the boot layout to a data track corrupts the frame and CP/M
-// reports "Bdos Err on B: Bad Sector" on read.
 // ---------------------------------------------------------------------------
 export const CDBL = {
   SECTOR_SIZE: 137,        // Total bytes per physical sector record
-  DATA_OFFSET: 3,          // Byte offset to start of 128-byte data payload
   DATA_SIZE: 128,          // CP/M logical sector size
   SECTORS_PER_TRACK: 32,   // Physical sectors per track
   TRACK_SIZE: 137 * 32,    // 4384 bytes per track
-  MARKER_OFFSET: 131,      // Boot-track 0xFF marker position
-  CHECKSUM_OFFSET: 132,    // Boot-track checksum position
-  DATA_MARKER_OFFSET: 135, // Data-track 0xFF marker position
-  DATA_END_OFFSET: 136,    // Data-track terminator (0x00)
+  // Boot-framing offsets (tracks 0-5)
+  BOOT_DATA_OFFSET: 3,
+  BOOT_STOP_OFFSET: 131,
+  BOOT_CSUM_OFFSET: 132,
+  BOOT_ZERO_OFFSET: 133,
+  // Data-framing offsets (tracks 6+)
+  DATA_DATA_OFFSET: 7,
+  DATA_STOP_OFFSET: 135,
+  DATA_END_OFFSET: 136,
+  DATA_CSUM_OFFSET: 4,
+  DATA_SECT_OFFSET: 1,
+  // Backwards-compatible aliases so tests/UI code doesn't break.
+  DATA_OFFSET: 3,
+  MARKER_OFFSET: 131,
+  CHECKSUM_OFFSET: 132,
+  DATA_MARKER_OFFSET: 135,
 } as const;
 
 // Altair 8" SD: tracks 0-5 use boot framing, tracks 6+ use data framing.
@@ -93,38 +103,58 @@ export const PARAMS_MINIDISK: CpmDiskParams = {
 };
 
 // ---------------------------------------------------------------------------
-// 2:1 interleave table  –  maps logical sector → physical sector
-// CDBL reads evens first (0,2,4,...,30) then odds (1,3,5,...,31)
+// MITS 8" sector skew tables.
+//
+// The interleave the BIOS uses to translate a logical sector index into a
+// physical sector position differs between boot tracks (0-5) and data
+// tracks (6+). Both derive from a 1-based base table:
+//
+//   base = [1, 9, 17, 25, 3, 11, 19, 27, 5, 13, 21, 29, 7, 15, 23, 31,
+//           2, 10, 18, 26, 4, 12, 20, 28, 6, 14, 22, 30, 8, 16, 24, 32]
+//
+// Tracks 0-5: physical = base[logical] (with `-1` to switch to 0-based).
+// Tracks 6+ : physical = ((base[logical] - 1) * 17) mod 32 + 1
+//             ("strange historical reasons", per altair_tools).
+//
+// Both tables below are 0-based. Blindly using the boot skew on data
+// tracks (or vice versa) scrambles the second half of every block, and
+// using a self-invented 2:1 scheme scrambles the whole thing.
 // ---------------------------------------------------------------------------
-function buildInterleaveTable(): number[] {
-  const table: number[] = new Array(32);
-  let phys = 0;
-  // Even physical sectors first (logical 0..15 → physical 0,2,4,...,30)
-  for (let log = 0; log < 16; log++) {
-    table[log] = phys;
-    phys += 2;
-  }
-  // Odd physical sectors next (logical 16..31 → physical 1,3,5,...,31)
-  phys = 1;
-  for (let log = 16; log < 32; log++) {
-    table[log] = phys;
-    phys += 2;
-  }
-  return table;
+const MITS_BASE_SKEW: number[] = [
+   1,  9, 17, 25,  3, 11, 19, 27,  5, 13, 21, 29,  7, 15, 23, 31,
+   2, 10, 18, 26,  4, 12, 20, 28,  6, 14, 22, 30,  8, 16, 24, 32,
+];
+
+function buildBootSkew(): number[] {
+  return MITS_BASE_SKEW.map(v => v - 1);
 }
 
-export const INTERLEAVE_TABLE = buildInterleaveTable();
-
-// Reverse table: physical sector → logical sector
-function buildReverseInterleaveTable(): number[] {
-  const table: number[] = new Array(32);
-  for (let log = 0; log < 32; log++) {
-    table[INTERLEAVE_TABLE[log]] = log;
-  }
-  return table;
+function buildDataSkew(): number[] {
+  return MITS_BASE_SKEW.map(v => (((v - 1) * 17) % 32));
 }
 
-export const REVERSE_INTERLEAVE_TABLE = buildReverseInterleaveTable();
+export const BOOT_SKEW_TABLE = buildBootSkew();
+export const DATA_SKEW_TABLE = buildDataSkew();
+
+/**
+ * Map a logical sector (0-31) on the given track to a physical sector
+ * position (0-31), applying the right skew for the track's framing.
+ */
+export function logicalToPhysical(track: number, logicalSector: number, systemTracks: number): number {
+  const table = track < systemTracks ? BOOT_SKEW_TABLE : DATA_SKEW_TABLE;
+  return table[logicalSector];
+}
+
+// Legacy re-exports so callers that predate the split still compile.
+// INTERLEAVE_TABLE now points at the boot skew (correct for the
+// directory-track reads that were the original use case); anything
+// I/O-bound routes through logicalToPhysical() instead.
+export const INTERLEAVE_TABLE = BOOT_SKEW_TABLE;
+export const REVERSE_INTERLEAVE_TABLE: number[] = (() => {
+  const t = new Array(32);
+  for (let log = 0; log < 32; log++) t[BOOT_SKEW_TABLE[log]] = log;
+  return t;
+})();
 
 // ---------------------------------------------------------------------------
 // Directory entry structure (32 bytes each)
@@ -197,64 +227,75 @@ export class CpmFilesystem {
   // =========================================================================
 
   /**
-   * Read a 128-byte CP/M logical sector from the image.
-   * @param track  Absolute track number (0-based)
-   * @param logicalSector  Logical sector (0-31), mapped through interleave table
+   * Data-payload offset within a physical sector, depending on the
+   * track's framing style. Boot tracks put data at byte 3; data tracks
+   * (6+) push it back to byte 7 to make room for the FDC's per-sector
+   * checksum at byte 4.
    */
-  readSector(track: number, logicalSector: number): Buffer {
-    const physSector = INTERLEAVE_TABLE[logicalSector];
-    const offset = (track * CDBL.SECTORS_PER_TRACK + physSector) * CDBL.SECTOR_SIZE + CDBL.DATA_OFFSET;
-    if (offset + CDBL.DATA_SIZE > this.imageData.length) {
-      throw new Error(
-        `Sector read out of bounds: track=${track} logSec=${logicalSector} physSec=${physSector} offset=${offset}`
-      );
-    }
-    return Buffer.from(this.imageData.subarray(offset, offset + CDBL.DATA_SIZE));
+  private dataOffsetForTrack(track: number): number {
+    const systemTracks = this.params.systemTracks ?? this.params.tracks;
+    return track < systemTracks ? CDBL.BOOT_DATA_OFFSET : CDBL.DATA_DATA_OFFSET;
   }
 
   /**
-   * Write a 128-byte CP/M logical sector to the image.
-   * Picks the boot or data sector framing based on the track number.
+   * Read a 128-byte CP/M logical sector from the image.
+   */
+  readSector(track: number, logicalSector: number): Buffer {
+    const systemTracks = this.params.systemTracks ?? this.params.tracks;
+    const physSector = logicalToPhysical(track, logicalSector, systemTracks);
+    const sectorBase = (track * CDBL.SECTORS_PER_TRACK + physSector) * CDBL.SECTOR_SIZE;
+    const dataOff = this.dataOffsetForTrack(track);
+    if (sectorBase + dataOff + CDBL.DATA_SIZE > this.imageData.length) {
+      throw new Error(
+        `Sector read out of bounds: track=${track} logSec=${logicalSector} physSec=${physSector}`
+      );
+    }
+    return Buffer.from(this.imageData.subarray(sectorBase + dataOff, sectorBase + dataOff + CDBL.DATA_SIZE));
+  }
+
+  /**
+   * Write a 128-byte CP/M logical sector to the image, updating whichever
+   * framing bytes the track type requires (stop, zero, checksum, sector
+   * ID). Does NOT re-format the surrounding "unused" bytes on data
+   * tracks — they were set at format time and are included verbatim in
+   * the checksum sum.
    */
   writeSector(track: number, logicalSector: number, data: Buffer): void {
     if (data.length !== CDBL.DATA_SIZE) {
       throw new Error(`Sector data must be exactly ${CDBL.DATA_SIZE} bytes, got ${data.length}`);
     }
-    const physSector = INTERLEAVE_TABLE[logicalSector];
+    const systemTracks = this.params.systemTracks ?? this.params.tracks;
+    const physSector = logicalToPhysical(track, logicalSector, systemTracks);
     const sectorBase = (track * CDBL.SECTORS_PER_TRACK + physSector) * CDBL.SECTOR_SIZE;
     if (sectorBase + CDBL.SECTOR_SIZE > this.imageData.length) {
-      throw new Error(
-        `Sector write out of bounds: track=${track} logSec=${logicalSector}`
-      );
+      throw new Error(`Sector write out of bounds: track=${track} logSec=${logicalSector}`);
     }
 
-    // Byte 0: sync (track | 0x80) — same in both framings.
+    // Byte 0 is the same in both framings — track marker with high bit set.
     this.imageData[sectorBase] = track | 0x80;
 
-    // Bytes 3-130: 128-byte CP/M payload — same offset in both framings.
-    data.copy(this.imageData, sectorBase + CDBL.DATA_OFFSET);
-
-    const systemTracks = this.params.systemTracks ?? this.params.tracks;
     if (track < systemTracks) {
-      // Boot/CDBL framing (tracks 0-5 on 8" Lifeboat).
-      this.imageData[sectorBase + CDBL.MARKER_OFFSET] = 0xFF;
-      let checksum = 0;
-      for (let i = 0; i < CDBL.DATA_SIZE; i++) {
-        checksum = (checksum + data[i]) & 0xFF;
-      }
-      this.imageData[sectorBase + CDBL.CHECKSUM_OFFSET] = checksum;
+      // Boot framing: data at [3..130], stop at 131, checksum at 132.
+      data.copy(this.imageData, sectorBase + CDBL.BOOT_DATA_OFFSET);
+      this.imageData[sectorBase + CDBL.BOOT_STOP_OFFSET] = 0xFF;
+      let csum = 0;
+      for (let i = 0; i < CDBL.DATA_SIZE; i++) csum = (csum + data[i]) & 0xFF;
+      this.imageData[sectorBase + CDBL.BOOT_CSUM_OFFSET] = csum;
+      // Bytes 133-136 are 0x00 in a freshly formatted disk; leave in
+      // place so we don't stomp any signature on non-blank disks.
     } else {
-      // Data-track framing (tracks 6+ on 8" Lifeboat). Bytes 131-134 must
-      // not contain 0xFF — that would look like a stop byte to the BIOS
-      // and produce "Bad Sector" on read.
-      this.imageData[sectorBase + 1] = (physSector * 17) & 0xFF;
-      this.imageData[sectorBase + 2] = 0x01;
-      this.imageData[sectorBase + 131] = 0;
-      this.imageData[sectorBase + 132] = 0;
-      this.imageData[sectorBase + 133] = 0;
-      this.imageData[sectorBase + 134] = 0;
-      this.imageData[sectorBase + CDBL.DATA_MARKER_OFFSET] = 0xFF;
+      // Data framing: data at [7..134], stop at 135, zero at 136,
+      // sector ID at 1, checksum at 4. The checksum includes bytes
+      // 2, 3, 5, 6 of the on-disk sector — preserve whatever's there.
+      data.copy(this.imageData, sectorBase + CDBL.DATA_DATA_OFFSET);
+      this.imageData[sectorBase + CDBL.DATA_SECT_OFFSET] = (physSector * 17) & 31;
+      this.imageData[sectorBase + CDBL.DATA_STOP_OFFSET] = 0xFF;
       this.imageData[sectorBase + CDBL.DATA_END_OFFSET] = 0x00;
+      let csum = 0;
+      for (let i = 0; i < CDBL.DATA_SIZE; i++) csum = (csum + data[i]) & 0xFF;
+      csum = (csum + this.imageData[sectorBase + 2] + this.imageData[sectorBase + 3]
+                   + this.imageData[sectorBase + 5] + this.imageData[sectorBase + 6]) & 0xFF;
+      this.imageData[sectorBase + CDBL.DATA_CSUM_OFFSET] = csum;
     }
   }
 
@@ -500,9 +541,15 @@ export class CpmFilesystem {
       // But we can simplify: just use the extent number for all but the
       // last entry, and for the last entry count its actual records.
 
-      // Determine EXM for this disk
-      const pointersPerEntry = this.useLargePointers ? 8 : 16;
-      const recordsPerEntry = pointersPerEntry * (this.params.blocksize / this.params.seclen);
+      // Determine EXM for this disk.
+      //
+      // CP/M 2.2 always reserves 8 allocation slots per directory entry
+      // (`ALLOCS_PER_EXT = 16` bytes; either 8 uint8 or 8 uint16LE).
+      // Records per entry = 8 * (blocksize / seclen). EXM =
+      // recordsPerEntry / 128 - 1 (0 for standard 8" 2K blocks, 1 for a
+      // 4K-block hard disk, etc.). Verified against altair_tools'
+      // disk_recs_per_extent() = ((recs_per_alloc * 8) + 127)/128 * 128.
+      const recordsPerEntry = 8 * (this.params.blocksize / this.params.seclen);
       const exm = Math.max(0, Math.floor(recordsPerEntry / 128) - 1);
 
       const lastExtLow = last.extentLow & 0x1F;
@@ -636,24 +683,34 @@ export class CpmFilesystem {
     // Allocate blocks
     const allocatedBlocks = this.allocateBlocks(blocksNeeded);
 
-    // Write data to blocks
+    // Write data to blocks. CP/M convention: pad the tail of the last
+    // used record with 0x1A (Ctrl-Z) — the standard EOF marker text
+    // tools (MBASIC's LOAD, ED, TYPE) stop at. Bytes past the last used
+    // record inside the same block stay zero. Files that are an exact
+    // multiple of 128 bytes get no 0x1A (nothing to pad).
+    const bytesInLastRecord = data.length % this.params.seclen;
     for (let i = 0; i < blocksNeeded; i++) {
       const blockData = Buffer.alloc(this.params.blocksize, 0);
       const srcOff = i * this.params.blocksize;
       const copyLen = Math.min(this.params.blocksize, data.length - srcOff);
       data.copy(blockData, 0, srcOff, srcOff + copyLen);
+      // If this is the final block AND the file ends mid-record, fill
+      // the remainder of that record with 0x1A.
+      if (i === blocksNeeded - 1 && bytesInLastRecord !== 0) {
+        const recordEnd = copyLen + (this.params.seclen - bytesInLastRecord);
+        blockData.fill(0x1A, copyLen, recordEnd);
+      }
       this.writeBlock(allocatedBlocks[i], blockData);
     }
 
-    // Create directory entries (may need multiple extents)
-    // Each directory entry holds pointersPerExtent block pointers.
-    // The CP/M logical extent size is 16K (128 records × 128 bytes).
-    // EXM (extent mask) determines how many logical extents fit in one
-    // directory entry:  EXM = (blocksize / 128) * pointersPerEntry / 128 - 1
-    // For 8-bit ptrs with 2K blocks: EXM = (2048/128)*16/128 - 1 = 1
-    // For 16-bit ptrs with 2K blocks: EXM = (2048/128)*8/128 - 1 = 0
-    const pointersPerExtent = this.useLargePointers ? 8 : 16;
-    const blocksPerExtent = pointersPerExtent;
+    // Create directory entries. CP/M 2.2 uses 8 allocation slots per
+    // directory entry regardless of pointer size (8-bit or 16-bit).
+    // Slots 8..15 of the 16-byte allocation area stay zero on 8-bit
+    // disks. Each entry covers `recordsPerEntry = 8 * (blocksize/seclen)`
+    // records, spanning `logicalExtentsPerEntry = recordsPerEntry / 128`
+    // logical extents (EXM = that - 1). altair_tools computes the same
+    // as `disk_recs_per_extent()`.
+    const blocksPerExtent = 8;
     const recordsPerEntry = blocksPerExtent * (this.params.blocksize / this.params.seclen);
     const logicalExtentsPerEntry = Math.max(1, Math.floor(recordsPerEntry / 128));
     const dirEntryCount = Math.ceil(blocksNeeded / blocksPerExtent);
@@ -670,9 +727,20 @@ export class CpmFilesystem {
       const endBlock = Math.min(startBlock + blocksPerExtent, blocksNeeded);
       const extentBlocks = allocatedBlocks.slice(startBlock, endBlock);
 
-      // Calculate RC (record count) for this directory entry
+      // Calculate RC (record count) for this directory entry.
+      //
+      // Byte 13 of the entry (S1 / "bc") is reserved in CP/M 2.2 — the
+      // spec says it must be 0. CP/M 3.x reused it as "byte count in
+      // last record," and some 2.2 clones misinterpret a non-zero S1 as
+      // an internal BDOS scratch field, corrupting sequential reads
+      // (observed as 4-sector jumps on a Burcon-derived CP/M 2.2).
+      // Every existing entry we've inspected on real Altair disks stores
+      // 0 here regardless of the true tail-byte count. Match that
+      // convention: always emit S1=0, round file size up to a full
+      // record, and rely on the last record's padding (0x00 for now) to
+      // signal end-of-data.
       let rc: number;
-      let bc = 0;
+      const bc = 0;
       if (dir_idx === dirEntryCount - 1) {
         // Last entry: calculate remaining records
         const bytesInPrevEntries = dir_idx * blocksPerExtent * this.params.blocksize;
@@ -680,9 +748,6 @@ export class CpmFilesystem {
         rc = Math.ceil(remainingBytes / this.params.seclen);
         // RC is modulo 128 (records within the last logical extent of this entry)
         if (rc > 128) rc = rc % 128 || 128;
-        // BC = byte count in last record
-        bc = remainingBytes % this.params.seclen;
-        if (bc === 0 && remainingBytes > 0) bc = 0; // full last record = 0
       } else {
         rc = recordsPerEntry > 128 ? 128 : recordsPerEntry;
       }
@@ -751,12 +816,28 @@ export class CpmFilesystem {
 
     // Mark blocks referenced by active directory entries
     const entries = this.readDirectory();
+    let firstUsed = Infinity;
     for (const entry of entries) {
       if (entry.status === 0xE5 || entry.status > 0x1F) continue;
       for (const bp of entry.blockPointers) {
         if (bp > 0 && bp < totalBlocks) {
           bitmap[bp] = true;
+          if (bp < firstUsed) firstUsed = bp;
         }
+      }
+    }
+
+    // Reserve any gap between our expected dirBlocks and the first block
+    // an existing file actually uses. CP/M formats vary in how many blocks
+    // they reserve for the directory (via AL0/AL1 in the DPB), and that
+    // reservation isn't stored on the disk. If a disk was formatted with
+    // maxdir larger than ours and its files start at block N > dirBlocks,
+    // blocks dirBlocks..N-1 hold directory entries our default maxdir
+    // doesn't see. Allocating into them would clobber live directory
+    // sectors and yield "Bdos Err: Bad Sector" on the real machine.
+    if (firstUsed !== Infinity && firstUsed > dirBlocks) {
+      for (let i = dirBlocks; i < firstUsed && i < bitmap.length; i++) {
+        bitmap[i] = true;
       }
     }
 
@@ -964,6 +1045,60 @@ export class CpmFilesystem {
 
     const norm = CpmFilesystem.normalizeFilename(cleanName);
     return { user, filename: norm.filename, extension: norm.extension };
+  }
+
+  /**
+   * Build a freshly-formatted MITS 8" style disk image of the given
+   * `params`. Every physical sector gets the correct framing bytes,
+   * sector ID, stop byte, zero terminator and checksum — matching the
+   * `mits8in_format_disk()` routine in altair_tools. Data area (bytes
+   * 3-130 on boot tracks, 7-134 on data tracks) is filled with 0xE5,
+   * which is CP/M's "unused" marker in the directory and elsewhere.
+   */
+  static formatImage(params: CpmDiskParams = PARAMS_8INCH): Buffer {
+    const systemTracks = params.systemTracks ?? params.tracks;
+    const imageSize = params.tracks * CDBL.SECTORS_PER_TRACK * CDBL.SECTOR_SIZE;
+    const image = Buffer.alloc(imageSize, 0);
+
+    for (let track = 0; track < params.tracks; track++) {
+      for (let phys = 0; phys < CDBL.SECTORS_PER_TRACK; phys++) {
+        const base = (track * CDBL.SECTORS_PER_TRACK + phys) * CDBL.SECTOR_SIZE;
+        // Start every sector as 0xE5 across the whole 137 bytes so the
+        // data payload is 0xE5-filled by default; framing bytes below
+        // overwrite the metadata positions.
+        image.fill(0xE5, base, base + CDBL.SECTOR_SIZE);
+        image[base] = track | 0x80;
+
+        if (track < systemTracks) {
+          // Boot framing: data at [3..130], stop at 131, csum at 132,
+          // zero-fill 133..136. Byte 1 = 0x00, byte 2 = 0x01 per
+          // altair_tools' format function.
+          image[base + 1] = 0x00;
+          image[base + 2] = 0x01;
+          image[base + CDBL.BOOT_STOP_OFFSET] = 0xFF;
+          image[base + 133] = 0;
+          image[base + 134] = 0;
+          image[base + 135] = 0;
+          image[base + 136] = 0;
+          // Checksum = sum of data[0..127] with data = 0xE5.
+          image[base + CDBL.BOOT_CSUM_OFFSET] = (0xE5 * CDBL.DATA_SIZE) & 0xFF;
+        } else {
+          // Data framing: byte 1 = sector ID, byte 2 = 0x01, data at
+          // [7..134], stop at 135, zero at 136. Bytes 3, 5, 6 stay 0xE5
+          // from the fill — they're "unused" but summed into the
+          // checksum, matching altair_tools' initial buffer state.
+          image[base + CDBL.DATA_SECT_OFFSET] = (phys * 17) & 31;
+          image[base + 2] = 0x01;
+          image[base + CDBL.DATA_STOP_OFFSET] = 0xFF;
+          image[base + CDBL.DATA_END_OFFSET] = 0x00;
+          // Checksum = sum(data[0..127]) + bytes 2, 3, 5, 6.
+          const dataSum = (0xE5 * CDBL.DATA_SIZE) & 0xFF;
+          const csum = (dataSum + image[base + 2] + image[base + 3] + image[base + 5] + image[base + 6]) & 0xFF;
+          image[base + CDBL.DATA_CSUM_OFFSET] = csum;
+        }
+      }
+    }
+    return image;
   }
 
   /**

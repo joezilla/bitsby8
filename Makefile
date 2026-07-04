@@ -5,16 +5,60 @@
 
 # Package information
 PACKAGE_NAME := fdcsds
-VERSION := 2.0.0
 ARCH := all
+
+# Version is derived from git so every commit produces a distinct, monotonic
+# Debian version — installs on the Pi are unambiguous and `dpkg -i` upgrades
+# cleanly instead of silently keeping the older payload.
+#
+#   upstream = 2.0.0 (bump manually for real semver events)
+#   revision = <commit-count>+g<short-sha>[.dirty.<epoch>]
+#
+# Examples:
+#   2.0.0-142+g3387ddc
+#   2.0.0-143+g84d40cb.dirty.1783198000   (uncommitted changes)
+#
+# Debian revisions may only contain [A-Za-z0-9.+~], so we use `+` and `.`
+# as separators (never `-`, which delimits upstream/revision).
+VERSION_BASE := 2.0.0
+GIT_COUNT    := $(shell git rev-list --count HEAD 2>/dev/null || echo 0)
+GIT_SHA      := $(shell git rev-parse --short=7 HEAD 2>/dev/null || echo unknown)
+GIT_DIRTY    := $(shell git diff-index --quiet HEAD 2>/dev/null || echo .dirty.$$(date +%s))
+VERSION      := $(VERSION_BASE)-$(GIT_COUNT)+g$(GIT_SHA)$(GIT_DIRTY)
+
+# CI=true makes pnpm skip the interactive "remove modules directory?"
+# prompt that fires whenever the on-disk pnpm major version differs from
+# the one that populated node_modules (common on the Pi after we
+# downgraded pnpm 11→10 to work around a Node 20 incompatibility).
+# The `.npmrc` also sets `confirm-modules-purge=false`, but that setting
+# isn't honored on all pnpm 10.x invocation paths — CI=true always is.
+export CI := true
 
 all: build
 
 # Build the TypeScript project (both trees: backend + Svelte SPA)
 build:
 	@echo "Building backend + frontend via pnpm workspace..."
-	corepack enable pnpm
+	# corepack activation is best-effort: on hosts where it's already
+	# active (or `pnpm` is on PATH via a global npm install) the shim
+	# below just uses whatever's there. Requiring corepack to succeed
+	# breaks unprivileged builds after `sudo corepack disable`.
+	@command -v pnpm >/dev/null 2>&1 || corepack enable pnpm
 	pnpm install --frozen-lockfile
+	# Stamp build metadata into a file the backend loads at startup so
+	# the API + UI can show the actual deployed revision (not just the
+	# semver in package.json). Dev builds skip this and the backend
+	# falls back to package.json.
+	@printf '{\n  "version": "%s",\n  "upstream": "%s",\n  "revision": "%s",\n  "commit": "%s",\n  "dirty": %s,\n  "builtAt": "%s"\n}\n' \
+		'$(VERSION)' \
+		'$(VERSION_BASE)' \
+		'$(GIT_COUNT)+g$(GIT_SHA)$(GIT_DIRTY)' \
+		'$(GIT_SHA)' \
+		'$(if $(GIT_DIRTY),true,false)' \
+		'$(shell date -u +%Y-%m-%dT%H:%M:%SZ)' \
+		> build-info.json
+	@echo "Wrote build-info.json:"
+	@cat build-info.json
 	pnpm run build:all
 
 # Clean build artifacts
@@ -53,8 +97,31 @@ endef
 # and not configurable. We collect those files into $(BUILD_DIR) here so
 # the output lives inside the repo and is easy to find.
 deb: build
-	@echo "Building Debian package..."
+	@echo "Building Debian package $(PACKAGE_NAME) $(VERSION)..."
 	$(ensure_build_dir)
+	# Write a fresh top-of-changelog entry with the derived VERSION so
+	# dpkg-buildpackage stamps the .deb with something unique per commit.
+	# The base debian/changelog stays checked in and is restored via
+	# `git checkout` after the build so the tree isn't left dirty. If the
+	# git restore fails (e.g. running outside a checkout), we fall back
+	# to a per-run backup copy.
+	@set -e; \
+	backup="debian/changelog.bak.$$$$"; \
+	cp debian/changelog "$$backup"; \
+	trap 'if [ -f "$$backup" ]; then \
+	          if git checkout -- debian/changelog 2>/dev/null; then rm -f "$$backup"; \
+	          else mv "$$backup" debian/changelog; \
+	          fi; \
+	      fi' EXIT INT TERM; \
+	{ \
+		echo "$(PACKAGE_NAME) ($(VERSION)) stable; urgency=medium"; \
+		echo ""; \
+		echo "  * Auto-build from $(GIT_SHA)$(GIT_DIRTY)"; \
+		echo ""; \
+		echo " -- Joe Toppe <mreppot@gmail.com>  $$(date -R)"; \
+		echo ""; \
+		cat "$$backup"; \
+	} > debian/changelog; \
 	dpkg-buildpackage -us -uc -b
 	@echo ""
 	@echo "Collecting build artifacts into $(BUILD_DIR)/ ..."
@@ -136,7 +203,10 @@ install-build-deps:
 # Quick build and install (for testing)
 quick-install: deb
 	@echo "Installing package..."
-	sudo dpkg -i build/$(PACKAGE_NAME)_$(VERSION)-1_$(ARCH).deb || sudo apt-get install -f -y
+	@deb=$$(ls -t build/$(PACKAGE_NAME)_*_$(ARCH).deb 2>/dev/null | head -1); \
+	if [ -z "$$deb" ]; then echo "ERROR: no .deb found in build/"; exit 1; fi; \
+	echo "Installing $$deb"; \
+	sudo dpkg -i "$$deb" || sudo apt-get install -f -y
 
 # Validate Debian package files
 validate:
@@ -164,7 +234,7 @@ info:
 	@echo "  Arch:    $(ARCH)"
 	@echo ""
 	@echo "Build output will be:"
-	@echo "  build/$(PACKAGE_NAME)_$(VERSION)-1_$(ARCH).deb"
+	@echo "  build/$(PACKAGE_NAME)_$(VERSION)_$(ARCH).deb"
 
 # Help target
 help:
@@ -193,4 +263,4 @@ help:
 	@echo "  1. make install-build-deps"
 	@echo "  2. make validate"
 	@echo "  3. make deb"
-	@echo "  4. sudo dpkg -i ../fdcsds_2.0.0-1_all.deb"
+	@echo "  4. sudo dpkg -i build/$(PACKAGE_NAME)_*.deb   # or: make quick-install"

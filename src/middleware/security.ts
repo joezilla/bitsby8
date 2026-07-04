@@ -6,6 +6,7 @@ import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
+import * as os from 'os';
 import { WebServerConfig } from '../types';
 import { createAuthMiddleware } from './auth';
 
@@ -69,9 +70,35 @@ export function setupSecurityMiddleware(
 }
 
 export function buildAllowedOrigins(config: WebServerConfig): string[] {
-  return [
-    `http://${config.host}:${config.port}`,
-    `http://localhost:${config.port}`,
-    `http://127.0.0.1:${config.port}`,
-  ];
+  const port = config.port;
+  const origins = new Set<string>([
+    `http://${config.host}:${port}`,
+    `http://localhost:${port}`,
+    `http://127.0.0.1:${port}`,
+  ]);
+
+  // Always add the machine's hostname and mDNS alias — users often browse to
+  // http://raspberrypi.local:3000/ instead of the numeric IP.
+  const host = os.hostname();
+  if (host) {
+    origins.add(`http://${host}:${port}`);
+    if (!host.endsWith('.local')) {
+      origins.add(`http://${host}.local:${port}`);
+    }
+  }
+
+  // When bound to 0.0.0.0 / ::, the server is reachable at every LAN interface.
+  // Add each non-internal address so browsers hitting the machine by its LAN
+  // IP (e.g. http://10.1.1.94:3000/) pass CORS.
+  if (config.host === '0.0.0.0' || config.host === '::' || config.host === '') {
+    for (const ifaces of Object.values(os.networkInterfaces())) {
+      for (const iface of ifaces ?? []) {
+        if (iface.internal) continue;
+        const addr = iface.family === 'IPv6' ? `[${iface.address}]` : iface.address;
+        origins.add(`http://${addr}:${port}`);
+      }
+    }
+  }
+
+  return [...origins];
 }

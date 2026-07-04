@@ -112,7 +112,32 @@
         "properties": {
           "version": {
             "type": "string",
-            "example": "2.0.0"
+            "example": "2.0.0",
+            "description": "Upstream semver (from package.json)."
+          },
+          "build": {
+            "type": "string",
+            "nullable": true,
+            "example": "149+g76c38eb",
+            "description": "Debian revision derived at build time from git; null in dev builds."
+          },
+          "commit": {
+            "type": "string",
+            "nullable": true,
+            "example": "76c38eb",
+            "description": "Short SHA of HEAD when the .deb was built; null in dev builds."
+          },
+          "dirty": {
+            "type": "boolean",
+            "example": false,
+            "description": "True when the working tree had uncommitted changes at build time."
+          },
+          "builtAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": "2026-07-04T21:16:33Z",
+            "description": "ISO-8601 UTC build timestamp; null in dev builds."
           },
           "uptimeSeconds": {
             "type": "integer",
@@ -1538,7 +1563,7 @@
                       "minidisk",
                       "8mb"
                     ],
-                    "description": "Disk format: 8inch (77 tracks, 330K), minidisk (17 tracks, 75K), 8mb (1863 tracks)"
+                    "description": "Disk format: 8inch = 8-inch floppy (77 tracks, 330K), minidisk = 5.25\" mini-disk (17 tracks, 75K), 8mb = 8 MB hard disk (1863 tracks, ~7.8 MB)"
                   },
                   "extension": {
                     "type": "string",
@@ -1688,6 +1713,53 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/images/{filename}/format": {
+      "post": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Reformat a disk image",
+        "description": "Erases every byte on the image and lays down a fresh MITS 8\" sector layout. Fails if the disk is mounted.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "8inch",
+                      "minidisk",
+                      "8mb"
+                    ],
+                    "description": "Target format. Omit to derive from the current image size."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Image reformatted"
+          },
+          "409": {
+            "description": "Disk is mounted"
           }
         }
       }

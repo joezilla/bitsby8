@@ -54,7 +54,7 @@ function buildTestDisk(
         image[base + CDBL.MARKER_OFFSET] = 0xFF;
         image[base + CDBL.CHECKSUM_OFFSET] = 0;
       } else {
-        image[base + 1] = (sec * 17) & 0xFF;
+        image[base + 1] = (sec * 17) & 31;
         image[base + 2] = 0x01;
         image[base + CDBL.DATA_MARKER_OFFSET] = 0xFF;
         image[base + CDBL.DATA_END_OFFSET] = 0x00;
@@ -103,6 +103,24 @@ function buildTestDisk(
 }
 
 // ---------------------------------------------------------------------------
+// CP/M 2.2 files always occupy a whole number of 128-byte records. writeFile
+// pads the tail of the last record with 0x1A (Ctrl-Z, the CP/M text EOF
+// marker). Round-trip assertions therefore expect: original bytes followed by
+// 0x1A padding out to the next record boundary.
+// ---------------------------------------------------------------------------
+function expectCpmContentMatches(readBack: Buffer, source: Buffer): void {
+  const SECLEN = 128;
+  const paddedSize = Math.ceil(source.length / SECLEN) * SECLEN;
+  expect(readBack.length).toBe(paddedSize);
+  expect(readBack.subarray(0, source.length)).toEqual(source);
+  const paddingLen = paddedSize - source.length;
+  if (paddingLen > 0) {
+    const expectedPad = Buffer.alloc(paddingLen, 0x1A);
+    expect(readBack.subarray(source.length)).toEqual(expectedPad);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -111,15 +129,16 @@ describe('CpmFilesystem', () => {
   // Interleave table
   // =========================================================================
   describe('interleave table', () => {
-    test('maps logical sectors 0-15 to even physical sectors', () => {
-      for (let log = 0; log < 16; log++) {
-        expect(INTERLEAVE_TABLE[log]).toBe(log * 2);
-      }
-    });
-
-    test('maps logical sectors 16-31 to odd physical sectors', () => {
-      for (let log = 16; log < 32; log++) {
-        expect(INTERLEAVE_TABLE[log]).toBe((log - 16) * 2 + 1);
+    test('matches MITS 8" base skew (boot-track flavour, 0-based)', () => {
+      // Table taken directly from altair_tools' mits_skew_table[] (1-based)
+      // then decremented — this is the interleave the BIOS uses when it
+      // reads the boot / directory tracks.
+      const expected = [
+         0,  8, 16, 24,  2, 10, 18, 26,  4, 12, 20, 28,  6, 14, 22, 30,
+         1,  9, 17, 25,  3, 11, 19, 27,  5, 13, 21, 29,  7, 15, 23, 31,
+      ];
+      for (let log = 0; log < 32; log++) {
+        expect(INTERLEAVE_TABLE[log]).toBe(expected[log]);
       }
     });
 
@@ -192,7 +211,9 @@ describe('CpmFilesystem', () => {
       const base = (24 * 32 + physSec) * CDBL.SECTOR_SIZE;
 
       expect(raw[base]).toBe(24 | 0x80);
-      expect(raw[base + 1]).toBe((physSec * 17) & 0xFF);
+      // Byte 1 = sector ID = (physSector * 17) mod 32, matching what
+      // Lifeboat / games.dsk store.
+      expect(raw[base + 1]).toBe((physSec * 17) & 31);
       expect(raw[base + 2]).toBe(0x01);
       // Bytes 131-134 must NOT be 0xFF (false stop byte trap).
       expect(raw[base + 131]).not.toBe(0xFF);
@@ -362,9 +383,9 @@ describe('CpmFilesystem', () => {
       const file = files.find(f => f.filename === 'SIZE');
 
       expect(file).toBeDefined();
-      // RC = ceil(300/128) = 3, BC = 300 % 128 = 44
-      // Size = (3-1)*128 + 44 = 300
-      expect(file!.size).toBe(300);
+      // File size is reported at CP/M's granularity — the number of
+      // 128-byte records that hold the file. 300 bytes → 3 records → 384.
+      expect(file!.size).toBe(384);
     });
 
     test('handles multi-extent files', () => {
@@ -381,7 +402,8 @@ describe('CpmFilesystem', () => {
 
       expect(file).toBeDefined();
       expect(file!.extents.length).toBeGreaterThan(1);
-      expect(file!.size).toBe(40000);
+      // 40000 bytes rounds up to 313 records (313 * 128 = 40064).
+      expect(file!.size).toBe(40064);
     });
 
     test('separates files by user number', () => {
@@ -400,8 +422,9 @@ describe('CpmFilesystem', () => {
 
       expect(user0).toBeDefined();
       expect(user1).toBeDefined();
-      expect(user0!.size).toBe(10);
-      expect(user1!.size).toBe(20);
+      // Both files are shorter than one record → both round up to 128.
+      expect(user0!.size).toBe(128);
+      expect(user1!.size).toBe(128);
     });
 
     test('returns empty array for empty disk', () => {
@@ -423,11 +446,11 @@ describe('CpmFilesystem', () => {
       });
 
       const cpm = new CpmFilesystem(image, PARAMS_8INCH);
-      const result = cpm.readFile('FOX', 'TXT');
-      expect(result.toString()).toBe(content.toString());
+      expectCpmContentMatches(cpm.readFile('FOX', 'TXT'), content);
     });
 
     test('reads binary file correctly', () => {
+      // 512 bytes is exactly 4 records — no tail padding.
       const binary = Buffer.alloc(512);
       for (let i = 0; i < 512; i++) binary[i] = i & 0xFF;
 
@@ -457,8 +480,8 @@ describe('CpmFilesystem', () => {
       });
 
       const cpm = new CpmFilesystem(image, PARAMS_8INCH);
-      expect(cpm.readFile('MULTI', 'TXT', 0).toString()).toBe('user zero');
-      expect(cpm.readFile('MULTI', 'TXT', 1).toString()).toBe('user one');
+      expectCpmContentMatches(cpm.readFile('MULTI', 'TXT', 0), data0);
+      expectCpmContentMatches(cpm.readFile('MULTI', 'TXT', 1), data1);
     });
   });
 
@@ -472,8 +495,7 @@ describe('CpmFilesystem', () => {
 
       const content = Buffer.from('Hello from the CP/M filesystem test!');
       cpm.writeFile('HELLO', 'TXT', content);
-      const result = cpm.readFile('HELLO', 'TXT');
-      expect(result.toString()).toBe(content.toString());
+      expectCpmContentMatches(cpm.readFile('HELLO', 'TXT'), content);
     });
 
     test('write overwrites existing file', () => {
@@ -485,8 +507,7 @@ describe('CpmFilesystem', () => {
       const newContent = Buffer.from('new content replaced');
       cpm.writeFile('OVER', 'WRT', newContent);
 
-      const result = cpm.readFile('OVER', 'WRT');
-      expect(result.toString()).toBe('new content replaced');
+      expectCpmContentMatches(cpm.readFile('OVER', 'WRT'), newContent);
     });
 
     test('handles exact block-boundary size', () => {
@@ -529,7 +550,7 @@ describe('CpmFilesystem', () => {
       cpm.writeFile('TREK', 'BAS', trekBytes);
 
       // Round-trip
-      expect(cpm.readFile('TREK', 'BAS')).toEqual(trekBytes);
+      expectCpmContentMatches(cpm.readFile('TREK', 'BAS'), trekBytes);
 
       // Find which blocks TREK.BAS used, then verify every physical sector
       // in those blocks has data-track framing.
@@ -578,8 +599,7 @@ describe('CpmFilesystem', () => {
       }
 
       for (const f of files) {
-        const result = cpm.readFile(f.name, f.ext);
-        expect(result).toEqual(f.data);
+        expectCpmContentMatches(cpm.readFile(f.name, f.ext), f.data);
       }
     });
   });
@@ -667,6 +687,157 @@ describe('CpmFilesystem', () => {
       const image = buildTestDisk(PARAMS_8INCH);
       const cpm = new CpmFilesystem(image, PARAMS_8INCH);
       expect(() => cpm.allocateBlocks(200)).toThrow(/full/);
+    });
+
+    test('formatImage produces a MITS 8" layout that matches altair_tools', () => {
+      // Byte-for-byte spot checks against the reference format spec so
+      // a future refactor of writeSector or the skew tables can't
+      // silently break disks freshly created here.
+      const img = CpmFilesystem.formatImage(PARAMS_8INCH);
+      expect(img.length).toBe(77 * 32 * CDBL.SECTOR_SIZE);
+
+      // Data-track sector (track 6, phys 0): sector ID = 0, byte 2 = 0x01,
+      // stop at 135, zero at 136, checksum at 4.
+      const dataBase = (6 * 32 + 0) * CDBL.SECTOR_SIZE;
+      expect(img[dataBase + 0]).toBe(6 | 0x80);
+      expect(img[dataBase + 1]).toBe(0);           // (0 * 17) mod 32
+      expect(img[dataBase + 2]).toBe(0x01);
+      expect(img[dataBase + CDBL.DATA_STOP_OFFSET]).toBe(0xFF);
+      expect(img[dataBase + CDBL.DATA_END_OFFSET]).toBe(0x00);
+      // Data area (bytes 7..134) is 0xE5.
+      for (let i = 7; i <= 134; i++) expect(img[dataBase + i]).toBe(0xE5);
+      // Checksum = sum(data) + bytes 2, 3, 5, 6, all mod 256.
+      let expectedCsum = 0;
+      for (let i = 0; i < 128; i++) expectedCsum = (expectedCsum + img[dataBase + 7 + i]) & 0xFF;
+      expectedCsum = (expectedCsum + img[dataBase + 2] + img[dataBase + 3]
+                    + img[dataBase + 5] + img[dataBase + 6]) & 0xFF;
+      expect(img[dataBase + CDBL.DATA_CSUM_OFFSET]).toBe(expectedCsum);
+
+      // Non-trivial phys — verify sector-ID follows (phys * 17) mod 32.
+      for (let p = 0; p < 32; p++) {
+        const base = (6 * 32 + p) * CDBL.SECTOR_SIZE;
+        expect(img[base + 1]).toBe((p * 17) & 31);
+      }
+
+      // Boot-track sector (track 2, phys 0): stop at 131, csum at 132.
+      const bootBase = (2 * 32 + 0) * CDBL.SECTOR_SIZE;
+      expect(img[bootBase + 0]).toBe(2 | 0x80);
+      expect(img[bootBase + 1]).toBe(0x00);
+      expect(img[bootBase + 2]).toBe(0x01);
+      expect(img[bootBase + CDBL.BOOT_STOP_OFFSET]).toBe(0xFF);
+      // Data area (bytes 3..130) is 0xE5.
+      for (let i = 3; i <= 130; i++) expect(img[bootBase + i]).toBe(0xE5);
+      // Bytes 133..136 are zero.
+      for (let i = 133; i <= 136; i++) expect(img[bootBase + i]).toBe(0);
+
+      // A CpmFilesystem should treat the fresh image as an empty CP/M disk.
+      const cpm = new CpmFilesystem(img);
+      expect(cpm.listFiles()).toEqual([]);
+      expect(cpm.getFreeSpace().directoryEntriesFree).toBe(64);
+
+      // Round-trip write on the freshly formatted disk.
+      cpm.writeFile('HELLO', 'TXT', Buffer.from('hello, cp/m\r\n'));
+      const files = cpm.listFiles();
+      expect(files.length).toBe(1);
+      expect(files[0].filename).toBe('HELLO');
+    });
+
+    test('writeFile uses 8 allocation slots per directory entry', () => {
+      // CP/M 2.2 spec / altair_tools convention: each directory entry
+      // carries at most 8 block pointers regardless of pointer size.
+      // Files bigger than 8 blocks (= 16 KiB on standard 8") must spill
+      // to additional extents rather than pack 16 pointers into one
+      // entry. That's what real CP/M writes, and any deviation trips
+      // multi-extent readers.
+      const img = CpmFilesystem.formatImage(PARAMS_8INCH);
+      const cpm = new CpmFilesystem(img);
+      // 20 KiB → 10 blocks → needs two directory entries at 8 blocks each.
+      cpm.writeFile('BIG', 'DAT', Buffer.alloc(20480, 0x42));
+      const entries = cpm.readDirectory().filter(e => e.filename.trimEnd() === 'BIG');
+      expect(entries.length).toBe(2);
+      const first = entries.find(e => e.extentLow === 0)!;
+      const second = entries.find(e => e.extentLow === 1)!;
+      expect(first.blockPointers.filter(p => p !== 0).length).toBe(8);
+      expect(second.blockPointers.filter(p => p !== 0).length).toBe(2);
+      // File is readable back with correct size.
+      const file = cpm.listFiles().find(f => f.filename === 'BIG')!;
+      expect(file.size).toBe(20480);
+    });
+
+    test('writeFile emits S1=0 and pads the last record with 0x1A', () => {
+      // Regression for the LUNAR.BAS corruption observed on a real Altair:
+      // some CP/M 2.2 BIOSes (Burcon-derived, at least) misinterpret a
+      // non-zero S1 (byte 13 of the directory entry) as an internal
+      // BDOS scratch field, causing sequential reads to skip 4 sectors
+      // at each record advance. CP/M 2.2 spec requires S1 = 0 on disk;
+      // every entry on games.dsk confirms that convention.
+      const image = buildTestDisk(PARAMS_8INCH);
+      const cpm = new CpmFilesystem(image, PARAMS_8INCH);
+
+      // Content that ends mid-record so the padding path runs.
+      const content = Buffer.from('440 END\r\n');
+      cpm.writeFile('LUNAR', 'BAS', content);
+
+      const entries = cpm.readDirectory();
+      const entry = entries.find(e => e.filename.trimEnd() === 'LUNAR');
+      expect(entry).toBeDefined();
+      expect(entry!.bc).toBe(0); // S1 must be zero on disk
+      expect(entry!.rc).toBe(1);
+
+      // Verify the block's tail: content bytes followed by 0x1A padding.
+      const raw = cpm.getImageData();
+      const block = entry!.blockPointers[0];
+      const absSec = block * (PARAMS_8INCH.blocksize / PARAMS_8INCH.seclen);
+      const track = PARAMS_8INCH.boottrk + Math.floor(absSec / PARAMS_8INCH.sectrk);
+      const logSec = absSec % PARAMS_8INCH.sectrk;
+      const physSec = INTERLEAVE_TABLE[logSec];
+      const sectorBase = (track * CDBL.SECTORS_PER_TRACK + physSec) * CDBL.SECTOR_SIZE + CDBL.DATA_OFFSET;
+      const sectorPayload = raw.subarray(sectorBase, sectorBase + 128);
+      expect(sectorPayload.subarray(0, content.length)).toEqual(content);
+      // Tail of the record must be 0x1A (Ctrl-Z EOF markers), not zeros —
+      // MBASIC LOAD relies on 0x1A to terminate ASCII reads cleanly.
+      for (let i = content.length; i < 128; i++) {
+        expect(sectorPayload[i]).toBe(0x1A);
+      }
+    });
+
+    test('reserves gap between dirBlocks and lowest used block', () => {
+      // Simulates a disk formatted with a BIOS that reserves extra blocks
+      // beyond the directory (via AL0/AL1 in the DPB) — a reservation
+      // that isn't recorded on the disk itself. If an existing file's
+      // lowest block pointer is N (> dirBlocks), we must treat 1..N-1 as
+      // reserved to avoid stomping opaque BIOS data.
+      const image = buildTestDisk(PARAMS_8INCH, {
+        files: [
+          // Seed one 128-byte file. buildTestDisk uses writeFile which
+          // uses our own allocator — it'll place it in block 1. To
+          // simulate the "gap" case we then rewrite its directory entry
+          // by hand to point at block 5, leaving blocks 1..4 orphaned.
+          { filename: 'SEED', extension: 'DAT', data: Buffer.from([0x01]) },
+        ],
+      });
+      const cpm = new CpmFilesystem(image, PARAMS_8INCH);
+      const entries = cpm.readDirectory();
+      const seed = entries.find(e => e.filename.trimEnd() === 'SEED');
+      expect(seed).toBeDefined();
+      // Rewrite the seed entry to reference block 5 (simulating a disk
+      // whose real first data block sits at 5, with 1..4 opaquely
+      // reserved).
+      seed!.blockPointers = seed!.blockPointers.map((_, i) => i === 0 ? 5 : 0);
+      cpm.writeDirectory(entries);
+
+      const bitmap = cpm.buildAllocationBitmap();
+      expect(bitmap[0]).toBe(true);       // directory
+      expect(bitmap[1]).toBe(true);       // gap-reserved
+      expect(bitmap[2]).toBe(true);       // gap-reserved
+      expect(bitmap[3]).toBe(true);       // gap-reserved
+      expect(bitmap[4]).toBe(true);       // gap-reserved
+      expect(bitmap[5]).toBe(true);       // used by SEED.DAT
+      expect(bitmap[6]).toBe(false);      // first genuinely free
+
+      // Allocating a new file must land at block 6, not overwrite the
+      // gap-reserved 1..4.
+      expect(cpm.allocateBlocks(1)).toEqual([6]);
     });
 
     test('free space decreases after writing files', () => {
@@ -791,9 +962,7 @@ describe('CpmFilesystem', () => {
       const cpm = new CpmFilesystem(image, PARAMS_8INCH);
 
       cpm.writeFile('ONE', 'BYT', Buffer.from([0x42]));
-      const result = cpm.readFile('ONE', 'BYT');
-      expect(result.length).toBe(1);
-      expect(result[0]).toBe(0x42);
+      expectCpmContentMatches(cpm.readFile('ONE', 'BYT'), Buffer.from([0x42]));
     });
 
     test('getParams returns copy of params', () => {
@@ -821,9 +990,9 @@ describe('CpmFilesystem', () => {
       const image = buildTestDisk(PARAMS_MINIDISK);
       const cpm = new CpmFilesystem(image, PARAMS_MINIDISK);
 
-      cpm.writeFile('MINI', 'TST', Buffer.from('minidisk test'));
-      const result = cpm.readFile('MINI', 'TST');
-      expect(result.toString()).toBe('minidisk test');
+      const content = Buffer.from('minidisk test');
+      cpm.writeFile('MINI', 'TST', content);
+      expectCpmContentMatches(cpm.readFile('MINI', 'TST'), content);
     });
   });
 
@@ -886,6 +1055,34 @@ describe('CpmFilesystem', () => {
       }
     });
 
+    realImageTest('reads real Lifeboat README as coherent ASCII text', () => {
+      // Regression: this file is what caught the bug where our data-track
+      // offset was byte 3 instead of byte 7 and our skew was self-invented
+      // rather than mits_skew_table. With those wrong, this file came
+      // back as scrambled binary; with them right it opens with the
+      // signature "READ-ME file for CP/M2 on Altair" header.
+      const imgPath = path.join(disksDir, 'LIFEBOAT-CPM22-48K.DSK');
+      if (!fs.existsSync(imgPath)) return;
+
+      const imageData = fs.readFileSync(imgPath);
+      const cpm = new CpmFilesystem(imageData);
+      const readme = cpm.listFiles().find(f => f.filename === 'READ-ME');
+      if (!readme) return; // fixture doesn't have it — skip rather than fail
+
+      const data = cpm.readFile(readme.filename, readme.extension, readme.user);
+      const head = data.subarray(0, 200).toString('latin1');
+      expect(head).toContain('READ-ME');
+      expect(head).toContain('CP/M');
+      // >90% of the first 512 bytes should be printable ASCII if we're
+      // decoding correctly — a scrambled read would be well under that.
+      const sample = data.subarray(0, 512);
+      let printable = 0;
+      for (const b of sample) {
+        if ((b >= 0x20 && b <= 0x7E) || b === 0x0A || b === 0x0D || b === 0x09) printable++;
+      }
+      expect(printable / sample.length).toBeGreaterThan(0.9);
+    });
+
     realImageTest('getFreeSpace returns valid data for real disk', () => {
       const imgPath = path.join(disksDir, 'LIFEBOAT-CPM22-48K.DSK');
       if (!fs.existsSync(imgPath)) return;
@@ -921,6 +1118,71 @@ describe('CpmFilesystem', () => {
       }
     });
 
+    realImageTest('writeFile to games.dsk does not clobber BIOS-reserved gap blocks', () => {
+      // Regression for the "Bdos Err on D: Bad Sector" bug: some disk
+      // formats reserve blocks beyond block 0 for the BIOS (boot-loader
+      // extension, warm-start image, etc.) via the DPB's AL0/AL1. Those
+      // reservations aren't recorded on the disk. `buildAllocationBitmap`
+      // must treat any block between our declared directory area and the
+      // first block an existing file uses as reserved, or writing there
+      // corrupts opaque BIOS data and the real machine reads garbage.
+      //
+      // games.dsk exhibits this: our defaults declare 1 directory block
+      // but its first file allocates block 4, meaning blocks 1..3 are
+      // reserved from the BIOS's perspective.
+      const imgPath = path.join(disksDir, 'games.dsk');
+      if (!fs.existsSync(imgPath)) return;
+
+      const imageData = fs.readFileSync(imgPath);
+      const cpm = new CpmFilesystem(imageData);
+
+      // Confirm the "gap" precondition — otherwise this test isn't
+      // covering the intended case and should be updated to point at a
+      // different fixture.
+      const activeBlocks = new Set<number>();
+      for (const e of cpm.readDirectory()) {
+        if (e.status === 0xE5 || e.status > 0x1F) continue;
+        for (const bp of e.blockPointers) if (bp > 0) activeBlocks.add(bp);
+      }
+      const minUsed = Math.min(...activeBlocks);
+      expect(minUsed).toBeGreaterThan(1);
+
+      // Snapshot every gap-block sector so we can prove we didn't touch
+      // them. Blocks 1..minUsed-1 map to logical sectors on the
+      // directory track that games.dsk's BIOS considers opaque.
+      const params = cpm.getParams();
+      const sectorsPerBlock = params.blocksize / params.seclen;
+      const gapSnapshots: { off: number; byte: number }[] = [];
+      for (let block = 1; block < minUsed; block++) {
+        for (let i = 0; i < sectorsPerBlock; i++) {
+          const absSec = block * sectorsPerBlock + i;
+          const track = params.boottrk + Math.floor(absSec / params.sectrk);
+          const logSec = absSec % params.sectrk;
+          const physSec = INTERLEAVE_TABLE[logSec];
+          const base = (track * CDBL.SECTORS_PER_TRACK + physSec) * CDBL.SECTOR_SIZE;
+          for (let b = 0; b < CDBL.SECTOR_SIZE; b++) {
+            gapSnapshots.push({ off: base + b, byte: imageData[base + b] });
+          }
+        }
+      }
+
+      cpm.writeFile('SMALL', 'TXT', Buffer.from('hello, cp/m\r\n'));
+      const raw = cpm.getImageData();
+
+      for (const { off, byte } of gapSnapshots) {
+        expect(raw[off]).toBe(byte);
+      }
+
+      // Round-trip must succeed and every original file must remain
+      // listable after the write.
+      const cpm2 = new CpmFilesystem(raw);
+      expectCpmContentMatches(cpm2.readFile('SMALL', 'TXT'), Buffer.from('hello, cp/m\r\n'));
+      const namesAfter = new Set(cpm2.listFiles().map(f => `${f.filename}.${f.extension}`));
+      for (const originalName of cpm.listFiles().map(f => `${f.filename}.${f.extension}`)) {
+        expect(namesAfter.has(originalName)).toBe(true);
+      }
+    });
+
     realImageTest('writeFile to LIFEBOAT image keeps data-track frame intact', () => {
       // Regression for the games.dsk / TREK.BAS bug: writing through
       // CpmFilesystem on a real Lifeboat disk must not stamp 0xFF at
@@ -935,7 +1197,7 @@ describe('CpmFilesystem', () => {
       for (let i = 0; i < trekBytes.length; i++) trekBytes[i] = (i * 13 + 7) & 0xFF;
       cpm.writeFile('TREK', 'BAS', trekBytes);
 
-      expect(cpm.readFile('TREK', 'BAS')).toEqual(trekBytes);
+      expectCpmContentMatches(cpm.readFile('TREK', 'BAS'), trekBytes);
 
       const file = cpm.listFiles().find(f => f.filename === 'TREK');
       expect(file).toBeDefined();
