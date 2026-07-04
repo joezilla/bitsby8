@@ -406,7 +406,7 @@ fdcsds --config production.config
 fdcsds -p /dev/ttyUSB0 -0 disks/cpm22.dsk --gpio-leds -w
 
 # GPIO LEDs show real-time status for all drives and terminal
-# See GPIO-LEDS.md for wiring and configuration details
+# See docs/GPIO-LEDS.md for wiring and configuration details
 ```
 
 ---
@@ -682,7 +682,7 @@ Or add to your configuration file:
 | Terminal TX | GPIO20 | Pin 38 |
 | Terminal Connected | GPIO21 | Pin 40 |
 
-**See [GPIO-LEDS.md](GPIO-LEDS.md) for:**
+**See [docs/GPIO-LEDS.md](docs/GPIO-LEDS.md) for:**
 - Complete pin mapping table
 - Wiring diagrams and hardware requirements
 - Configuration examples

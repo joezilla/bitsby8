@@ -96,9 +96,9 @@ override_dh_auto_install:
 	mkdir -p debian/fdcsds/usr/share/doc/fdcsds
 	cp README.md debian/fdcsds/usr/share/doc/fdcsds/
 	cp CONTRIBUTING.md debian/fdcsds/usr/share/doc/fdcsds/ || true
-	cp WEB-INTERFACE.md debian/fdcsds/usr/share/doc/fdcsds/ || true
-	cp LAUNCHER-USAGE.md debian/fdcsds/usr/share/doc/fdcsds/ || true
-	cp TROUBLESHOOTING.md debian/fdcsds/usr/share/doc/fdcsds/ || true
+	cp docs/WEB-INTERFACE.md debian/fdcsds/usr/share/doc/fdcsds/ || true
+	cp docs/LAUNCHER.md debian/fdcsds/usr/share/doc/fdcsds/ || true
+	cp docs/TROUBLESHOOTING.md debian/fdcsds/usr/share/doc/fdcsds/ || true
 	cp AUTHORS debian/fdcsds/usr/share/doc/fdcsds/ || true
 
 	# Create runtime directories
