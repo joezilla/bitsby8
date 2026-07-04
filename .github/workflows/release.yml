@@ -52,7 +52,10 @@ jobs:
           cache: pnpm
 
       - name: Install Debian packaging tools
-        run: sudo apt-get update && sudo apt-get install -y debhelper devscripts
+        # build-essential is required by dpkg-checkbuilddeps (implicit
+        # `build-essential:native` on every source package). debhelper
+        # + devscripts give us dh, dpkg-buildpackage, etc.
+        run: sudo apt-get update && sudo apt-get install -y build-essential debhelper devscripts
 
       - name: Install (frozen lockfile)
         run: pnpm install --frozen-lockfile
