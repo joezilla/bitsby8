@@ -3,8 +3,12 @@ Section: electronics
 Priority: optional
 Maintainer: Joe Toppe <mreppot@gmail.com>
 Build-Depends: debhelper (>= 10),
-               nodejs (>= 18.0.0),
-               npm
+               build-essential
+# Note: we deliberately do NOT list nodejs / npm here. The build uses
+# whatever Node is on PATH (in CI: actions/setup-node@v4; on a dev
+# machine: whatever the maintainer has). dpkg-checkbuilddeps only sees
+# apt-installed packages, so listing them here would force apt-nodejs
+# on the build host even when a newer Node is already available.
 Standards-Version: 4.1.2
 Homepage: https://github.com/yourusername/fdcplus-web
 Vcs-Git: https://github.com/yourusername/fdcplus-web.git
