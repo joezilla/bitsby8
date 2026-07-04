@@ -12,6 +12,20 @@
     return `${m}m`;
   }
 
+  // Compact local time in the user's locale for a footer chip — full ISO is
+  // still surfaced as the title attribute for anyone who needs UTC precision.
+  function formatBuildTime(iso: string | null | undefined): string {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
   type NavId = 'terminal' | 'disks' | 'cassettes' | 'scripts' | 'config';
 
   interface Props {
@@ -132,7 +146,24 @@
         "
       >
         <span class="fdc-label-strip">VER</span>
-        <span class="fdc-mono" style="font-size: 11px;">{$serverStatus?.system?.version ?? '—'}</span>
+        <span class="fdc-mono" style="font-size: 11px;">
+          {$serverStatus?.system?.version ?? '—'}{#if $serverStatus?.system?.dirty}<span
+            style="color: var(--warning); margin-left: 4px;"
+            title="Built from a working tree with uncommitted changes"
+          >*</span>{/if}
+        </span>
+        {#if $serverStatus?.system?.commit}
+          <span class="fdc-label-strip">BLD</span>
+          <span class="fdc-mono" style="font-size: 11px;" title={$serverStatus?.system?.build ?? undefined}>
+            {$serverStatus.system.commit}
+          </span>
+        {/if}
+        {#if $serverStatus?.system?.builtAt}
+          <span class="fdc-label-strip">BUILT</span>
+          <span class="fdc-mono" style="font-size: 11px;" title={$serverStatus.system.builtAt}>
+            {formatBuildTime($serverStatus.system.builtAt)}
+          </span>
+        {/if}
         <span class="fdc-label-strip">UP</span>
         <span class="fdc-mono" style="font-size: 11px;">{formatUptime($serverStatus?.system?.uptimeSeconds)}</span>
       </div>

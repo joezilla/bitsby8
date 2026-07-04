@@ -83,7 +83,11 @@ export const openapiDefinition: Options = {
         SystemInfo: {
           type: 'object',
           properties: {
-            version: { type: 'string', example: '2.0.0' },
+            version: { type: 'string', example: '2.0.0', description: 'Upstream semver (from package.json).' },
+            build: { type: 'string', nullable: true, example: '149+g76c38eb', description: 'Debian revision derived at build time from git; null in dev builds.' },
+            commit: { type: 'string', nullable: true, example: '76c38eb', description: 'Short SHA of HEAD when the .deb was built; null in dev builds.' },
+            dirty: { type: 'boolean', example: false, description: 'True when the working tree had uncommitted changes at build time.' },
+            builtAt: { type: 'string', format: 'date-time', nullable: true, example: '2026-07-04T21:16:33Z', description: 'ISO-8601 UTC build timestamp; null in dev builds.' },
             uptimeSeconds: { type: 'integer', example: 3600 },
           },
         },

@@ -45,6 +45,20 @@ build:
 	# breaks unprivileged builds after `sudo corepack disable`.
 	@command -v pnpm >/dev/null 2>&1 || corepack enable pnpm
 	pnpm install --frozen-lockfile
+	# Stamp build metadata into a file the backend loads at startup so
+	# the API + UI can show the actual deployed revision (not just the
+	# semver in package.json). Dev builds skip this and the backend
+	# falls back to package.json.
+	@printf '{\n  "version": "%s",\n  "upstream": "%s",\n  "revision": "%s",\n  "commit": "%s",\n  "dirty": %s,\n  "builtAt": "%s"\n}\n' \
+		'$(VERSION)' \
+		'$(VERSION_BASE)' \
+		'$(GIT_COUNT)+g$(GIT_SHA)$(GIT_DIRTY)' \
+		'$(GIT_SHA)' \
+		'$(if $(GIT_DIRTY),true,false)' \
+		'$(shell date -u +%Y-%m-%dT%H:%M:%SZ)' \
+		> build-info.json
+	@echo "Wrote build-info.json:"
+	@cat build-info.json
 	pnpm run build:all
 
 # Clean build artifacts
