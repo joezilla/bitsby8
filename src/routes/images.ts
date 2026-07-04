@@ -314,7 +314,7 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
    *               format:
    *                 type: string
    *                 enum: [8inch, minidisk, 8mb]
-   *                 description: "Disk format: 8inch (77 tracks, 330K), minidisk (17 tracks, 75K), 8mb (1863 tracks)"
+   *                 description: "Disk format: 8inch = 8-inch floppy (77 tracks, 330K), minidisk = 5.25\" mini-disk (17 tracks, 75K), 8mb = 8 MB hard disk (1863 tracks, ~7.8 MB)"
    *               extension:
    *                 type: string
    *                 enum: [.dsk, .img, .ima]
@@ -393,15 +393,15 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
       switch (format) {
         case '8inch':
           trackCount = 77;
-          formatLabel = '8-inch (330K)';
+          formatLabel = '8-inch floppy (330 KB)';
           break;
         case 'minidisk':
           trackCount = 17;
-          formatLabel = 'Minidisk (75K)';
+          formatLabel = '5.25" mini-disk (75 KB)';
           break;
         case '8mb':
           trackCount = 1863;
-          formatLabel = '8MB';
+          formatLabel = '8 MB hard disk';
           break;
         default:
           res.status(400).json({ error: 'Invalid format. Must be 8inch, minidisk, or 8mb' });

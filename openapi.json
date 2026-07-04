@@ -1538,7 +1538,7 @@
                       "minidisk",
                       "8mb"
                     ],
-                    "description": "Disk format: 8inch (77 tracks, 330K), minidisk (17 tracks, 75K), 8mb (1863 tracks)"
+                    "description": "Disk format: 8inch = 8-inch floppy (77 tracks, 330K), minidisk = 5.25\" mini-disk (17 tracks, 75K), 8mb = 8 MB hard disk (1863 tracks, ~7.8 MB)"
                   },
                   "extension": {
                     "type": "string",

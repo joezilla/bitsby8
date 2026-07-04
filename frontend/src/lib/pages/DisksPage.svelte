@@ -569,9 +569,9 @@
           <div>
             <label class="fdc-label-strip" for="new-disk-format" style="display: block; margin-bottom: 4px;">Format</label>
             <Select id="new-disk-format" bind:value={newDiskFormat}>
-              <option value="8inch">8" Lifeboat (330 KB, 77 tracks)</option>
-              <option value="minidisk">Minidisk (75 KB, 17 tracks)</option>
-              <option value="8mb">8 MB (1863 tracks)</option>
+              <option value="8inch">8-inch floppy (330 KB)</option>
+              <option value="minidisk">5.25" mini-disk (75 KB)</option>
+              <option value="8mb">8 MB hard disk (7.8 MB)</option>
             </Select>
           </div>
           <div>
