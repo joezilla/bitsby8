@@ -13,7 +13,11 @@ all: build
 # Build the TypeScript project (both trees: backend + Svelte SPA)
 build:
 	@echo "Building backend + frontend via pnpm workspace..."
-	corepack enable pnpm
+	# corepack activation is best-effort: on hosts where it's already
+	# active (or `pnpm` is on PATH via a global npm install) the shim
+	# below just uses whatever's there. Requiring corepack to succeed
+	# breaks unprivileged builds after `sudo corepack disable`.
+	@command -v pnpm >/dev/null 2>&1 || corepack enable pnpm
 	pnpm install --frozen-lockfile
 	pnpm run build:all
 
