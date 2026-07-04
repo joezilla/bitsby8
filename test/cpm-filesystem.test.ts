@@ -129,11 +129,15 @@ describe('CpmFilesystem', () => {
   // Interleave table
   // =========================================================================
   describe('interleave table', () => {
-    test('maps logical sector L to physical (L * 17) mod 32', () => {
-      // Standard Altair 88-DCDD skew-17 interleave. The formula also
-      // determines the sector-ID byte the BIOS matches against.
-      for (let log = 0; log < 32; log++) {
-        expect(INTERLEAVE_TABLE[log]).toBe((log * 17) % 32);
+    test('maps logical sectors 0-15 to even physical sectors', () => {
+      for (let log = 0; log < 16; log++) {
+        expect(INTERLEAVE_TABLE[log]).toBe(log * 2);
+      }
+    });
+
+    test('maps logical sectors 16-31 to odd physical sectors', () => {
+      for (let log = 16; log < 32; log++) {
+        expect(INTERLEAVE_TABLE[log]).toBe((log - 16) * 2 + 1);
       }
     });
 
