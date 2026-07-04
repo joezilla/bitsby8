@@ -6,7 +6,7 @@ A TypeScript Serial Disk Server for the **FDC+ Enhanced Floppy Disk Controller**
 
 **Version:** 2.0.0 · **License:** GPL-3.0
 
-> _`[SCREENSHOT TODO]` — annotated GIF of the web UI showing a mounted drive + the VT102 terminal. (`images/` currently holds hardware photos only.)_
+![Drives & Library page of the web UI: four drive bays across the top, disk-image library below.](images/ui-disks.png)
 
 ---
 
