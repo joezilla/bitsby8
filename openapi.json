@@ -2038,6 +2038,52 @@
                         "$ref": "#/components/schemas/DriveState"
                       }
                     },
+                    "system": {
+                      "type": "object",
+                      "properties": {
+                        "version": {
+                          "type": "string",
+                          "description": "Upstream semver of the running build."
+                        },
+                        "build": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "commit": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "dirty": {
+                          "type": "boolean"
+                        },
+                        "builtAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "nullable": true
+                        },
+                        "uptimeSeconds": {
+                          "type": "integer"
+                        },
+                        "latestVersion": {
+                          "type": "string",
+                          "nullable": true,
+                          "description": "Newest release on GitHub, or null if the poll has not completed."
+                        },
+                        "latestUrl": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "updateAvailable": {
+                          "type": "boolean",
+                          "description": "True when latestVersion is strictly newer than version."
+                        },
+                        "updateCheckedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "nullable": true
+                        }
+                      }
+                    },
                     "timestamp": {
                       "type": "string",
                       "format": "date-time"
@@ -2817,56 +2863,10 @@
           "Config"
         ],
         "summary": "Get current configuration",
-        "description": "Returns current runtime configuration including serial, web, terminal, and display options.",
+        "description": "Returns current runtime configuration. Never includes `apiKey` — call `GET /api/config/status` to check whether it's set.",
         "responses": {
           "200": {
-            "description": "Current configuration",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "port": {
-                      "type": "string",
-                      "description": "Serial port device path"
-                    },
-                    "baud": {
-                      "type": "integer"
-                    },
-                    "web": {
-                      "type": "boolean"
-                    },
-                    "webPort": {
-                      "type": "integer"
-                    },
-                    "webHost": {
-                      "type": "string"
-                    },
-                    "terminalPort": {
-                      "type": "string"
-                    },
-                    "terminalBaud": {
-                      "type": "integer"
-                    },
-                    "terminalAutoconnect": {
-                      "type": "boolean"
-                    },
-                    "verbose": {
-                      "type": "boolean"
-                    },
-                    "debug": {
-                      "type": "boolean"
-                    },
-                    "logFile": {
-                      "type": "string"
-                    },
-                    "gpioLeds": {
-                      "type": "boolean"
-                    }
-                  }
-                }
-              }
-            }
+            "description": "Current configuration"
           }
         }
       },
@@ -2874,52 +2874,112 @@
         "tags": [
           "Config"
         ],
-        "summary": "Update configuration",
-        "description": "Update runtime configuration. Currently only `verbose` takes effect without restart.",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "verbose": {
-                    "type": "boolean",
-                    "description": "Enable/disable verbose logging"
-                  }
-                }
-              }
-            }
-          }
-        },
+        "summary": "Toggle runtime-only knobs",
+        "description": "Legacy endpoint. Currently accepts `verbose` only. All other knobs must go through the per-section PUT endpoints and require a restart."
+      }
+    },
+    "/api/config/schema": {
+      "get": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "JSON Schema for the config document",
+        "description": "Emitted from the same Zod source of truth used to validate writes. Frontend renders field constraints from this — no duplicate schemas in the SPA.",
         "responses": {
           "200": {
-            "description": "Configuration updated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
+            "description": "JSON Schema"
+          }
+        }
+      }
+    },
+    "/api/config/status": {
+      "get": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Config file and daemon status",
+        "description": "Metadata the UI needs to decide whether the \"Restart now\" button\nis available, whether saves will work, and how to detect a\nsuccessful restart (poll `startupEpoch`).\n"
+      }
+    },
+    "/api/config/restart": {
+      "post": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Gracefully exit so systemd relaunches the daemon",
+        "description": "Requires `?confirm=1` — the click path is destructive enough\nthat a stray XHR shouldn't take the daemon down. Returns 501\nwhen the process isn't systemd-managed (dev / docker); the\nUI should render a copy-paste command in that case.\n",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "confirm",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
             }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Restart scheduled — poll GET /api/config/status until startupEpoch changes"
           },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
+          "400": {
+            "description": "Missing confirm flag"
+          },
+          "501": {
+            "description": "Not systemd-managed; restart manually"
+          }
+        }
+      }
+    },
+    "/api/config/reload": {
+      "post": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Re-read runtime-toggleable knobs without restarting",
+        "description": "Best-effort re-read of `verbose`, `debug`, and `logFile` from\nthe current on-disk config. Serial / web / GPIO changes still\nneed a full restart. Returns 200 with the set of fields that\nactually took effect.\n",
+        "responses": {
+          "200": {
+            "description": "Live-reload result"
+          }
+        }
+      }
+    },
+    "/api/config/rollback": {
+      "post": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Undo the last save by restoring `<config-file>.bak.1`",
+        "description": "Atomically swaps `.bak.1` in as the live config file and\nshifts `.bak.2` → `.bak.1`, `.bak.3` → `.bak.2` so a second\nrollback walks further back. Requires `?confirm=1`. Refused\nin kiosk mode (`--config-readonly`).\n",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "confirm",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
             }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Rolled back — includes the restored config and its new mtimeMs"
+          },
+          "400": {
+            "description": "Missing confirm flag"
+          },
+          "409": {
+            "description": "No backup to roll back to"
+          },
+          "423": {
+            "description": "Config is read-only (--config-readonly)"
           }
         }
       }

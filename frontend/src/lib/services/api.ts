@@ -7,6 +7,14 @@ import type {
   ScriptInfo,
   SerialPortInfo,
   CpmFileInfo,
+  ConfigDoc,
+  ConfigStatus,
+  SerialSection,
+  WebSection,
+  TerminalSection,
+  LoggingSection,
+  DataSection,
+  GpioSection,
 } from '$lib/types/api';
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
@@ -187,10 +195,62 @@ export const api = {
     request('/api/replay/status'),
 
   // Config
-  getConfig: () => request<any>('/api/config'),
+  getConfig: () => request<ConfigDoc>('/api/config'),
   updateConfig: (updates: any) =>
     request('/api/config', {
       method: 'POST',
       body: JSON.stringify(updates),
     }),
+  getConfigStatus: () => request<ConfigStatus>('/api/config/status'),
+  getConfigSchema: () => request<any>('/api/config/schema'),
+  putSerialConfig: (patch: Partial<SerialSection>, ifMatch?: string) =>
+    request<{ success: true; config: ConfigDoc; mtimeMs: number }>('/api/config/serial', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+      headers: ifMatch ? { 'If-Match': ifMatch } : {},
+    }),
+  putWebConfig: (patch: Partial<WebSection>, ifMatch?: string) =>
+    request<{ success: true; config: ConfigDoc; mtimeMs: number }>('/api/config/web', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+      headers: ifMatch ? { 'If-Match': ifMatch } : {},
+    }),
+  putTerminalConfig: (patch: Partial<TerminalSection>, ifMatch?: string) =>
+    request<{ success: true; config: ConfigDoc; mtimeMs: number }>('/api/config/terminal', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+      headers: ifMatch ? { 'If-Match': ifMatch } : {},
+    }),
+  putLoggingConfig: (patch: Partial<LoggingSection>, ifMatch?: string) =>
+    request<{ success: true; config: ConfigDoc; mtimeMs: number }>('/api/config/logging', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+      headers: ifMatch ? { 'If-Match': ifMatch } : {},
+    }),
+  putDataConfig: (patch: Partial<DataSection>, ifMatch?: string) =>
+    request<{ success: true; config: ConfigDoc; mtimeMs: number }>('/api/config/data', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+      headers: ifMatch ? { 'If-Match': ifMatch } : {},
+    }),
+  putGpioConfig: (patch: { gpioLeds: GpioSection }, ifMatch?: string) =>
+    request<{ success: true; config: ConfigDoc; mtimeMs: number }>('/api/config/gpio', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+      headers: ifMatch ? { 'If-Match': ifMatch } : {},
+    }),
+  restartDaemon: () =>
+    request<{
+      success?: boolean;
+      startupEpoch?: number;
+      manualCommand?: string;
+      systemdManaged?: boolean;
+    }>('/api/config/restart?confirm=1', { method: 'POST' }),
+  reloadConfig: () =>
+    request<{ success: boolean; applied: string[] }>('/api/config/reload', { method: 'POST' }),
+  rollbackConfig: () =>
+    request<{ success: boolean; config: ConfigDoc; mtimeMs: number }>(
+      '/api/config/rollback?confirm=1',
+      { method: 'POST' },
+    ),
 };

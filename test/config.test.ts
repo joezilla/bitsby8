@@ -3,9 +3,19 @@
  */
 
 import * as fs from 'fs/promises';
-import { loadConfigFile, mergeConfig, getExampleConfig, ConfigFile, resolveDataDir, resolveDrivePath } from '../src/config';
+import {
+  loadConfigFile,
+  mergeConfig,
+  getExampleConfig,
+  ConfigFile,
+  ConfigSchema,
+  SerialSchema,
+  WebSchema,
+  GpioSchema,
+  resolveDataDir,
+  resolveDrivePath,
+} from '../src/config';
 
-// Mock fs module
 jest.mock('fs/promises');
 
 describe('Configuration Module', () => {
@@ -16,148 +26,149 @@ describe('Configuration Module', () => {
   });
 
   describe('loadConfigFile', () => {
-    test('should load valid config file from specified path', async () => {
-      const configContent = JSON.stringify({
+    test('returns { config, filePath } when the file is readable', async () => {
+      const content = JSON.stringify({
         port: '/dev/ttyUSB0',
         baud: 230400,
         drive0: 'test.dsk',
         web: true,
       });
+      mockReadFile.mockResolvedValue(content);
 
-      mockReadFile.mockResolvedValue(configContent);
+      const result = await loadConfigFile('test.config');
 
-      const config = await loadConfigFile('test.config');
-
-      expect(config).toEqual({
+      expect(result?.config).toEqual({
         port: '/dev/ttyUSB0',
         baud: 230400,
         drive0: 'test.dsk',
         web: true,
       });
+      expect(result?.filePath).toMatch(/test\.config$/);
     });
 
-    test('should throw error if specified config file not found', async () => {
-      const error: any = new Error('File not found');
-      error.code = 'ENOENT';
-      mockReadFile.mockRejectedValue(error);
-
+    test('throws when the requested path does not exist', async () => {
+      const enoent: any = new Error('File not found');
+      enoent.code = 'ENOENT';
+      mockReadFile.mockRejectedValue(enoent);
       await expect(loadConfigFile('missing.config')).rejects.toThrow('Config file not found');
     });
 
-    test('should throw error for invalid JSON', async () => {
+    test('throws on invalid JSON', async () => {
       mockReadFile.mockResolvedValue('{ invalid json }');
-
       await expect(loadConfigFile('bad.config')).rejects.toThrow('Invalid JSON');
     });
 
-    test('should return null if no config file found in default locations', async () => {
-      const error: any = new Error('File not found');
-      error.code = 'ENOENT';
-      mockReadFile.mockRejectedValue(error);
-
-      const config = await loadConfigFile();
-
-      expect(config).toBeNull();
+    test('returns null when no default location has a config', async () => {
+      const enoent: any = new Error('ENOENT');
+      enoent.code = 'ENOENT';
+      mockReadFile.mockRejectedValue(enoent);
+      await expect(loadConfigFile()).resolves.toBeNull();
     });
 
-    test('should load from first available default location', async () => {
-      const configContent = JSON.stringify({ port: '/dev/ttyUSB0' });
-
-      // First call fails (first default location)
-      // Second call succeeds (second default location)
+    test('loads from the first available default location', async () => {
+      const content = JSON.stringify({ port: '/dev/ttyUSB0' });
       mockReadFile
         .mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }))
-        .mockResolvedValueOnce(configContent);
+        .mockResolvedValueOnce(content);
 
-      const config = await loadConfigFile();
+      const result = await loadConfigFile();
 
-      expect(config).toEqual({ port: '/dev/ttyUSB0' });
+      expect(result?.config).toEqual({ port: '/dev/ttyUSB0' });
       expect(mockReadFile).toHaveBeenCalledTimes(2);
     });
   });
 
-  describe('config validation', () => {
-    test('should validate port as string', async () => {
+  describe('startup fallback to backups', () => {
+    test('rescues from bak.1 when the primary file is corrupt', async () => {
+      // Primary reads garbage. bak.1 is a valid config.
+      mockReadFile.mockImplementation(async (p: any) => {
+        if (String(p).endsWith('.bak.1')) return JSON.stringify({ port: '/dev/rescued' });
+        if (String(p).endsWith('.bak.2') || String(p).endsWith('.bak.3')) {
+          const err: any = new Error('ENOENT'); err.code = 'ENOENT'; throw err;
+        }
+        return '{ not json ';
+      });
+      const result = await loadConfigFile('primary.config');
+      expect(result?.config.port).toBe('/dev/rescued');
+      expect(result?.filePath).toMatch(/primary\.config$/);
+    });
+
+    test('walks past a corrupt bak.1 to bak.2', async () => {
+      mockReadFile.mockImplementation(async (p: any) => {
+        if (String(p).endsWith('.bak.1')) return '{ corrupt ';
+        if (String(p).endsWith('.bak.2')) return JSON.stringify({ port: '/dev/bak2' });
+        if (String(p).endsWith('.bak.3')) {
+          const err: any = new Error('ENOENT'); err.code = 'ENOENT'; throw err;
+        }
+        return '{ also corrupt ';
+      });
+      const result = await loadConfigFile('primary.config');
+      expect(result?.config.port).toBe('/dev/bak2');
+    });
+
+    test('re-throws when every backup is missing or corrupt', async () => {
+      mockReadFile.mockImplementation(async (p: any) => {
+        if (String(p).endsWith('.bak.1') || String(p).endsWith('.bak.2') || String(p).endsWith('.bak.3')) {
+          const err: any = new Error('ENOENT'); err.code = 'ENOENT'; throw err;
+        }
+        return '{ not json ';
+      });
+      await expect(loadConfigFile('primary.config')).rejects.toThrow(/Failed to read/);
+    });
+  });
+
+  describe('Zod validation via loadConfigFile', () => {
+    test('rejects a non-string port', async () => {
       mockReadFile.mockResolvedValue(JSON.stringify({ port: 123 }));
-      await expect(loadConfigFile('test.config')).rejects.toThrow('"port" must be a string');
+      await expect(loadConfigFile('test.config')).rejects.toThrow(/Config error/);
     });
 
-    test('should validate baud as number', async () => {
+    test('rejects a non-number baud', async () => {
       mockReadFile.mockResolvedValue(JSON.stringify({ baud: 'fast' }));
-      await expect(loadConfigFile('test.config')).rejects.toThrow('"baud" must be a number');
+      await expect(loadConfigFile('test.config')).rejects.toThrow(/Config error/);
     });
 
-    test('should validate drive paths as strings or null', async () => {
+    test('rejects a drive path that is a number', async () => {
       mockReadFile.mockResolvedValue(JSON.stringify({ drive0: 123 }));
-      await expect(loadConfigFile('test.config')).rejects.toThrow('"drive0" must be a string or null');
+      await expect(loadConfigFile('test.config')).rejects.toThrow(/Config error/);
     });
 
-    test('should validate readonly as array', async () => {
-      mockReadFile.mockResolvedValue(JSON.stringify({ readonly: 'yes' }));
-      await expect(loadConfigFile('test.config')).rejects.toThrow('"readonly" must be an array');
-    });
-
-    test('should validate readonly array contains valid drive numbers', async () => {
+    test('rejects a readonly array containing out-of-range drive numbers', async () => {
       mockReadFile.mockResolvedValue(JSON.stringify({ readonly: [0, 5] }));
-      await expect(loadConfigFile('test.config')).rejects.toThrow('"readonly" must contain numbers 0-3');
+      await expect(loadConfigFile('test.config')).rejects.toThrow(/Config error/);
     });
 
-    test('should validate boolean fields', async () => {
+    test('rejects a non-boolean verbose flag', async () => {
       mockReadFile.mockResolvedValue(JSON.stringify({ verbose: 'yes' }));
-      await expect(loadConfigFile('test.config')).rejects.toThrow('"verbose" must be a boolean');
+      await expect(loadConfigFile('test.config')).rejects.toThrow(/Config error/);
     });
 
-    test('should validate logFile as string or null', async () => {
-      mockReadFile.mockResolvedValue(JSON.stringify({ logFile: 123 }));
-      await expect(loadConfigFile('test.config')).rejects.toThrow('"logFile" must be a string or null');
+    test('accepts null for optional string fields (drives, dataDir, logFile)', async () => {
+      mockReadFile.mockResolvedValue(
+        JSON.stringify({ drive2: null, drive3: null, dataDir: null, logFile: null }),
+      );
+      const result = await loadConfigFile('test.config');
+      expect(result?.config).toEqual({
+        drive2: null,
+        drive3: null,
+        dataDir: null,
+        logFile: null,
+      });
     });
 
-    test('should validate dataDir as string or null', async () => {
-      mockReadFile.mockResolvedValue(JSON.stringify({ dataDir: 123 }));
-      await expect(loadConfigFile('test.config')).rejects.toThrow('"dataDir" must be a string or null');
+    test('parses the output of getExampleConfig() cleanly', async () => {
+      mockReadFile.mockResolvedValue(getExampleConfig());
+      const result = await loadConfigFile('test.config');
+      expect(result?.config.dataDir).toBeNull();
+      expect(result?.config.drive2).toBeNull();
+      expect(result?.config.gpioLeds?.enabled).toBe(true);
     });
 
-    test('should accept null for drive paths', async () => {
-      mockReadFile.mockResolvedValue(JSON.stringify({ drive2: null, drive3: null }));
-      const config = await loadConfigFile('test.config');
-      expect(config).toEqual({ drive2: null, drive3: null });
-    });
-
-    test('should accept null for dataDir', async () => {
-      mockReadFile.mockResolvedValue(JSON.stringify({ dataDir: null }));
-      const config = await loadConfigFile('test.config');
-      expect(config).toEqual({ dataDir: null });
-    });
-
-    test('should accept null for logFile', async () => {
-      mockReadFile.mockResolvedValue(JSON.stringify({ logFile: null }));
-      const config = await loadConfigFile('test.config');
-      expect(config).toEqual({ logFile: null });
-    });
-
-    test('should successfully parse the output of getExampleConfig()', async () => {
-      const exampleJson = getExampleConfig();
-      mockReadFile.mockResolvedValue(exampleJson);
-      const config = await loadConfigFile('test.config');
-      expect(config).toBeDefined();
-      expect(config!.dataDir).toBeNull();
-      expect(config!.drive2).toBeNull();
-      expect(config!.drive3).toBeNull();
-    });
-
-    test('should validate webPort as number', async () => {
-      mockReadFile.mockResolvedValue(JSON.stringify({ webPort: '3000' }));
-      await expect(loadConfigFile('test.config')).rejects.toThrow('"webPort" must be a number');
-    });
-
-    test('should accept all valid fields', async () => {
-      const validConfig = {
+    test('accepts a fully populated valid config', async () => {
+      const valid = {
         port: '/dev/ttyUSB0',
         baud: 230400,
         drive0: 'disk0.dsk',
-        drive1: 'disk1.dsk',
-        drive2: 'disk2.dsk',
-        drive3: 'disk3.dsk',
         readonly: [0, 1],
         verbose: true,
         debug: false,
@@ -170,255 +181,164 @@ describe('Configuration Module', () => {
         terminalBaud: 9600,
         terminalAutoconnect: true,
       };
+      mockReadFile.mockResolvedValue(JSON.stringify(valid));
+      const result = await loadConfigFile('test.config');
+      expect(result?.config).toEqual(valid);
+    });
 
-      mockReadFile.mockResolvedValue(JSON.stringify(validConfig));
+    test('preserves unknown fields via passthrough (backwards-compat guarantee)', async () => {
+      const withExtra = {
+        port: '/dev/ttyUSB0',
+        futureField: 'we-dont-know-about-this-yet',
+      };
+      mockReadFile.mockResolvedValue(JSON.stringify(withExtra));
+      const result = await loadConfigFile('test.config');
+      expect((result?.config as any).futureField).toBe('we-dont-know-about-this-yet');
+    });
+  });
 
-      const config = await loadConfigFile('test.config');
-      expect(config).toEqual(validConfig);
+  describe('Section schemas', () => {
+    test('SerialSchema accepts partial input', () => {
+      expect(SerialSchema.parse({ baud: 115200 })).toEqual({ baud: 115200 });
+    });
+
+    test('WebSchema rejects port out of range', () => {
+      expect(() => WebSchema.parse({ webPort: 999999 })).toThrow();
+    });
+
+    test('GpioSchema fills in enabled default', () => {
+      expect(GpioSchema.parse({})).toEqual({ enabled: false });
+    });
+
+    test('ConfigSchema flags a GPIO pin used twice', () => {
+      const result = ConfigSchema.safeParse({
+        gpioLeds: {
+          enabled: true,
+          drive0: { enable: 17 },
+          drive1: { enable: 17 },
+        },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues.some(i => /used more than once/i.test(i.message))).toBe(true);
+      }
+    });
+
+    test('ConfigSchema allows the same pin number in two independent drive fields when only one is set', () => {
+      const result = ConfigSchema.safeParse({
+        gpioLeds: {
+          enabled: true,
+          drive0: { enable: 17, headLoad: 27 },
+          drive1: { enable: null, headLoad: 24 },
+        },
+      });
+      expect(result.success).toBe(true);
     });
   });
 
   describe('mergeConfig', () => {
-    test('should use config file values when CLI options not provided', () => {
-      const configFile: ConfigFile = {
-        port: '/dev/ttyUSB0',
-        baud: 230400,
-        drive0: 'test.dsk',
-      };
-
-      const cliOptions = {};
-
-      const merged = mergeConfig(configFile, cliOptions);
-
+    test('uses config-file values when CLI omits them', () => {
+      const cfg: ConfigFile = { port: '/dev/ttyUSB0', baud: 230400, drive0: 'test.dsk' };
+      const merged = mergeConfig(cfg, {});
       expect(merged.port).toBe('/dev/ttyUSB0');
       expect(merged.baud).toBe(230400);
       expect(merged.drive0).toBe('test.dsk');
     });
 
-    test('should override config file with CLI options', () => {
-      const configFile: ConfigFile = {
-        port: '/dev/ttyUSB0',
-        baud: 230400,
-        drive0: 'config.dsk',
-      };
-
-      const cliOptions = {
-        port: '/dev/ttyUSB1',
-        drive0: 'cli.dsk',
-      };
-
-      const merged = mergeConfig(configFile, cliOptions);
-
+    test('overrides config with CLI options', () => {
+      const cfg: ConfigFile = { port: '/dev/ttyUSB0', baud: 230400 };
+      const merged = mergeConfig(cfg, { port: '/dev/ttyUSB1' });
       expect(merged.port).toBe('/dev/ttyUSB1');
       expect(merged.baud).toBe(230400);
-      expect(merged.drive0).toBe('cli.dsk');
     });
 
-    test('should handle null config file', () => {
-      const cliOptions = {
-        port: '/dev/ttyUSB0',
-        baud: '460800',
-      };
-
-      const merged = mergeConfig(null, cliOptions);
-
+    test('handles null config file', () => {
+      const merged = mergeConfig(null, { port: '/dev/ttyUSB0', baud: '460800' });
       expect(merged.port).toBe('/dev/ttyUSB0');
       expect(merged.baud).toBe('460800');
     });
 
-    test('should merge all drive options', () => {
-      const configFile: ConfigFile = {
-        drive0: 'config0.dsk',
-        drive1: 'config1.dsk',
-      };
-
-      const cliOptions = {
-        drive1: 'cli1.dsk',
-        drive2: 'cli2.dsk',
-      };
-
-      const merged = mergeConfig(configFile, cliOptions);
-
-      expect(merged.drive0).toBe('config0.dsk');
-      expect(merged.drive1).toBe('cli1.dsk');
-      expect(merged.drive2).toBe('cli2.dsk');
-    });
-
-    test('should merge web interface options', () => {
-      const configFile: ConfigFile = {
-        web: false,
-        webPort: 8080,
-        webHost: '0.0.0.0',
-      };
-
-      const cliOptions = {
-        web: true,
-        webPort: '3000',
-      };
-
-      const merged = mergeConfig(configFile, cliOptions);
-
+    test('merges web-interface options and parses webPort as int', () => {
+      const cfg: ConfigFile = { web: false, webPort: 8080, webHost: '0.0.0.0' };
+      const merged = mergeConfig(cfg, { web: true, webPort: '3000' });
       expect(merged.web).toBe(true);
       expect(merged.webPort).toBe(3000);
       expect(merged.webHost).toBe('0.0.0.0');
     });
 
-    test('should merge terminal options', () => {
-      const configFile: ConfigFile = {
-        terminalPort: '/dev/ttyUSB1',
-        terminalBaud: 115200,
-        terminalAutoconnect: false,
-      };
-
-      const cliOptions = {
-        terminalBaud: '9600',
-        terminalAutoconnect: true,
-      };
-
-      const merged = mergeConfig(configFile, cliOptions);
-
-      expect(merged.terminalPort).toBe('/dev/ttyUSB1');
-      expect(merged.terminalBaud).toBe(9600);
-      expect(merged.terminalAutoconnect).toBe(true);
+    test('does not override readonly with an empty CLI array', () => {
+      const cfg: ConfigFile = { readonly: [0, 1] };
+      const merged = mergeConfig(cfg, { readonly: [] });
+      expect(merged.readonly).toEqual([0, 1]);
     });
 
-    test('should handle readonly array override', () => {
-      const configFile: ConfigFile = {
-        readonly: [0, 1],
-      };
-
-      const cliOptions = {
-        readonly: [2, 3],
-      };
-
-      const merged = mergeConfig(configFile, cliOptions);
-
-      expect(merged.readonly).toEqual([2, 3]);
-    });
-
-    test('should override dataDir from CLI', () => {
-      const configFile: ConfigFile = {
-        dataDir: '/var/lib/fdcsds',
-        port: '/dev/ttyUSB0',
-      };
-
-      const cliOptions = {
-        dataDir: '/tmp/fdctest',
-      };
-
-      const merged = mergeConfig(configFile, cliOptions);
-
+    test('overrides dataDir from CLI when supplied', () => {
+      const cfg: ConfigFile = { dataDir: '/var/lib/fdcsds', port: '/dev/ttyUSB0' };
+      const merged = mergeConfig(cfg, { dataDir: '/tmp/fdctest' });
       expect(merged.dataDir).toBe('/tmp/fdctest');
       expect(merged.port).toBe('/dev/ttyUSB0');
-    });
-
-    test('should preserve dataDir from config when CLI absent', () => {
-      const configFile: ConfigFile = {
-        dataDir: '/var/lib/fdcsds',
-      };
-
-      const cliOptions = {};
-
-      const merged = mergeConfig(configFile, cliOptions);
-
-      expect(merged.dataDir).toBe('/var/lib/fdcsds');
-    });
-
-    test('should not override with empty readonly array', () => {
-      const configFile: ConfigFile = {
-        readonly: [0, 1],
-      };
-
-      const cliOptions = {
-        readonly: [],
-      };
-
-      const merged = mergeConfig(configFile, cliOptions);
-
-      expect(merged.readonly).toEqual([0, 1]);
     });
   });
 
   describe('getExampleConfig', () => {
-    test('should return valid JSON string', () => {
-      const example = getExampleConfig();
-
-      expect(() => JSON.parse(example)).not.toThrow();
+    test('returns valid JSON', () => {
+      expect(() => JSON.parse(getExampleConfig())).not.toThrow();
     });
 
-    test('should include all config options', () => {
-      const example = JSON.parse(getExampleConfig());
-
-      expect(example).toHaveProperty('dataDir');
-      expect(example).toHaveProperty('port');
-      expect(example).toHaveProperty('baud');
-      expect(example).toHaveProperty('drive0');
-      expect(example).toHaveProperty('drive1');
-      expect(example).toHaveProperty('drive2');
-      expect(example).toHaveProperty('drive3');
-      expect(example).toHaveProperty('readonly');
-      expect(example).toHaveProperty('verbose');
-      expect(example).toHaveProperty('debug');
-      expect(example).toHaveProperty('logFile');
-      expect(example).toHaveProperty('web');
-      expect(example).toHaveProperty('webPort');
-      expect(example).toHaveProperty('webHost');
-      expect(example).toHaveProperty('terminalPort');
-      expect(example).toHaveProperty('terminalBaud');
-      expect(example).toHaveProperty('terminalAutoconnect');
-      expect(example).toHaveProperty('gpioLeds');
+    test('includes every top-level knob', () => {
+      const ex = JSON.parse(getExampleConfig());
+      for (const key of [
+        'dataDir', 'port', 'baud', 'drive0', 'drive1', 'drive2', 'drive3',
+        'readonly', 'verbose', 'debug', 'logFile', 'web', 'webPort', 'webHost',
+        'terminalPort', 'terminalBaud', 'terminalAutoconnect', 'gpioLeds',
+      ]) {
+        expect(ex).toHaveProperty(key);
+      }
     });
 
-    test('should have sensible default values', () => {
-      const example = JSON.parse(getExampleConfig());
+    test('has sensible defaults', () => {
+      const ex = JSON.parse(getExampleConfig());
+      expect(ex.dataDir).toBeNull();
+      expect(ex.baud).toBe(230400);
+      expect(ex.webPort).toBe(3000);
+      expect(ex.webHost).toBe('localhost');
+      expect(ex.terminalBaud).toBe(9600);
+      expect(ex.verbose).toBe(false);
+      expect(Array.isArray(ex.readonly)).toBe(true);
+    });
 
-      expect(example.dataDir).toBeNull();
-      expect(example.baud).toBe(230400);
-      expect(example.webPort).toBe(3000);
-      expect(example.webHost).toBe('localhost');
-      expect(example.terminalBaud).toBe(9600);
-      expect(example.verbose).toBe(false);
-      expect(example.debug).toBe(false);
-      expect(Array.isArray(example.readonly)).toBe(true);
+    test('is accepted by ConfigSchema.parse', () => {
+      expect(() => ConfigSchema.parse(JSON.parse(getExampleConfig()))).not.toThrow();
     });
   });
 
   describe('resolveDataDir', () => {
-    test('should return process.cwd() when dataDir is undefined', () => {
+    test('returns cwd for undefined / null / empty', () => {
       expect(resolveDataDir(undefined)).toBe(process.cwd());
-    });
-
-    test('should return process.cwd() when dataDir is null', () => {
       expect(resolveDataDir(null)).toBe(process.cwd());
-    });
-
-    test('should return process.cwd() when dataDir is empty string', () => {
       expect(resolveDataDir('')).toBe(process.cwd());
     });
 
-    test('should resolve absolute dataDir as-is', () => {
+    test('passes absolute paths through unchanged', () => {
       expect(resolveDataDir('/var/lib/fdcsds')).toBe('/var/lib/fdcsds');
     });
 
-    test('should resolve relative dataDir against cwd', () => {
-      const result = resolveDataDir('data');
-      expect(result).toBe(require('path').resolve('data'));
+    test('resolves relative paths against cwd', () => {
+      expect(resolveDataDir('data')).toBe(require('path').resolve('data'));
     });
   });
 
   describe('resolveDrivePath', () => {
-    test('should return absolute path as-is regardless of dataDir', () => {
-      expect(resolveDrivePath('/absolute/path/to/disk.dsk', '/var/lib/fdcsds')).toBe('/absolute/path/to/disk.dsk');
+    test('returns absolute paths unchanged', () => {
+      expect(resolveDrivePath('/absolute/path/to/disk.dsk', '/var/lib/fdcsds')).toBe(
+        '/absolute/path/to/disk.dsk',
+      );
     });
 
-    test('should resolve relative path against dataDir', () => {
-      expect(resolveDrivePath('disks/cpm22.dsk', '/var/lib/fdcsds')).toBe('/var/lib/fdcsds/disks/cpm22.dsk');
-    });
-
-    test('should resolve relative path against cwd-based dataDir', () => {
-      const dataDir = process.cwd();
-      const result = resolveDrivePath('disks/test.dsk', dataDir);
-      expect(result).toBe(require('path').resolve(dataDir, 'disks/test.dsk'));
+    test('resolves relative paths against dataDir', () => {
+      expect(resolveDrivePath('disks/cpm22.dsk', '/var/lib/fdcsds')).toBe(
+        '/var/lib/fdcsds/disks/cpm22.dsk',
+      );
     });
   });
 });

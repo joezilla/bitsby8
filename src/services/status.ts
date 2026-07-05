@@ -1,5 +1,6 @@
 import * as path from 'path';
 import { Dependencies } from '../types';
+import { compareSemver, getLatestRelease } from './release-check';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const pkg = require('../../package.json') as { version: string };
 
@@ -46,8 +47,29 @@ export function getStatus(deps: Dependencies) {
       dirty: buildInfo?.dirty ?? false,
       builtAt: buildInfo?.builtAt ?? null,
       uptimeSeconds: Math.floor(process.uptime()),
+      ...getUpdateStatus(buildInfo?.upstream ?? pkg.version),
     },
     timestamp: new Date().toISOString(),
+  };
+}
+
+interface UpdateStatus {
+  latestVersion: string | null;
+  latestUrl: string | null;
+  updateAvailable: boolean;
+  updateCheckedAt: string | null;
+}
+
+function getUpdateStatus(runningVersion: string): UpdateStatus {
+  const latest = getLatestRelease();
+  if (!latest) {
+    return { latestVersion: null, latestUrl: null, updateAvailable: false, updateCheckedAt: null };
+  }
+  return {
+    latestVersion: latest.version,
+    latestUrl: latest.htmlUrl,
+    updateAvailable: compareSemver(latest.version, runningVersion) > 0,
+    updateCheckedAt: latest.checkedAt,
   };
 }
 

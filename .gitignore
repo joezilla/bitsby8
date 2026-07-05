@@ -22,6 +22,10 @@ node_modules_back/
 .fdcsds.config
 .config/fdcsds.json
 fdcsds.config.json
+# Runtime backups written by src/services/config-persistence.ts
+*.fdcsds.config.bak.*
+.fdcsds.config.bak.*
+.fdcsds.config.tmp
 *.config
 !*.config.example
 

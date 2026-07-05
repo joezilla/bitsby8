@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from '$lib/components/shared/Icon.svelte';
+  import Chip from '$lib/components/shared/Chip.svelte';
   import Led from '$lib/components/shared/Led.svelte';
   import { serverStatus, connected } from '$lib/services/socket';
   import type { DriveState } from '$lib/types/api';
@@ -146,11 +147,24 @@
         "
       >
         <span class="fdc-label-strip">VER</span>
-        <span class="fdc-mono" style="font-size: 11px;">
-          {$serverStatus?.system?.version ?? '—'}{#if $serverStatus?.system?.dirty}<span
-            style="color: var(--warning); margin-left: 4px;"
-            title="Built from a working tree with uncommitted changes"
-          >*</span>{/if}
+        <span class="fdc-mono" style="font-size: 11px; display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+          <span>
+            {$serverStatus?.system?.version ?? '—'}{#if $serverStatus?.system?.dirty}<span
+              style="color: var(--warning); margin-left: 4px;"
+              title="Built from a working tree with uncommitted changes"
+            >*</span>{/if}
+          </span>
+          {#if $serverStatus?.system?.updateAvailable && $serverStatus?.system?.latestVersion && $serverStatus?.system?.latestUrl}
+            <a
+              href={$serverStatus.system.latestUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`Latest release: ${$serverStatus.system.latestVersion}${$serverStatus.system.updateCheckedAt ? ` — checked ${formatBuildTime($serverStatus.system.updateCheckedAt)}` : ''}`}
+              style="text-decoration: none;"
+            >
+              <Chip color="amber" icon="upgrade">UPDATE {$serverStatus.system.latestVersion}</Chip>
+            </a>
+          {/if}
         </span>
         {#if $serverStatus?.system?.commit}
           <span class="fdc-label-strip">BLD</span>

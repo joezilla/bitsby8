@@ -175,7 +175,7 @@
 <PageHeader
   eyebrow="Section · Cassettes · Audio out"
   title="Cassettes"
-  subtitle="Tape audio for SAVE / LOAD on the Altair. Play through the FDC+ serial output or stream in-browser."
+  subtitle="Tape audio for SAVE / LOAD on the Altair. Play through your Raspberry Pi's audio out."
   actions={headerActions}
 />
 
