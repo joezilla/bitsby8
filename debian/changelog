@@ -1,3 +1,19 @@
+fdcsds (2.0.1-3) unstable; urgency=medium
+
+  * Same feature set as rc2 — this rebuild only exists because the rc2
+    release-publish workflow failed on its finalize step after a tag
+    reset (softprops/action-gh-release cannot update the tag_name of
+    an already-published release).
+  * CI: release workflow now uses `gh release create` / `gh release
+    upload --clobber` directly, so retags are idempotent.
+  * CI: bumped actions/checkout and actions/setup-node to @v5 to run
+    natively on the runner's Node 24 instead of the deprecated Node 20
+    compat shim.
+  * Marked as `unstable` because this is a release candidate; will be
+    promoted to `stable` for the 2.0.1 final tag.
+
+ -- Joe Toppe <mreppot@gmail.com>  Sun, 05 Jul 2026 16:15:00 +0000
+
 fdcsds (2.0.1-2) unstable; urgency=medium
 
   * Frontend: iPhone / small-viewport rendering fixes.
