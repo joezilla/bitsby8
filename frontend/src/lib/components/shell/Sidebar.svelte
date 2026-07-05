@@ -128,7 +128,7 @@
   </div>
 
   <!-- Footer system info card -->
-  <div style="margin-top: auto; padding: 16px 16px 4px;">
+  <div style="padding: 16px 16px 4px;">
     <div
       class="card"
       style="padding: 12px; background: var(--surface-variant); border-radius: 10px;"
