@@ -1,3 +1,27 @@
+fdcsds (2.0.1-2) unstable; urgency=medium
+
+  * Frontend: iPhone / small-viewport rendering fixes.
+    - PageHeader now stacks below md (768px) so the h1, eyebrow, and
+      description no longer wrap every word when action buttons compete
+      for the row. `min-width: 0` on the titles column is the underlying
+      fix; the mobile-drawer sidebar has been restored on <lg viewports.
+    - DisksPage grids use `minmax(min(100%, N), 1fr)` so cards can shrink
+      below the floor on narrow screens; every page inherits a shared
+      `.fdc-page-body` responsive-gutter class.
+  * Frontend: sidebar polish.
+    - Chip pill gains `white-space: nowrap` so long labels like
+      `UPDATE 2.0.1-RC1` no longer blow out the pill shape.
+    - Sidebar `<nav>` scrolls internally on short viewports so the
+      footer System card is always reachable.
+    - System card now flows directly under the nav items (not
+      bottom-anchored), giving consistent placement across pages; the
+      update chip renders on its own left-aligned row with a new
+      compact `size="sm"` variant.
+  * Marked as `unstable` because this is a release candidate; will be
+    promoted to `stable` for the 2.0.1 final tag.
+
+ -- Joe Toppe <mreppot@gmail.com>  Sun, 05 Jul 2026 15:30:00 +0000
+
 fdcsds (2.0.1-1) unstable; urgency=medium
 
   * CP/M filesystem: adopt altair_tools' authoritative MITS 8" layout —
