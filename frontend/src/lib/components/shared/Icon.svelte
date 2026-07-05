@@ -1,5 +1,5 @@
 <script lang="ts">
-  type Size = 16 | 18 | 20 | 24;
+  type Size = 12 | 14 | 16 | 18 | 20 | 24;
 
   interface Props {
     name: string;

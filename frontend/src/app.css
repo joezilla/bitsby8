@@ -387,6 +387,8 @@ body {
   vertical-align: middle;
 }
 .icon.filled  { font-variation-settings: "FILL" 1, "wght" 400, "GRAD" 0, "opsz" 24; }
+.icon.s-12    { font-size: 12px; font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 20; }
+.icon.s-14    { font-size: 14px; font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 20; }
 .icon.s-16    { font-size: 16px; font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 20; }
 .icon.s-18    { font-size: 18px; font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 20; }
 .icon.s-20    { font-size: 20px; }
