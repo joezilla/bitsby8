@@ -57,6 +57,7 @@ export class WebServer {
       database?: Database;
       configFilePath?: string | null;
       startupEpoch?: number;
+      configReadonly?: boolean;
     }
   ) {
     // Create Express app and HTTP server
@@ -93,6 +94,7 @@ export class WebServer {
       runtimeConfig: options?.runtimeConfig || null,
       configFilePath: options?.configFilePath ?? null,
       startupEpoch: options?.startupEpoch ?? Date.now(),
+      configReadonly: options?.configReadonly ?? false,
       server: options?.server || null,
       diskServingEnabled: options?.server !== null && options?.server !== undefined,
       serverTask: null,

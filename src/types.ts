@@ -50,6 +50,11 @@ export interface Dependencies {
   // detect that the daemon actually came back on the new process.
   startupEpoch: number;
 
+  // When true (via `--config-readonly` at boot), every PUT
+  // /api/config/* returns 423 Locked and POST /api/config/rollback
+  // is also refused. Useful for demos / kiosk installs.
+  configReadonly: boolean;
+
   // Mutable server state
   server: FdcServer | null;
   diskServingEnabled: boolean;

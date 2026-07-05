@@ -78,6 +78,45 @@ describe('Configuration Module', () => {
     });
   });
 
+  describe('startup fallback to backups', () => {
+    test('rescues from bak.1 when the primary file is corrupt', async () => {
+      // Primary reads garbage. bak.1 is a valid config.
+      mockReadFile.mockImplementation(async (p: any) => {
+        if (String(p).endsWith('.bak.1')) return JSON.stringify({ port: '/dev/rescued' });
+        if (String(p).endsWith('.bak.2') || String(p).endsWith('.bak.3')) {
+          const err: any = new Error('ENOENT'); err.code = 'ENOENT'; throw err;
+        }
+        return '{ not json ';
+      });
+      const result = await loadConfigFile('primary.config');
+      expect(result?.config.port).toBe('/dev/rescued');
+      expect(result?.filePath).toMatch(/primary\.config$/);
+    });
+
+    test('walks past a corrupt bak.1 to bak.2', async () => {
+      mockReadFile.mockImplementation(async (p: any) => {
+        if (String(p).endsWith('.bak.1')) return '{ corrupt ';
+        if (String(p).endsWith('.bak.2')) return JSON.stringify({ port: '/dev/bak2' });
+        if (String(p).endsWith('.bak.3')) {
+          const err: any = new Error('ENOENT'); err.code = 'ENOENT'; throw err;
+        }
+        return '{ also corrupt ';
+      });
+      const result = await loadConfigFile('primary.config');
+      expect(result?.config.port).toBe('/dev/bak2');
+    });
+
+    test('re-throws when every backup is missing or corrupt', async () => {
+      mockReadFile.mockImplementation(async (p: any) => {
+        if (String(p).endsWith('.bak.1') || String(p).endsWith('.bak.2') || String(p).endsWith('.bak.3')) {
+          const err: any = new Error('ENOENT'); err.code = 'ENOENT'; throw err;
+        }
+        return '{ not json ';
+      });
+      await expect(loadConfigFile('primary.config')).rejects.toThrow(/Failed to read/);
+    });
+  });
+
   describe('Zod validation via loadConfigFile', () => {
     test('rejects a non-string port', async () => {
       mockReadFile.mockResolvedValue(JSON.stringify({ port: 123 }));

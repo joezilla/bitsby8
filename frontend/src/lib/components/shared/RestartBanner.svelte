@@ -15,15 +15,42 @@
   interface Props {
     status: ConfigStatus | null;
     onDiscardAll?: () => void;
+    /** Called after a successful rollback so the page can refetch. */
+    onRolledBack?: () => Promise<void> | void;
   }
 
-  let { status, onDiscardAll }: Props = $props();
+  let { status, onDiscardAll, onRolledBack }: Props = $props();
 
   let restarting = $state(false);
+  let rollingBack = $state(false);
   let pollingEpoch = $state<number | null>(null);
 
   const total = $derived($dirtyCount + $restartPendingCount);
   const canRestart = $derived(!!status?.systemdManaged);
+  const canRollback = $derived(!status?.configReadonly);
+
+  async function handleRollback() {
+    if (rollingBack || !status) return;
+    if (
+      !confirm(
+        'Undo the most recent save?\n\n' +
+          "The current config file will be replaced with the previous version (`.bak.1`). " +
+          "You'll still need to restart the daemon for the change to take effect.",
+      )
+    ) {
+      return;
+    }
+    rollingBack = true;
+    try {
+      await api.rollbackConfig();
+      showToast('Rolled back to previous config. Restart to apply.', 'success');
+      if (onRolledBack) await onRolledBack();
+    } catch (err) {
+      showToast(`Rollback failed: ${(err as Error).message}`, 'error');
+    } finally {
+      rollingBack = false;
+    }
+  }
 
   async function handleRestart() {
     if (restarting || !status) return;
@@ -119,8 +146,19 @@
     </div>
     <div style="display: flex; gap: 8px; flex-shrink: 0;">
       {#if $dirtyCount > 0 && onDiscardAll}
-        <Button variant="ghost" icon="undo" onclick={onDiscardAll} disabled={restarting}>
+        <Button variant="ghost" icon="undo" onclick={onDiscardAll} disabled={restarting || rollingBack}>
           Discard all
+        </Button>
+      {/if}
+      {#if $restartPendingCount > 0 && canRollback}
+        <Button
+          variant="ghost"
+          icon="history"
+          onclick={handleRollback}
+          disabled={restarting || rollingBack}
+          title="Restore the previous saved config file"
+        >
+          {rollingBack ? 'Rolling back…' : 'Undo last save'}
         </Button>
       {/if}
       {#if $restartPendingCount > 0}
@@ -128,7 +166,7 @@
           variant="filled"
           icon="restart_alt"
           onclick={handleRestart}
-          disabled={!canRestart || restarting}
+          disabled={!canRestart || restarting || rollingBack}
         >
           {restarting ? 'Restarting…' : 'Restart now'}
         </Button>

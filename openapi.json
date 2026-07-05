@@ -2902,6 +2902,42 @@
         }
       }
     },
+    "/api/config/rollback": {
+      "post": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Undo the last save by restoring `<config-file>.bak.1`",
+        "description": "Atomically swaps `.bak.1` in as the live config file and\nshifts `.bak.2` → `.bak.1`, `.bak.3` → `.bak.2` so a second\nrollback walks further back. Requires `?confirm=1`. Refused\nin kiosk mode (`--config-readonly`).\n",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "confirm",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Rolled back — includes the restored config and its new mtimeMs"
+          },
+          "400": {
+            "description": "Missing confirm flag"
+          },
+          "409": {
+            "description": "No backup to roll back to"
+          },
+          "423": {
+            "description": "Config is read-only (--config-readonly)"
+          }
+        }
+      }
+    },
     "/api/cassettes/details": {
       "get": {
         "tags": [

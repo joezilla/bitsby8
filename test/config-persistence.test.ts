@@ -12,6 +12,7 @@ import * as path from 'path';
 import {
   writePartialConfig,
   readCurrentConfig,
+  rollbackConfig,
   ConfigWriteError,
   MAX_BACKUPS,
 } from '../src/services/config-persistence';
@@ -88,6 +89,54 @@ describe('config persistence', () => {
           },
         } as any),
       ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    });
+  });
+
+  describe('rollbackConfig', () => {
+    test('restores bak.1 as the live file and shifts backups', async () => {
+      const filePath = await makeTempConfig({ webPort: 3000 });
+      await writePartialConfig(filePath, { webPort: 3001 });
+      await writePartialConfig(filePath, { webPort: 3002 });
+
+      // Sanity: three revisions on disk.
+      const before = JSON.parse(await fs.readFile(filePath, 'utf-8'));
+      expect(before.webPort).toBe(3002);
+      const bak1Before = JSON.parse(await fs.readFile(`${filePath}.bak.1`, 'utf-8'));
+      expect(bak1Before.webPort).toBe(3001);
+
+      const { config } = await rollbackConfig(filePath);
+
+      expect(config.webPort).toBe(3001);
+      const onDisk = JSON.parse(await fs.readFile(filePath, 'utf-8'));
+      expect(onDisk.webPort).toBe(3001);
+      // bak.2 (webPort=3000 baseline) has moved to bak.1.
+      const bak1After = JSON.parse(await fs.readFile(`${filePath}.bak.1`, 'utf-8'));
+      expect(bak1After.webPort).toBe(3000);
+    });
+
+    test('a second rollback walks further back', async () => {
+      const filePath = await makeTempConfig({ webPort: 3000 });
+      await writePartialConfig(filePath, { webPort: 3001 });
+      await writePartialConfig(filePath, { webPort: 3002 });
+
+      await rollbackConfig(filePath);   // → 3001
+      const { config } = await rollbackConfig(filePath); // → 3000
+      expect(config.webPort).toBe(3000);
+    });
+
+    test('throws NO_CONFIG_FILE when no bak.1 exists', async () => {
+      const filePath = await makeTempConfig({ verbose: false });
+      await expect(rollbackConfig(filePath)).rejects.toMatchObject({ code: 'NO_CONFIG_FILE' });
+    });
+
+    test('refuses to promote a corrupt backup', async () => {
+      const filePath = await makeTempConfig({ webPort: 3000 });
+      await writePartialConfig(filePath, { webPort: 3001 });
+      // Corrupt the newest backup by hand.
+      await fs.writeFile(`${filePath}.bak.1`, '{ not json ');
+      await expect(rollbackConfig(filePath)).rejects.toMatchObject({ code: 'INVALID_JSON' });
+      // Live file is untouched.
+      expect(JSON.parse(await fs.readFile(filePath, 'utf-8'))).toEqual({ webPort: 3001 });
     });
   });
 

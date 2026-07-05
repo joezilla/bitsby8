@@ -148,6 +148,81 @@ async function preflightWritable(filePath: string): Promise<void> {
   }
 }
 
+/**
+ * Restore `.bak.1` on top of the live config file. Backups shift up
+ * (`.bak.2` → `.bak.1`, `.bak.3` → `.bak.2`, oldest is dropped) so
+ * repeated rollbacks walk further back through history.
+ *
+ * Fails with `NO_CONFIG_FILE` if there's no `.bak.1` — that only
+ * happens on a brand-new install that's never been saved through the
+ * UI, and there's nothing meaningful to roll back to in that case.
+ */
+export async function rollbackConfig(
+  filePath: string,
+): Promise<{ config: ConfigFile; mtimeMs: number }> {
+  if (!filePath) {
+    throw new ConfigWriteError('NO_CONFIG_FILE', 'No config file was loaded.');
+  }
+  const bak1 = `${filePath}.bak.1`;
+  try {
+    await fs.access(bak1);
+  } catch {
+    throw new ConfigWriteError(
+      'NO_CONFIG_FILE',
+      `No backup to roll back to at ${bak1}.`,
+    );
+  }
+  await preflightWritable(filePath);
+
+  // Validate the backup before we clobber the live file. A corrupt
+  // .bak.1 means whichever earlier save wrote it must have been bad —
+  // don't compound the problem by promoting garbage.
+  let restored: ConfigFile;
+  try {
+    const raw = await fs.readFile(bak1, 'utf-8');
+    const parsed = JSON.parse(raw);
+    const result = ConfigSchema.safeParse(parsed);
+    if (!result.success) {
+      throw new ConfigWriteError(
+        'VALIDATION_FAILED',
+        `Backup at ${bak1} would not validate: ${result.error.issues[0].message}`,
+        result.error.issues.map(i => ({ path: normalizeIssuePath(i.path), message: i.message })),
+      );
+    }
+    restored = result.data;
+  } catch (err) {
+    if (err instanceof ConfigWriteError) throw err;
+    throw new ConfigWriteError(
+      'INVALID_JSON',
+      `Backup at ${bak1} is unreadable: ${(err as Error).message}`,
+    );
+  }
+
+  // Slide bak.2 → bak.1, bak.3 → bak.2 so the caller can roll back
+  // further. Missing higher-numbered backups are fine.
+  await atomicWrite(filePath, JSON.stringify(restored, null, 2) + '\n');
+  for (let i = 1; i < MAX_BACKUPS; i++) {
+    const from = `${filePath}.bak.${i + 1}`;
+    const to = `${filePath}.bak.${i}`;
+    try {
+      await fs.rename(from, to);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        // The old .bak.1 slot needs clearing if bak.2 didn't exist, so
+        // a second consecutive rollback doesn't restore the same file.
+        if (i === 1) {
+          try { await fs.unlink(to); } catch { /* ignore */ }
+        }
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  const stat = await fs.stat(filePath);
+  return { config: restored, mtimeMs: stat.mtimeMs };
+}
+
 async function rotateBackups(filePath: string): Promise<void> {
   // shift 2 → 3, 1 → 2, current → 1. Missing files are OK.
   for (let i = MAX_BACKUPS - 1; i >= 1; i--) {

@@ -248,4 +248,9 @@ export const api = {
     }>('/api/config/restart?confirm=1', { method: 'POST' }),
   reloadConfig: () =>
     request<{ success: boolean; applied: string[] }>('/api/config/reload', { method: 'POST' }),
+  rollbackConfig: () =>
+    request<{ success: boolean; config: ConfigDoc; mtimeMs: number }>(
+      '/api/config/rollback?confirm=1',
+      { method: 'POST' },
+    ),
 };

@@ -27,7 +27,7 @@ import {
   DataSchema,
   GpioSchema,
 } from '../config';
-import { writePartialConfig, ConfigWriteError } from '../services/config-persistence';
+import { writePartialConfig, rollbackConfig, ConfigWriteError } from '../services/config-persistence';
 import { isSystemdManaged, scheduleRestart } from '../services/restart-manager';
 
 /**
@@ -187,6 +187,7 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
       systemdManaged: isSystemdManaged(),
       startupEpoch: deps.startupEpoch,
       apiKeySet: !!deps.runtimeConfig?.apiKey,
+      configReadonly: deps.configReadonly,
       etag,
     });
   });
@@ -281,6 +282,59 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
     }
   });
 
+  /**
+   * @openapi
+   * /api/config/rollback:
+   *   post:
+   *     tags: [Config]
+   *     summary: Undo the last save by restoring `<config-file>.bak.1`
+   *     description: |
+   *       Atomically swaps `.bak.1` in as the live config file and
+   *       shifts `.bak.2` → `.bak.1`, `.bak.3` → `.bak.2` so a second
+   *       rollback walks further back. Requires `?confirm=1`. Refused
+   *       in kiosk mode (`--config-readonly`).
+   *     parameters:
+   *       - in: query
+   *         name: confirm
+   *         required: true
+   *         schema: { type: string, enum: ['1'] }
+   *     responses:
+   *       200: { description: Rolled back — includes the restored config and its new mtimeMs }
+   *       400: { description: Missing confirm flag }
+   *       409: { description: No backup to roll back to }
+   *       423: { description: Config is read-only (--config-readonly) }
+   */
+  router.post('/api/config/rollback', async (req: Request, res: Response): Promise<void> => {
+    if (req.query.confirm !== '1') {
+      res.status(400).json({ error: 'Missing ?confirm=1 — rollback is destructive.' });
+      return;
+    }
+    if (deps.configReadonly) {
+      res.status(423).json({ error: 'Config is read-only (--config-readonly).', code: 'CONFIG_READONLY' });
+      return;
+    }
+    if (!deps.configFilePath) {
+      res.status(409).json({ error: 'No config file was loaded — nothing to roll back.' });
+      return;
+    }
+    try {
+      const { config, mtimeMs } = await rollbackConfig(deps.configFilePath);
+      res.set('ETag', makeConfigEtag(deps.startupEpoch, mtimeMs));
+      res.json({ success: true, config, mtimeMs, restartRequired: true });
+    } catch (err) {
+      if (err instanceof ConfigWriteError) {
+        const status =
+          err.code === 'NOT_WRITABLE' ? 403
+          : err.code === 'VALIDATION_FAILED' ? 400
+          : err.code === 'NO_CONFIG_FILE' ? 409
+          : 500;
+        res.status(status).json({ error: err.message, code: err.code, issues: err.issues });
+        return;
+      }
+      res.status(500).json({ error: safeErrorMessage(err) });
+    }
+  });
+
   // -----------------------------------------------------------------------
   // Per-section PUTs
   // -----------------------------------------------------------------------
@@ -309,6 +363,13 @@ function registerSectionPut(
   schema: ZodType,
 ): void {
   router.put(routePath, async (req: Request, res: Response): Promise<void> => {
+    if (deps.configReadonly) {
+      res.status(423).json({
+        error: 'Config is read-only (--config-readonly).',
+        code: 'CONFIG_READONLY',
+      });
+      return;
+    }
     const parseResult = schema.safeParse(req.body);
     if (!parseResult.success) {
       res.status(400).json({

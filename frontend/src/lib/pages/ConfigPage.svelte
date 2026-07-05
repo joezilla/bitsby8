@@ -391,7 +391,31 @@
 />
 
 <div style="padding: 0 28px 28px; display: flex; flex-direction: column; gap: 16px;">
-  <RestartBanner status={configStatus} onDiscardAll={discardAll} />
+  <RestartBanner
+    status={configStatus}
+    onDiscardAll={discardAll}
+    onRolledBack={refresh}
+  />
+
+  {#if configStatus?.configReadonly}
+    <div
+      style="
+        padding: 10px 14px;
+        background: var(--surface-variant);
+        border: 1px solid var(--border-1);
+        border-radius: var(--radius-md);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--fg-2);
+        font: var(--text-body-sm);
+      "
+    >
+      <span class="material-symbols-rounded" style="font-size: 18px;">lock</span>
+      Config is read-only (<code>--config-readonly</code>). Saves are refused; sections stay
+      as edit-preview only.
+    </div>
+  {/if}
 
   {#if loading}
     {#each Array(4) as _}
@@ -722,10 +746,26 @@
       {/if}
     </ConfigSection>
 
-    <!-- System info (read-only) -->
+    <!-- System info (read-only, tucked behind a disclosure) -->
     <Card>
-      <div style="padding: 20px;">
-        <LabelStrip>System info (install-time; not editable)</LabelStrip>
+      <details style="padding: 12px 20px;">
+        <summary
+          style="
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font: var(--text-body-sm);
+            color: var(--fg-2);
+            list-style: none;
+          "
+        >
+          <span class="material-symbols-rounded" style="font-size: 16px; color: var(--fg-3);">expand_more</span>
+          <LabelStrip>System info</LabelStrip>
+          <span style="color: var(--fg-3); text-transform: none; letter-spacing: 0;">
+            install-time details — not editable
+          </span>
+        </summary>
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 12px; font: var(--text-body-sm); color: var(--fg-2);">
           <div><strong style="color: var(--fg-1);">Config file:</strong><br />{configStatus?.configFilePath ?? '(none loaded)'}</div>
           <div><strong style="color: var(--fg-1);">Data directory:</strong><br />{config?.dataDir ?? '(cwd)'}</div>
@@ -733,9 +773,10 @@
           <div><strong style="color: var(--fg-1);">systemd-managed:</strong> {configStatus?.systemdManaged ? 'yes' : 'no'}</div>
           <div><strong style="color: var(--fg-1);">Startup epoch:</strong> {configStatus?.startupEpoch ?? '—'}</div>
           <div><strong style="color: var(--fg-1);">API key set:</strong> {configStatus?.apiKeySet ? 'yes' : 'no'}</div>
+          <div><strong style="color: var(--fg-1);">Read-only:</strong> {configStatus?.configReadonly ? 'yes' : 'no'}</div>
           <div><strong style="color: var(--fg-1);">Build:</strong> {$serverStatus?.system.build ?? '(dev)'}</div>
         </div>
-      </div>
+      </details>
     </Card>
   {/if}
 </div>

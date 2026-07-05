@@ -103,6 +103,7 @@ async function main(): Promise<void> {
     .option('--no-gpio-leds', 'Disable GPIO LED status indicators')
     .option('--gpio-active-low', 'Use active-low logic for LEDs')
     .option('-c, --config <file>', 'Configuration file path')
+    .option('--config-readonly', 'Refuse UI config writes (kiosk/demo mode) — every PUT /api/config/* returns 423 Locked')
     .option('--data-dir <path>', 'Data directory for disks, cassettes, scripts, uploads, and database')
     .option('--example-config', 'Print example configuration file and exit')
     .option('--show-persistent-paths', 'Show persistent path alternatives for configured ports')
@@ -235,6 +236,10 @@ async function main(): Promise<void> {
   // report a monotonic per-process value; the UI compares this after
   // a restart to detect the daemon has actually relaunched.
   const startupEpoch = Date.now();
+
+  // Kiosk / demo mode: refuse to persist changes even if the caller
+  // has auth. Enforced by the config-route layer.
+  const configReadonly = !!options.configReadonly;
 
   // Resolve data directory
   const dataDir = resolveDataDir(mergedOptions.dataDir);
@@ -522,6 +527,7 @@ async function main(): Promise<void> {
       runtimeConfig: mergedOptions,
       configFilePath,
       startupEpoch,
+      configReadonly,
       server: server,
       diskServingEnabled: server !== null,
       serverTask: null,
@@ -561,7 +567,7 @@ async function main(): Promise<void> {
       serialManager,
       terminalManager,
       preferredTerminalSettings,
-      { server: server || undefined, runtimeConfig: mergedOptions, database, configFilePath, startupEpoch }
+      { server: server || undefined, runtimeConfig: mergedOptions, database, configFilePath, startupEpoch, configReadonly }
     );
     await webServer.start();
   }

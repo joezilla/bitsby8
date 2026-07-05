@@ -156,6 +156,59 @@ describe('config routes', () => {
     });
   });
 
+  describe('POST /api/config/rollback', () => {
+    test('rejects without ?confirm=1', async () => {
+      const filePath = await makeTempConfig({ webPort: 3000 });
+      const { app } = buildApp({ configFilePath: filePath });
+      const res = await request(app).post('/api/config/rollback');
+      expect(res.status).toBe(400);
+    });
+
+    test('returns 409 when there is no backup to restore', async () => {
+      const filePath = await makeTempConfig({ webPort: 3000 });
+      const { app } = buildApp({ configFilePath: filePath });
+      const res = await request(app).post('/api/config/rollback?confirm=1');
+      expect(res.status).toBe(409);
+    });
+
+    test('restores the previous save and returns the new config', async () => {
+      const filePath = await makeTempConfig({ webPort: 3000 });
+      // Prime one backup through the persistence layer.
+      const { writePartialConfig } = require('../src/services/config-persistence');
+      await writePartialConfig(filePath, { webPort: 3001 });
+
+      const { app } = buildApp({ configFilePath: filePath });
+      const res = await request(app).post('/api/config/rollback?confirm=1');
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.config.webPort).toBe(3000);
+    });
+
+    test('returns 423 when configReadonly is set', async () => {
+      const filePath = await makeTempConfig({ webPort: 3000 });
+      const { app } = buildApp({ configFilePath: filePath, configReadonly: true });
+      const res = await request(app).post('/api/config/rollback?confirm=1');
+      expect(res.status).toBe(423);
+      expect(res.body.code).toBe('CONFIG_READONLY');
+    });
+  });
+
+  describe('--config-readonly (kiosk mode)', () => {
+    test('rejects section PUTs with 423 Locked', async () => {
+      const filePath = await makeTempConfig({});
+      const { app } = buildApp({ configFilePath: filePath, configReadonly: true });
+      const res = await request(app).put('/api/config/web').send({ webPort: 3001 });
+      expect(res.status).toBe(423);
+      expect(res.body.code).toBe('CONFIG_READONLY');
+    });
+
+    test('GET /api/config/status echoes configReadonly=true', async () => {
+      const { app } = buildApp({ configReadonly: true });
+      const res = await request(app).get('/api/config/status');
+      expect(res.body.configReadonly).toBe(true);
+    });
+  });
+
   describe('POST /api/config (legacy runtime toggle)', () => {
     test('still accepts verbose', async () => {
       const setVerbose = jest.fn();

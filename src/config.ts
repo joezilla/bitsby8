@@ -182,6 +182,10 @@ export async function loadConfigFile(configPath?: string): Promise<LoadedConfig 
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         throw new Error(`Config file not found: ${configPath}`);
       }
+      // Corrupted primary — try to rescue from the rotating backups
+      // so a bad save doesn't brick startup. Otherwise re-throw.
+      const rescued = await tryLoadFromBackup(absolutePath);
+      if (rescued) return rescued;
       throw new Error(`Failed to read config file ${configPath}: ${(error as Error).message}`);
     }
   }
@@ -193,12 +197,43 @@ export async function loadConfigFile(configPath?: string): Promise<LoadedConfig 
       console.log(`Loaded configuration from: ${location}`);
       return { config: parseConfigContent(content, absolutePath), filePath: absolutePath };
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        console.warn(`Warning: Could not read ${location}: ${(error as Error).message}`);
-      }
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      // File existed but was corrupt/invalid. Try backups before
+      // giving up on this location — better a stale-but-valid config
+      // than dropping to defaults on every startup after a bad save.
+      const rescued = await tryLoadFromBackup(absolutePath);
+      if (rescued) return rescued;
+      console.warn(`Warning: Could not read ${location}: ${(error as Error).message}`);
     }
   }
 
+  return null;
+}
+
+/**
+ * Try `<filePath>.bak.1`, `.bak.2`, `.bak.3` in order and return the
+ * first one that parses cleanly. Used when the primary config file
+ * fails to load — an atomic-write crash between rename phases would
+ * be one way to end up here, but the more common one is that an
+ * operator hand-edited the config file and left it invalid.
+ */
+async function tryLoadFromBackup(filePath: string): Promise<LoadedConfig | null> {
+  for (let i = 1; i <= 3; i++) {
+    const bak = `${filePath}.bak.${i}`;
+    try {
+      const content = await fs.readFile(bak, 'utf-8');
+      const config = parseConfigContent(content, bak);
+      console.warn(`WARN: primary config file at ${filePath} was invalid — loaded from ${bak}.`);
+      console.warn('      Save from the web UI to promote this backup to the primary file.');
+      // The daemon still writes to `filePath` on the next save, so
+      // treat that as the effective config path. `writePartialConfig`
+      // will atomically overwrite the corrupted primary at that point.
+      return { config, filePath };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      // Backup existed but is also invalid — keep walking.
+    }
+  }
   return null;
 }
 

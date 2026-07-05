@@ -186,5 +186,6 @@ export interface ConfigStatus {
   systemdManaged: boolean;
   startupEpoch: number;
   apiKeySet: boolean;
+  configReadonly: boolean;
   etag?: string;
 }
