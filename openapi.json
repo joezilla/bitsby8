@@ -2038,6 +2038,52 @@
                         "$ref": "#/components/schemas/DriveState"
                       }
                     },
+                    "system": {
+                      "type": "object",
+                      "properties": {
+                        "version": {
+                          "type": "string",
+                          "description": "Upstream semver of the running build."
+                        },
+                        "build": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "commit": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "dirty": {
+                          "type": "boolean"
+                        },
+                        "builtAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "nullable": true
+                        },
+                        "uptimeSeconds": {
+                          "type": "integer"
+                        },
+                        "latestVersion": {
+                          "type": "string",
+                          "nullable": true,
+                          "description": "Newest release on GitHub, or null if the poll has not completed."
+                        },
+                        "latestUrl": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "updateAvailable": {
+                          "type": "boolean",
+                          "description": "True when latestVersion is strictly newer than version."
+                        },
+                        "updateCheckedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "nullable": true
+                        }
+                      }
+                    },
                     "timestamp": {
                       "type": "string",
                       "format": "date-time"

@@ -20,6 +20,10 @@ export interface ServerStatus {
     dirty: boolean;
     builtAt: string | null;         // ISO-8601 UTC
     uptimeSeconds: number;
+    latestVersion: string | null;   // newest release on GitHub, null before first poll
+    latestUrl: string | null;       // release page URL
+    updateAvailable: boolean;
+    updateCheckedAt: string | null; // ISO-8601 UTC
   };
   timestamp: string;
 }

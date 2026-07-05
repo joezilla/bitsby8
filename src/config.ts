@@ -54,6 +54,17 @@ export const DataSchema = z.object({
   terminalOnly: z.boolean().optional(),
 });
 
+// system.updateCheck: opt-out for the GitHub release poll.
+// Operator-level toggle — not yet surfaced in the config UI.
+export const SystemSchema = z.object({
+  updateCheck: z
+    .object({
+      enabled: z.boolean().optional(),
+      intervalHours: z.number().int().min(1).optional(),
+    })
+    .optional(),
+});
+
 // GPIO pin numbers are BCM (0-27 on Raspberry Pi). null = disabled.
 const GpioPinSchema = z.number().int().min(0).max(27).nullable().optional();
 const GpioDrivePinsSchema = z.object({
@@ -93,6 +104,7 @@ export const ConfigSchema = z
     ...LoggingSchema.shape,
     ...DataSchema.shape,
     gpioLeds: GpioSchema.optional(),
+    system: SystemSchema.optional(),
   })
   .passthrough()
   .superRefine((cfg, ctx) => {

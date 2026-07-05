@@ -21,6 +21,7 @@ import { buildAllowedOrigins, setupSecurityMiddleware } from './middleware/secur
 import { setupStaticMiddleware } from './middleware/static';
 import { setupWebSocket } from './websocket/handlers';
 import { broadcastStatus } from './services/disk-serving';
+import { startReleaseChecker } from './services/release-check';
 
 // Route modules
 import { registerHealthRoutes } from './routes/health';
@@ -44,6 +45,7 @@ export class WebServer {
   private io: SocketIOServer;
   private deps: Dependencies;
   private statusInterval: NodeJS.Timeout | null = null;
+  private stopReleaseCheck: (() => void) | null = null;
 
   constructor(
     config: WebServerConfig,
@@ -180,6 +182,13 @@ export class WebServer {
             this.broadcastStatus();
           }, 1000);
 
+          // Start GitHub release poll unless disabled via config.
+          const uc = this.deps.runtimeConfig?.system?.updateCheck;
+          this.stopReleaseCheck = startReleaseChecker({
+            enabled: uc?.enabled ?? true,
+            intervalHours: uc?.intervalHours ?? 6,
+          });
+
           resolve();
         });
       } catch (error) {
@@ -223,6 +232,11 @@ export class WebServer {
     if (this.statusInterval) {
       clearInterval(this.statusInterval);
       this.statusInterval = null;
+    }
+
+    if (this.stopReleaseCheck) {
+      this.stopReleaseCheck();
+      this.stopReleaseCheck = null;
     }
 
     this.io.disconnectSockets(true);
