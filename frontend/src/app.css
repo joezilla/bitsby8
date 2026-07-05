@@ -306,6 +306,41 @@ body {
 }
 
 /* ============================================================
+   Page shell — PageHeader + page body padding, responsive.
+   Below md (768px) the header stacks and gutters shrink so
+   the h1/eyebrow don't compete with header actions for width.
+   ============================================================ */
+.fdc-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 28px 16px;
+}
+.fdc-page-header__titles { min-width: 0; }
+.fdc-page-header__titles h1 { overflow-wrap: anywhere; }
+.fdc-page-header__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+@media (max-width: 767px) {
+  .fdc-page-header {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 16px 16px 12px;
+    gap: 12px;
+  }
+  .fdc-page-header__actions { justify-content: flex-start; }
+}
+
+.fdc-page-body { padding: 0 28px 28px; }
+@media (max-width: 767px) {
+  .fdc-page-body { padding: 0 16px 20px; }
+}
+
+/* ============================================================
    LED pip
    ============================================================ */
 .led {

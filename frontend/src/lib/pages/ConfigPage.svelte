@@ -390,7 +390,7 @@
   subtitle="Everything the daemon reads from the config file — editable, validated, saved atomically."
 />
 
-<div style="padding: 0 28px 28px; display: flex; flex-direction: column; gap: 16px;">
+<div class="fdc-page-body" style="display: flex; flex-direction: column; gap: 16px;">
   <RestartBanner
     status={configStatus}
     onDiscardAll={discardAll}

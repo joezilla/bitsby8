@@ -11,16 +11,8 @@
   let { eyebrow, title, subtitle, actions }: Props = $props();
 </script>
 
-<div
-  style="
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    padding: 20px 28px 16px;
-    gap: 16px;
-  "
->
-  <div>
+<div class="fdc-page-header">
+  <div class="fdc-page-header__titles">
     {#if eyebrow}
       <div class="fdc-label-strip" style="margin-bottom: 6px;">{eyebrow}</div>
     {/if}
@@ -41,7 +33,7 @@
     {/if}
   </div>
   {#if actions}
-    <div style="display: flex; gap: 8px;">
+    <div class="fdc-page-header__actions">
       {@render actions()}
     </div>
   {/if}
