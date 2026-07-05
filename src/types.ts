@@ -40,6 +40,16 @@ export interface Dependencies {
   database: Database;
   runtimeConfig: ConfigFile | null;
 
+  // Absolute path of the config file this daemon loaded at startup.
+  // `null` when the daemon runs with no config file (all defaults).
+  // Used by config-persistence to write back to the same location.
+  configFilePath: string | null;
+
+  // Millisecond epoch captured once at process start. The UI polls
+  // this via `GET /api/config/status` after a Restart-now click to
+  // detect that the daemon actually came back on the new process.
+  startupEpoch: number;
+
   // Mutable server state
   server: FdcServer | null;
   diskServingEnabled: boolean;

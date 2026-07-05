@@ -2817,56 +2817,10 @@
           "Config"
         ],
         "summary": "Get current configuration",
-        "description": "Returns current runtime configuration including serial, web, terminal, and display options.",
+        "description": "Returns current runtime configuration. Never includes `apiKey` — call `GET /api/config/status` to check whether it's set.",
         "responses": {
           "200": {
-            "description": "Current configuration",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "port": {
-                      "type": "string",
-                      "description": "Serial port device path"
-                    },
-                    "baud": {
-                      "type": "integer"
-                    },
-                    "web": {
-                      "type": "boolean"
-                    },
-                    "webPort": {
-                      "type": "integer"
-                    },
-                    "webHost": {
-                      "type": "string"
-                    },
-                    "terminalPort": {
-                      "type": "string"
-                    },
-                    "terminalBaud": {
-                      "type": "integer"
-                    },
-                    "terminalAutoconnect": {
-                      "type": "boolean"
-                    },
-                    "verbose": {
-                      "type": "boolean"
-                    },
-                    "debug": {
-                      "type": "boolean"
-                    },
-                    "logFile": {
-                      "type": "string"
-                    },
-                    "gpioLeds": {
-                      "type": "boolean"
-                    }
-                  }
-                }
-              }
-            }
+            "description": "Current configuration"
           }
         }
       },
@@ -2874,54 +2828,31 @@
         "tags": [
           "Config"
         ],
-        "summary": "Update configuration",
-        "description": "Update runtime configuration. Currently only `verbose` takes effect without restart.",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "verbose": {
-                    "type": "boolean",
-                    "description": "Enable/disable verbose logging"
-                  }
-                }
-              }
-            }
-          }
-        },
+        "summary": "Toggle runtime-only knobs",
+        "description": "Legacy endpoint. Currently accepts `verbose` only. All other knobs must go through the per-section PUT endpoints and require a restart."
+      }
+    },
+    "/api/config/schema": {
+      "get": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "JSON Schema for the config document",
+        "description": "Emitted from the same Zod source of truth used to validate writes. Frontend renders field constraints from this — no duplicate schemas in the SPA.",
         "responses": {
           "200": {
-            "description": "Configuration updated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
+            "description": "JSON Schema"
           }
         }
+      }
+    },
+    "/api/config/status": {
+      "get": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Config file and daemon status",
+        "description": "Metadata the UI needs to decide whether the \"Restart now\" button\nis available, whether saves will work, and how to detect a\nsuccessful restart (poll `startupEpoch`).\n"
       }
     },
     "/api/cassettes/details": {

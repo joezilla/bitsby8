@@ -75,8 +75,19 @@ case "$1" in
   "terminalAutoconnect": false
 }
 EOF
-            chown root:root /etc/fdcsds/fdcsds.config.json
-            chmod 644 /etc/fdcsds/fdcsds.config.json
+            # Owned by the service user so the daemon can write it back
+            # atomically when an operator saves changes from the web UI.
+            # Was root:root 0644 in earlier packages, which forced every
+            # UI save through a sudo edit.
+            chown fdcsds:fdcsds /etc/fdcsds/fdcsds.config.json
+            chmod 664 /etc/fdcsds/fdcsds.config.json
+        else
+            # Existing installs: make sure the service user owns the
+            # file so the UI-write feature works after an upgrade.
+            # `|| true` protects against unusual permission states — the
+            # daemon just falls back to "read-only config" if this fails.
+            chown fdcsds:fdcsds /etc/fdcsds/fdcsds.config.json 2>/dev/null || true
+            chmod 664 /etc/fdcsds/fdcsds.config.json 2>/dev/null || true
         fi
 
         # Rebuild native modules against the target system's Node ABI.

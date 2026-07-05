@@ -55,6 +55,8 @@ export class WebServer {
       server?: FdcServer;
       runtimeConfig?: ConfigFile;
       database?: Database;
+      configFilePath?: string | null;
+      startupEpoch?: number;
     }
   ) {
     // Create Express app and HTTP server
@@ -89,6 +91,8 @@ export class WebServer {
       io: this.io,
       database,
       runtimeConfig: options?.runtimeConfig || null,
+      configFilePath: options?.configFilePath ?? null,
+      startupEpoch: options?.startupEpoch ?? Date.now(),
       server: options?.server || null,
       diskServingEnabled: options?.server !== null && options?.server !== undefined,
       serverTask: null,

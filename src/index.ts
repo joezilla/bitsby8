@@ -132,14 +132,14 @@ async function main(): Promise<void> {
     console.log('Serial Port Path Information\n');
 
     // Load config to get configured ports
-    let configFile = null;
+    let loaded = null;
     try {
-      configFile = await loadConfigFile(options.config);
+      loaded = await loadConfigFile(options.config);
     } catch (error) {
       // Ignore config load errors for this command
     }
 
-    const mergedOptions = mergeConfig(configFile, options);
+    const mergedOptions = mergeConfig(loaded?.config ?? null, options);
     const portsToCheck: Array<{ label: string; path: string }> = [];
 
     if (mergedOptions.port) {
@@ -211,21 +211,30 @@ async function main(): Promise<void> {
   }
 
   // Load configuration file
-  let configFile = null;
+  let loaded = null;
   try {
-    configFile = await loadConfigFile(options.config);
-    if (configFile) {
+    loaded = await loadConfigFile(options.config);
+    if (loaded) {
       console.log('Configuration loaded successfully');
-      console.log(`  Port: ${configFile.port || '(not set)'}`);
-      console.log(`  Baud: ${configFile.baud || '(not set)'}`);
+      console.log(`  Port: ${loaded.config.port || '(not set)'}`);
+      console.log(`  Baud: ${loaded.config.baud || '(not set)'}`);
     }
   } catch (error) {
     console.error((error as Error).message);
     process.exit(1);
   }
 
-  // Merge config file with command line options (CLI takes precedence)
+  // Merge config file with command line options (CLI takes precedence).
+  // Keep the resolved filePath around so the web server can write back
+  // to the same location later (used by /api/config/:section PUTs).
+  const configFile = loaded?.config ?? null;
+  const configFilePath = loaded?.filePath ?? null;
   const mergedOptions = mergeConfig(configFile, options);
+
+  // Millisecond epoch captured once so `GET /api/config/status` can
+  // report a monotonic per-process value; the UI compares this after
+  // a restart to detect the daemon has actually relaunched.
+  const startupEpoch = Date.now();
 
   // Resolve data directory
   const dataDir = resolveDataDir(mergedOptions.dataDir);
@@ -511,6 +520,8 @@ async function main(): Promise<void> {
       io: dummyIo,
       database: database!,
       runtimeConfig: mergedOptions,
+      configFilePath,
+      startupEpoch,
       server: server,
       diskServingEnabled: server !== null,
       serverTask: null,
@@ -550,7 +561,7 @@ async function main(): Promise<void> {
       serialManager,
       terminalManager,
       preferredTerminalSettings,
-      { server: server || undefined, runtimeConfig: mergedOptions, database }
+      { server: server || undefined, runtimeConfig: mergedOptions, database, configFilePath, startupEpoch }
     );
     await webServer.start();
   }
