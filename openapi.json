@@ -2855,6 +2855,53 @@
         "description": "Metadata the UI needs to decide whether the \"Restart now\" button\nis available, whether saves will work, and how to detect a\nsuccessful restart (poll `startupEpoch`).\n"
       }
     },
+    "/api/config/restart": {
+      "post": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Gracefully exit so systemd relaunches the daemon",
+        "description": "Requires `?confirm=1` — the click path is destructive enough\nthat a stray XHR shouldn't take the daemon down. Returns 501\nwhen the process isn't systemd-managed (dev / docker); the\nUI should render a copy-paste command in that case.\n",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "confirm",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Restart scheduled — poll GET /api/config/status until startupEpoch changes"
+          },
+          "400": {
+            "description": "Missing confirm flag"
+          },
+          "501": {
+            "description": "Not systemd-managed; restart manually"
+          }
+        }
+      }
+    },
+    "/api/config/reload": {
+      "post": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Re-read runtime-toggleable knobs without restarting",
+        "description": "Best-effort re-read of `verbose`, `debug`, and `logFile` from\nthe current on-disk config. Serial / web / GPIO changes still\nneed a full restart. Returns 200 with the set of fields that\nactually took effect.\n",
+        "responses": {
+          "200": {
+            "description": "Live-reload result"
+          }
+        }
+      }
+    },
     "/api/cassettes/details": {
       "get": {
         "tags": [

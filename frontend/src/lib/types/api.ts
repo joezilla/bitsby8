@@ -105,3 +105,86 @@ export interface CpmFileInfo {
   system: boolean;
   extents: number;
 }
+
+// ---------------------------------------------------------------------------
+// Config section shapes — mirror the Zod schemas in src/config.ts.
+// Every field is optional so a section PUT can carry a partial patch.
+// ---------------------------------------------------------------------------
+
+export interface SerialSection {
+  port?: string;
+  baud?: number;
+  drive0?: string | null;
+  drive1?: string | null;
+  drive2?: string | null;
+  drive3?: string | null;
+  readonly?: number[];
+}
+
+export interface WebSection {
+  web?: boolean;
+  webPort?: number;
+  webHost?: string;
+  apiKey?: string | null;
+}
+
+export interface TerminalSection {
+  terminalPort?: string;
+  terminalBaud?: number;
+  terminalAutoconnect?: boolean;
+}
+
+export interface LoggingSection {
+  verbose?: boolean;
+  debug?: boolean;
+  logFile?: string | null;
+}
+
+export interface DataSection {
+  dataDir?: string | null;
+  terminalOnly?: boolean;
+}
+
+export interface GpioDrivePins {
+  enable?: number | null;
+  headLoad?: number | null;
+  readOnly?: number | null;
+}
+
+export interface GpioTerminalPins {
+  rx?: number | null;
+  tx?: number | null;
+  connected?: number | null;
+}
+
+export interface GpioSection {
+  enabled?: boolean;
+  activeLow?: boolean;
+  blinkDuration?: number;
+  activityBlinkDuration?: number;
+  activityLed?: number | null;
+  drive0?: GpioDrivePins;
+  drive1?: GpioDrivePins;
+  drive2?: GpioDrivePins;
+  drive3?: GpioDrivePins;
+  terminal?: GpioTerminalPins;
+}
+
+export interface ConfigDoc
+  extends SerialSection,
+    WebSection,
+    TerminalSection,
+    LoggingSection,
+    DataSection {
+  gpioLeds?: GpioSection;
+}
+
+export interface ConfigStatus {
+  configFilePath: string | null;
+  writable: boolean;
+  mtimeMs: number | null;
+  systemdManaged: boolean;
+  startupEpoch: number;
+  apiKeySet: boolean;
+  etag?: string;
+}

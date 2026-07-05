@@ -28,7 +28,17 @@ import {
   GpioSchema,
 } from '../config';
 import { writePartialConfig, ConfigWriteError } from '../services/config-persistence';
-import { isSystemdManaged } from '../services/restart-manager';
+import { isSystemdManaged, scheduleRestart } from '../services/restart-manager';
+
+/**
+ * Concurrency-guard token format used in `ETag` / `If-Match` headers.
+ * Combines the daemon's startup epoch (invalidates every restart) with
+ * the config file's mtime (invalidates every save). A second client
+ * editing stale state gets a 409 instead of silently clobbering.
+ */
+function makeConfigEtag(startupEpoch: number, mtimeMs: number | null): string {
+  return `"epoch-${startupEpoch}+mtime-${mtimeMs ?? 0}"`;
+}
 
 export function registerConfigRoutes(router: Router, deps: Dependencies): void {
   /**
@@ -168,6 +178,8 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
         mtimeMs = null;
       }
     }
+    const etag = makeConfigEtag(deps.startupEpoch, mtimeMs);
+    res.set('ETag', etag);
     res.json({
       configFilePath: p,
       writable,
@@ -175,7 +187,98 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
       systemdManaged: isSystemdManaged(),
       startupEpoch: deps.startupEpoch,
       apiKeySet: !!deps.runtimeConfig?.apiKey,
+      etag,
     });
+  });
+
+  /**
+   * @openapi
+   * /api/config/restart:
+   *   post:
+   *     tags: [Config]
+   *     summary: Gracefully exit so systemd relaunches the daemon
+   *     description: |
+   *       Requires `?confirm=1` — the click path is destructive enough
+   *       that a stray XHR shouldn't take the daemon down. Returns 501
+   *       when the process isn't systemd-managed (dev / docker); the
+   *       UI should render a copy-paste command in that case.
+   *     parameters:
+   *       - in: query
+   *         name: confirm
+   *         required: true
+   *         schema: { type: string, enum: ['1'] }
+   *     responses:
+   *       202: { description: Restart scheduled — poll GET /api/config/status until startupEpoch changes }
+   *       400: { description: Missing confirm flag }
+   *       501: { description: Not systemd-managed; restart manually }
+   */
+  router.post('/api/config/restart', (req: Request, res: Response): void => {
+    if (req.query.confirm !== '1') {
+      res.status(400).json({ error: 'Missing ?confirm=1 — restart is destructive.' });
+      return;
+    }
+    const ok = scheduleRestart();
+    if (!ok) {
+      res.status(501).json({
+        error: 'Not systemd-managed; restart the daemon manually.',
+        manualCommand: 'sudo systemctl restart fdcsds',
+        systemdManaged: false,
+      });
+      return;
+    }
+    res.status(202).json({
+      success: true,
+      message: 'Restart scheduled. Poll GET /api/config/status until startupEpoch changes.',
+      startupEpoch: deps.startupEpoch,
+    });
+  });
+
+  /**
+   * @openapi
+   * /api/config/reload:
+   *   post:
+   *     tags: [Config]
+   *     summary: Re-read runtime-toggleable knobs without restarting
+   *     description: |
+   *       Best-effort re-read of `verbose`, `debug`, and `logFile` from
+   *       the current on-disk config. Serial / web / GPIO changes still
+   *       need a full restart. Returns 200 with the set of fields that
+   *       actually took effect.
+   *     responses:
+   *       200: { description: Live-reload result }
+   */
+  router.post('/api/config/reload', async (_req: Request, res: Response): Promise<void> => {
+    if (!deps.configFilePath) {
+      res.status(409).json({ error: 'No config file loaded — nothing to reload.' });
+      return;
+    }
+    try {
+      const raw = await fs.readFile(deps.configFilePath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      const applied: string[] = [];
+      if (deps.runtimeConfig) {
+        if (typeof parsed.verbose === 'boolean' && parsed.verbose !== deps.runtimeConfig.verbose) {
+          deps.runtimeConfig.verbose = parsed.verbose;
+          if (deps.server) deps.server.toggleVerbose();
+          deps.terminalManager.setVerbose(parsed.verbose);
+          applied.push('verbose');
+        }
+        if (typeof parsed.debug === 'boolean' && parsed.debug !== deps.runtimeConfig.debug) {
+          deps.runtimeConfig.debug = parsed.debug;
+          applied.push('debug');
+        }
+        if (
+          (parsed.logFile === null || typeof parsed.logFile === 'string') &&
+          parsed.logFile !== deps.runtimeConfig.logFile
+        ) {
+          deps.runtimeConfig.logFile = parsed.logFile;
+          applied.push('logFile');
+        }
+      }
+      res.json({ success: true, applied });
+    } catch (err) {
+      res.status(500).json({ error: safeErrorMessage(err) });
+    }
   });
 
   // -----------------------------------------------------------------------
@@ -224,10 +327,33 @@ function registerSectionPut(
         });
         return;
       }
+      // Optional concurrency guard: if the caller sent an If-Match
+      // ETag, reject the write when the file has moved on since they
+      // last read it (someone else saved / the daemon restarted).
+      const ifMatch = req.header('if-match');
+      if (ifMatch) {
+        let currentMtime: number | null = null;
+        try {
+          currentMtime = (await fs.stat(deps.configFilePath)).mtimeMs;
+        } catch {
+          /* fall through — treat missing file as mismatch */
+        }
+        const currentEtag = makeConfigEtag(deps.startupEpoch, currentMtime);
+        if (ifMatch !== currentEtag) {
+          res.status(409).json({
+            error: 'Config file changed since you last loaded it. Reload and try again.',
+            code: 'STALE_ETAG',
+            expected: currentEtag,
+            got: ifMatch,
+          });
+          return;
+        }
+      }
       const { config, mtimeMs } = await writePartialConfig(
         deps.configFilePath,
         parseResult.data as any,
       );
+      res.set('ETag', makeConfigEtag(deps.startupEpoch, mtimeMs));
       res.json({ success: true, config, mtimeMs, restartRequired: true });
     } catch (err) {
       if (err instanceof ConfigWriteError) {

@@ -16,8 +16,11 @@ WorkingDirectory=/var/lib/fdcsds
 # Command
 ExecStart=/usr/bin/node /usr/lib/fdcsds/dist/index.js --config /etc/fdcsds/fdcsds.config.json
 
-# Restart policy
-Restart=on-failure
+# Restart policy — always, not just on-failure. The web UI's
+# "Restart now" button calls process.exit(0) after a config save;
+# systemd needs to bring the daemon back on a clean exit for that
+# flow to work.
+Restart=always
 RestartSec=10s
 
 # Security hardening
