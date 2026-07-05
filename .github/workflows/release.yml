@@ -31,7 +31,7 @@ jobs:
 
     steps:
       - name: Checkout (full history)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           # `make deb` derives the Debian revision from `git rev-list --count`,
           # so shallow clones would produce a version like "2.0.0-1+g..." on
@@ -46,7 +46,7 @@ jobs:
           version: 11.2.2
 
       - name: Set up Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
@@ -67,15 +67,34 @@ jobs:
         run: ls -la build/
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          # Include the .deb plus the buildinfo/changes for anyone who
-          # wants to verify the build.
-          files: |
-            build/*.deb
-            build/*.buildinfo
-            build/*.changes
-          generate_release_notes: true
-          draft: false
+        # Using gh CLI directly (instead of softprops/action-gh-release) so
+        # the workflow is idempotent under retags. softprops hit a
+        # "tag_name already_exists" validation error on its finalize step
+        # whenever a release already existed for the tag — see the aborted
+        # v2.0.1-rc2 run.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+
           # v1.2.3-rc1 → prerelease; v1.2.3 → stable.
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          PRERELEASE_FLAG=""
+          if [[ "$TAG" == *-* ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
+          ASSETS=( build/*.deb build/*.buildinfo build/*.changes )
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — replacing assets in place."
+            gh release upload "$TAG" "${ASSETS[@]}" --clobber
+          else
+            echo "Creating fresh release $TAG."
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --generate-notes \
+              $PRERELEASE_FLAG \
+              "${ASSETS[@]}"
+          fi
