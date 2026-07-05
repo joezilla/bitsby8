@@ -18,6 +18,9 @@ import * as fs from 'fs/promises';
 import { z, ZodType } from 'zod';
 import { Dependencies } from '../types';
 import { safeErrorMessage } from '../utils/safe-path';
+import { createLogger } from '../logger';
+
+const log = createLogger('routes:config');
 import {
   ConfigSchema,
   SerialSchema,
@@ -278,6 +281,10 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
       }
       res.json({ success: true, applied });
     } catch (err) {
+      log.error(
+        { err, route: '/api/config/reload', configFile: deps.configFilePath },
+        `Config reload failed: ${(err as Error)?.message ?? String(err)}`,
+      );
       res.status(500).json({ error: safeErrorMessage(err) });
     }
   });
@@ -328,9 +335,19 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
           : err.code === 'VALIDATION_FAILED' ? 400
           : err.code === 'NO_CONFIG_FILE' ? 409
           : 500;
+        if (status >= 500) {
+          log.error(
+            { err, route: '/api/config/rollback', code: err.code, configFile: deps.configFilePath, issues: err.issues },
+            `Config rollback failed (${err.code})`,
+          );
+        }
         res.status(status).json({ error: err.message, code: err.code, issues: err.issues });
         return;
       }
+      log.error(
+        { err, route: '/api/config/rollback', configFile: deps.configFilePath },
+        `Unhandled error on rollback: ${(err as Error)?.message ?? String(err)}`,
+      );
       res.status(500).json({ error: safeErrorMessage(err) });
     }
   });
@@ -419,9 +436,24 @@ function registerSectionPut(
     } catch (err) {
       if (err instanceof ConfigWriteError) {
         const status = err.code === 'NOT_WRITABLE' ? 403 : err.code === 'VALIDATION_FAILED' ? 400 : 500;
+        // Log server-visible internal failures (5xx). 4xx are the caller's
+        // fault and we already return a structured payload — no need to
+        // spam the journal on every bad request.
+        if (status >= 500) {
+          log.error(
+            { err, route: routePath, code: err.code, configFile: deps.configFilePath, issues: err.issues },
+            `Config save failed (${err.code}) on ${routePath}`,
+          );
+        }
         res.status(status).json({ error: err.message, code: err.code, issues: err.issues });
         return;
       }
+      // Unknown error — safe message goes to the client, full stack + type
+      // go to the log so we can actually diagnose it after the fact.
+      log.error(
+        { err, route: routePath, configFile: deps.configFilePath },
+        `Unhandled error on ${routePath}: ${(err as Error)?.message ?? String(err)}`,
+      );
       res.status(500).json({ error: safeErrorMessage(err) });
     }
   });
