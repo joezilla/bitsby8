@@ -523,6 +523,7 @@ body {
   text-transform: uppercase;
   white-space: nowrap;
 }
+.chip.sm { height: 20px; padding: 0 8px; gap: 4px; font-size: 10px; letter-spacing: 0.06em; }
 .chip.amber { color: var(--signal-amber); border-color: rgba(255,176,32,0.25); background: rgba(255,176,32,0.08); }
 .chip.green { color: var(--success); border-color: rgba(34,192,143,0.25); background: var(--success-container); }
 .chip.red   { color: var(--error); border-color: rgba(229,86,76,0.25); background: var(--error-container); }
