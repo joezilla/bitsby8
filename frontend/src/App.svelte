@@ -16,13 +16,15 @@
 
   type PageId = 'terminal' | 'disks' | 'cassettes' | 'scripts' | 'config';
 
+  const isNarrow = typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches;
+
   let currentPage: PageId = $state('terminal');
-  let mobileMenuOpen = $state(false);
+  let sidebarOpen = $state(!isNarrow);
   let chatOpen = $state(false);
 
   function navigateTo(page: PageId): void {
     currentPage = page;
-    mobileMenuOpen = false;
+    if (isNarrow) sidebarOpen = false;
   }
 </script>
 
@@ -39,30 +41,14 @@
 >
   <TopBar
     {chatOpen}
-    {mobileMenuOpen}
+    {sidebarOpen}
     onToggleChat={() => (chatOpen = !chatOpen)}
-    onToggleMobileMenu={() => (mobileMenuOpen = !mobileMenuOpen)}
+    onToggleSidebar={() => (sidebarOpen = !sidebarOpen)}
   />
 
   <div style="flex: 1; display: flex; min-height: 0;">
-    <!-- Desktop sidebar (lg+) -->
-    <div class="hidden lg:flex">
+    {#if sidebarOpen}
       <Sidebar active={currentPage} onNavigate={navigateTo} />
-    </div>
-
-    <!-- Mobile sidebar drawer -->
-    {#if mobileMenuOpen}
-      <div class="lg:hidden" style="position: fixed; inset: 0; z-index: 40;">
-        <button
-          type="button"
-          aria-label="Close menu"
-          onclick={() => (mobileMenuOpen = false)}
-          style="position: absolute; inset: 0; background: var(--surface-overlay); border: none; cursor: default;"
-        ></button>
-        <div style="position: absolute; left: 0; top: 56px; bottom: 0; z-index: 50;">
-          <Sidebar active={currentPage} onNavigate={navigateTo} />
-        </div>
-      </div>
     {/if}
 
     <main

@@ -10,15 +10,15 @@
   interface Props {
     chatOpen?: boolean;
     onToggleChat?: () => void;
-    onToggleMobileMenu?: () => void;
-    mobileMenuOpen?: boolean;
+    onToggleSidebar?: () => void;
+    sidebarOpen?: boolean;
   }
 
   let {
     chatOpen = false,
     onToggleChat,
-    onToggleMobileMenu,
-    mobileMenuOpen = false,
+    onToggleSidebar,
+    sidebarOpen = true,
   }: Props = $props();
 
   const drives: DriveState[] = $derived($serverStatus?.drives ?? []);
@@ -50,17 +50,16 @@
     gap: 12px;
   "
 >
-  <!-- Left: mobile menu + wordmark -->
+  <!-- Left: sidebar toggle + wordmark -->
   <div style="display: flex; align-items: center; gap: 16px; min-width: 0;">
-    {#if onToggleMobileMenu}
-      <span class="lg:hidden" style="display: inline-flex;">
-        <IconButton
-          icon={mobileMenuOpen ? 'close' : 'menu'}
-          size={20}
-          title={mobileMenuOpen ? 'Close menu' : 'Open menu'}
-          onclick={onToggleMobileMenu}
-        />
-      </span>
+    {#if onToggleSidebar}
+      <IconButton
+        icon="menu"
+        size={20}
+        title={sidebarOpen ? 'Hide navigation' : 'Show navigation'}
+        on={sidebarOpen}
+        onclick={onToggleSidebar}
+      />
     {/if}
     <div style="display: flex; align-items: baseline; gap: 10px; min-width: 0;">
       <span
@@ -96,7 +95,6 @@
       <Led
         color={diskServingRunning ? 'green' : 'off'}
         label="FDC"
-        sublabel={diskServingRunning ? 'serving' : undefined}
       />
     </div>
 
