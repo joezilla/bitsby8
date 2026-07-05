@@ -16,15 +16,17 @@
 
   type PageId = 'terminal' | 'disks' | 'cassettes' | 'scripts' | 'config';
 
-  const isNarrow = typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches;
+  function isNarrowNow(): boolean {
+    return typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches;
+  }
 
   let currentPage: PageId = $state('terminal');
-  let sidebarOpen = $state(!isNarrow);
+  let sidebarOpen = $state(!isNarrowNow());
   let chatOpen = $state(false);
 
   function navigateTo(page: PageId): void {
     currentPage = page;
-    if (isNarrow) sidebarOpen = false;
+    if (isNarrowNow()) sidebarOpen = false;
   }
 </script>
 
@@ -46,9 +48,28 @@
     onToggleSidebar={() => (sidebarOpen = !sidebarOpen)}
   />
 
-  <div style="flex: 1; display: flex; min-height: 0;">
+  <div style="flex: 1; display: flex; min-height: 0; position: relative;">
     {#if sidebarOpen}
-      <Sidebar active={currentPage} onNavigate={navigateTo} />
+      <!-- Desktop: inline flex sibling -->
+      <div class="hidden lg:flex" style="flex: 0 0 220px;">
+        <Sidebar active={currentPage} onNavigate={navigateTo} />
+      </div>
+
+      <!-- Mobile: overlay drawer with backdrop -->
+      <div
+        class="lg:hidden"
+        role="presentation"
+        onclick={() => (sidebarOpen = false)}
+        style="position: fixed; inset: 56px 0 0 0; z-index: 40; background: var(--surface-overlay);"
+      >
+        <div
+          role="presentation"
+          onclick={(e) => e.stopPropagation()}
+          style="position: absolute; left: 0; top: 0; bottom: 0; box-shadow: var(--elev-3);"
+        >
+          <Sidebar active={currentPage} onNavigate={navigateTo} />
+        </div>
+      </div>
     {/if}
 
     <main

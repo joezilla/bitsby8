@@ -432,14 +432,14 @@
   actions={headerActions}
 />
 
-<div style="padding: 0 28px 28px; display: flex; flex-direction: column; gap: 20px;">
+<div class="fdc-page-body" style="display: flex; flex-direction: column; gap: 20px;">
   <!-- Drive bays -->
   <div>
     <div style="margin-bottom: 10px;"><LabelStrip>Drive bays</LabelStrip></div>
     <div
       style="
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
         gap: 12px;
       "
     >
@@ -582,7 +582,7 @@
           <LabelStrip>Create blank disk</LabelStrip>
           <IconButton icon="close" size={16} title="Close" onclick={() => (showCreateDialog = false)} />
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 12px; align-items: end;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); gap: 12px; align-items: end;">
           <div>
             <label class="fdc-label-strip" for="new-disk-name" style="display: block; margin-bottom: 4px;">Filename</label>
             <Input id="new-disk-name" placeholder="mydisk" bind:value={newDiskName} />
@@ -624,7 +624,7 @@
     >
       <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px;">
         <LabelStrip>Disk image library</LabelStrip>
-        <div style="flex: 1; min-width: 200px;">
+        <div style="flex: 1; min-width: min(200px, 100%);">
           <Input variant="search" placeholder="Filter images…" bind:value={searchQuery} />
         </div>
       </div>

@@ -239,14 +239,14 @@
 />
 
 <div
+  class="fdc-page-body"
+  class:fullscreen={isFullscreen}
   style="
     flex: 1;
     min-height: 0;
-    padding: 0 28px 28px;
     display: flex;
     flex-direction: column;
   "
-  class:fullscreen={isFullscreen}
 >
   <!-- Connection bar -->
   <div

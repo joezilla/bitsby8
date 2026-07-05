@@ -179,7 +179,7 @@
   actions={headerActions}
 />
 
-<div style="padding: 0 28px 28px; display: flex; flex-direction: column; gap: 16px;">
+<div class="fdc-page-body" style="display: flex; flex-direction: column; gap: 16px;">
   {#if activeCassette}
     <Card raised>
       <div style="padding: 18px; display: flex; align-items: center; gap: 16px;">

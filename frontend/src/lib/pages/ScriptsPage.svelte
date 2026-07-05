@@ -183,10 +183,10 @@
 />
 
 <div
+  class="fdc-page-body"
   style="
     flex: 1;
     min-height: 0;
-    padding: 0 28px 28px;
     display: flex;
     gap: 16px;
   "

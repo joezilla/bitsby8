@@ -63,6 +63,8 @@
     display: flex;
     flex-direction: column;
     padding: 16px 0;
+    min-height: 0;
+    overflow-y: auto;
   "
 >
   <div style="padding: 0 16px 8px;">
@@ -126,7 +128,7 @@
   </div>
 
   <!-- Footer system info card -->
-  <div style="margin-top: auto; padding: 16px 16px 4px;">
+  <div style="padding: 16px 16px 4px;">
     <div
       class="card"
       style="padding: 12px; background: var(--surface-variant); border-radius: 10px;"
@@ -135,6 +137,19 @@
         <Led color={$connected ? 'green' : 'off'} pulse={$connected} />
         <span class="fdc-label-strip">System</span>
       </div>
+      {#if $serverStatus?.system?.updateAvailable && $serverStatus?.system?.latestVersion && $serverStatus?.system?.latestUrl}
+        <div style="margin-top: 8px;">
+          <a
+            href={$serverStatus.system.latestUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={`Latest release: ${$serverStatus.system.latestVersion}${$serverStatus.system.updateCheckedAt ? ` — checked ${formatBuildTime($serverStatus.system.updateCheckedAt)}` : ''}`}
+            style="text-decoration: none;"
+          >
+            <Chip color="amber" icon="upgrade" size="sm">UPDATE {$serverStatus.system.latestVersion}</Chip>
+          </a>
+        </div>
+      {/if}
       <div
         style="
           margin-top: 8px;
@@ -147,24 +162,11 @@
         "
       >
         <span class="fdc-label-strip">VER</span>
-        <span class="fdc-mono" style="font-size: 11px; display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-          <span>
-            {$serverStatus?.system?.version ?? '—'}{#if $serverStatus?.system?.dirty}<span
-              style="color: var(--warning); margin-left: 4px;"
-              title="Built from a working tree with uncommitted changes"
-            >*</span>{/if}
-          </span>
-          {#if $serverStatus?.system?.updateAvailable && $serverStatus?.system?.latestVersion && $serverStatus?.system?.latestUrl}
-            <a
-              href={$serverStatus.system.latestUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={`Latest release: ${$serverStatus.system.latestVersion}${$serverStatus.system.updateCheckedAt ? ` — checked ${formatBuildTime($serverStatus.system.updateCheckedAt)}` : ''}`}
-              style="text-decoration: none;"
-            >
-              <Chip color="amber" icon="upgrade">UPDATE {$serverStatus.system.latestVersion}</Chip>
-            </a>
-          {/if}
+        <span class="fdc-mono" style="font-size: 11px;">
+          {$serverStatus?.system?.version ?? '—'}{#if $serverStatus?.system?.dirty}<span
+            style="color: var(--warning); margin-left: 4px;"
+            title="Built from a working tree with uncommitted changes"
+          >*</span>{/if}
         </span>
         {#if $serverStatus?.system?.commit}
           <span class="fdc-label-strip">BLD</span>
