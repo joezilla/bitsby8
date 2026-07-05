@@ -521,6 +521,7 @@ body {
   font: 500 12px/1 var(--font-data);
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 .chip.amber { color: var(--signal-amber); border-color: rgba(255,176,32,0.25); background: rgba(255,176,32,0.08); }
 .chip.green { color: var(--success); border-color: rgba(34,192,143,0.25); background: var(--success-container); }

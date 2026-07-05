@@ -63,6 +63,8 @@
     display: flex;
     flex-direction: column;
     padding: 16px 0;
+    min-height: 0;
+    overflow-y: auto;
   "
 >
   <div style="padding: 0 16px 8px;">
