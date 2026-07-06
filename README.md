@@ -48,7 +48,7 @@ A TypeScript implementation of an FDC+ Serial Disk Server. It speaks the FDC+ wi
 - Cross-platform support (Linux + macOS tested; Windows untested)
 - **Svelte 5 + Tailwind 4 web interface** with real-time Socket.IO status updates
 - **VT102 terminal emulator** for a second serial port (with optional CRT phosphor mode)
-- **MCP server** with 30 tools for AI assistant integration — see [AI Assistant Integration](#ai-assistant-integration-mcp)
+- **MCP server** with 30 tools for AI assistant integration — local (stdio) and remote (HTTP with bearer auth); see [AI Assistant Integration](#ai-assistant-integration-mcp)
 - **GPIO LED status indicators** for Raspberry Pi
 - **OpenAPI/Swagger documentation** at `/api/docs` (also committed as [`openapi.json`](openapi.json))
 - SQLite database with WAL mode for persistent state
@@ -128,7 +128,7 @@ frontend/                  # Svelte 5 + Vite + Tailwind 4 SPA
 - **routes/**: 11 Express route modules covering drives, images, cassettes, scripts, terminal, etc.
 - **services/**: Business logic separated from HTTP handling (status, transfers, audio, file listing)
 - **middleware/**: Security (Helmet, CORS, rate limiting), API key auth, and static file serving
-- **mcp-server.ts**: MCP server exposing 30 tools for AI assistant integration via stdio transport (see [AI Assistant Integration](#ai-assistant-integration-mcp))
+- **mcp-server.ts** / **mcp-http.ts**: MCP server exposing 30 tools for AI assistant integration. `mcp-server.ts` builds the tool registry; `mcp-http.ts` mounts the Streamable HTTP transport on the web server (opt-in). Stdio transport is served from `mcp-server.ts` directly via `--mcp`. See [AI Assistant Integration](#ai-assistant-integration-mcp).
 - **frontend/**: Modern Svelte 5 SPA with real-time Socket.IO updates, xterm.js terminal, and retro CRT mode
 
 ---
@@ -260,6 +260,8 @@ The configuration file uses JSON format:
   "web": true,
   "webPort": 3000,
   "webHost": "localhost",
+  "apiKey": null,
+  "enableMcpHttp": false,
   "terminalPort": "/dev/ttyUSB1",
   "terminalBaud": 9600,
   "terminalAutoconnect": false,
@@ -323,6 +325,9 @@ Options:
   --gpio-active-low         Use active-low logic for LEDs
   -c, --config <file>       Configuration file path
   --example-config          Print example configuration file and exit
+  --mcp                     Start as MCP server over stdio (blocks; no web UI)
+  --mcp-http                Serve MCP over HTTP on the web server at /mcp
+                            (requires apiKey; see AI Assistant Integration)
   -h, --help                Display help information
 ```
 
@@ -523,7 +528,12 @@ The web interface uses Socket.IO for real-time updates.
 
 ## AI Assistant Integration (MCP)
 
-The server ships a [Model Context Protocol](https://modelcontextprotocol.io/) server that exposes **30 tools** to MCP-compatible assistants (Claude Desktop, Claude Code, etc.). It runs over **stdio transport** as a separate process from the web server (`fdcsds --mcp ...`).
+The server ships a [Model Context Protocol](https://modelcontextprotocol.io/) server that exposes **30 tools** to MCP-compatible assistants (Claude Desktop, Claude Code, etc.). Two transports are supported and mutually opt-in:
+
+| Transport | When to use | Auth | Enable with |
+|---|---|---|---|
+| **stdio** | Assistant runs on the same machine as `fdcsds` | None (parent process trust) | `fdcsds --mcp` (blocks; not the web server) |
+| **HTTP (Streamable)** | Assistant runs elsewhere on the LAN and connects over the network | Bearer token (required — refuses to enable without an API key) | `--mcp-http`, `enableMcpHttp: true` in the config file, or the Config page toggle |
 
 ### Tool surface (30 tools, by category)
 
@@ -540,14 +550,14 @@ The server ships a [Model Context Protocol](https://modelcontextprotocol.io/) se
 
 The exact, current list is the source of truth in [`src/mcp-server.ts`](src/mcp-server.ts).
 
-### Auth, transport, and default posture
+### Security posture
 
-- **Transport:** stdio (one process per assistant session).
-- **Auth:** none on stdio (parent process trust model). The MCP server runs only when launched explicitly with `--mcp`.
-- **Default posture:** **disabled** — the regular `fdcsds` binary does NOT start MCP. You opt in per-session.
+- **Default posture:** **disabled** on both transports. The regular `fdcsds` binary does NOT start MCP; you opt in per-session (stdio) or per-config (HTTP).
+- **stdio:** no auth. The transport is only reachable by whichever process spawned it, so parent-process trust is the boundary.
+- **HTTP:** bearer auth over the shared `apiKey`. The daemon refuses to serve `/mcp` when no API key is set, and disabling the toggle drops any live sessions cleanly. Runs over plain HTTP — intended for **trusted LAN use only**. Put a reverse proxy with TLS in front of it if you ever expose it beyond the LAN.
 - **Blast radius if exposed:** the tools can read and **write** disk images, mount/unmount drives, send arbitrary bytes to the serial port, and read/write CP/M files on mounted disks. Do not point an assistant at production hardware without intent.
 
-### Enabling it (Claude Desktop / Claude Code)
+### Enabling stdio (Claude Desktop / Claude Code on the same machine)
 
 ```json
 {
@@ -560,7 +570,19 @@ The exact, current list is the source of truth in [`src/mcp-server.ts`](src/mcp-
 }
 ```
 
-The web interface's Chat panel (top-bar `forum` icon) has the same config block with a copy button.
+### Enabling HTTP (Claude Code from a remote machine on the LAN)
+
+1. **Set an API key** in the web UI at *Configuration → Web & API*, or set `apiKey` in the config file. The daemon will refuse to enable MCP over HTTP without one.
+2. **Enable MCP over HTTP** in *Configuration → MCP server (HTTP)* — the toggle takes effect immediately, no restart. Alternatively set `enableMcpHttp: true` in the config file, or pass `--mcp-http` at boot.
+3. **Register the endpoint** on the machine running Claude Code:
+   ```bash
+   claude mcp add --transport http fdcplus \
+     http://<pi-hostname>:3000/mcp \
+     --header "Authorization: Bearer <api-key>"
+   ```
+   The Config page shows a copy-paste command pre-filled with the current hostname and port once the toggle is on.
+
+The web interface's Chat panel (top-bar `forum` icon) has both configuration blocks side-by-side with copy buttons.
 
 ---
 
