@@ -134,6 +134,19 @@ async function preflightWritable(filePath: string): Promise<void> {
         `Config file ${filePath} is not writable by the current user. ` +
           `On a .deb install run \`sudo chown fdcsds:fdcsds "${filePath}" && sudo chmod 664 "${filePath}"\`.`,
       );
+    } else if (code === 'EROFS') {
+      // Filesystem-level read-only. On our .deb this usually means the
+      // systemd unit's `ProtectSystem=strict` is bind-mounting /etc as
+      // read-only and the config file's directory isn't in
+      // `ReadWritePaths` — reinstall a .deb that has the fix, or add
+      // the path via a systemd drop-in.
+      throw new ConfigWriteError(
+        'NOT_WRITABLE',
+        `Config file ${filePath} is on a read-only filesystem. ` +
+          `If you're on the .deb install this usually means the fdcsds systemd unit's ` +
+          `ReadWritePaths= is missing the config directory — upgrade to a build that ` +
+          `includes /etc/fdcsds in ReadWritePaths (fdcsds ≥ 2.0.1-rc4).`,
+      );
     } else {
       throw err;
     }
