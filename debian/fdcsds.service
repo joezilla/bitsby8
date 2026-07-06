@@ -28,7 +28,11 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/fdcsds /var/log/fdcsds
+# /etc/fdcsds is included because the daemon writes fdcsds.config.json
+# back atomically when an operator saves from the web UI. Without this
+# the postinst's `chown fdcsds:fdcsds && chmod 664` on the config file
+# is defeated by ProtectSystem=strict, and saves fail with EROFS.
+ReadWritePaths=/var/lib/fdcsds /var/log/fdcsds /etc/fdcsds
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
