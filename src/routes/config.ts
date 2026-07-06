@@ -171,18 +171,35 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
    *       successful restart (poll `startupEpoch`).
    */
   router.get('/api/config/status', async (_req: Request, res: Response) => {
-    const p = deps.configFilePath;
+    // The override file is the one that mutates on save — writability
+    // and mtime both track it. The baseline is admin-managed and never
+    // written by the daemon, so it's reported for display only.
+    const overridePath = deps.overrideConfigFilePath;
+    const packagePath = deps.packageConfigFilePath;
     let writable = false;
     let mtimeMs: number | null = null;
-    if (p) {
+    if (overridePath) {
       try {
-        await fs.access(p, (await import('fs')).constants.W_OK);
+        await fs.access(overridePath, (await import('fs')).constants.W_OK);
         writable = true;
-      } catch {
-        writable = false;
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        // Missing file is fine — the directory just needs to be writable
+        // so the first save can create the override.
+        if (code === 'ENOENT') {
+          try {
+            const path = await import('path');
+            await fs.access(path.dirname(overridePath), (await import('fs')).constants.W_OK);
+            writable = true;
+          } catch {
+            writable = false;
+          }
+        } else {
+          writable = false;
+        }
       }
       try {
-        mtimeMs = (await fs.stat(p)).mtimeMs;
+        mtimeMs = (await fs.stat(overridePath)).mtimeMs;
       } catch {
         mtimeMs = null;
       }
@@ -190,7 +207,11 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
     const etag = makeConfigEtag(deps.startupEpoch, mtimeMs);
     res.set('ETag', etag);
     res.json({
-      configFilePath: p,
+      packageConfigFilePath: packagePath,
+      overrideConfigFilePath: overridePath,
+      // `configFilePath` kept as an alias for the override path for one
+      // release — old frontends looking for it stay functional.
+      configFilePath: overridePath,
       writable,
       mtimeMs,
       systemdManaged: isSystemdManaged(),
@@ -261,37 +282,49 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
    *       200: { description: Live-reload result }
    */
   router.post('/api/config/reload', async (_req: Request, res: Response): Promise<void> => {
-    if (!deps.configFilePath) {
-      res.status(409).json({ error: 'No config file loaded — nothing to reload.' });
+    const overridePath = deps.overrideConfigFilePath;
+    if (!overridePath) {
+      res.status(409).json({ error: 'No override file path configured — nothing to reload.' });
       return;
     }
     try {
-      const raw = await fs.readFile(deps.configFilePath, 'utf-8');
-      const parsed = JSON.parse(raw);
+      // Compute the effective (baseline + current override on disk) so
+      // runtime-toggleable knobs pick up an override that's been re-saved
+      // as well as any admin edit to the baseline since startup.
+      let overrideOnDisk: Record<string, unknown> = {};
+      try {
+        const raw = await fs.readFile(overridePath, 'utf-8');
+        overrideOnDisk = JSON.parse(raw);
+      } catch (err) {
+        // ENOENT is fine — no override yet, effective == baseline.
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      }
+      const baseline = (deps.baselineConfig ?? {}) as Record<string, unknown>;
+      const effective = { ...baseline, ...overrideOnDisk };
       const applied: string[] = [];
       if (deps.runtimeConfig) {
-        if (typeof parsed.verbose === 'boolean' && parsed.verbose !== deps.runtimeConfig.verbose) {
-          deps.runtimeConfig.verbose = parsed.verbose;
+        if (typeof effective.verbose === 'boolean' && effective.verbose !== deps.runtimeConfig.verbose) {
+          deps.runtimeConfig.verbose = effective.verbose;
           if (deps.server) deps.server.toggleVerbose();
-          deps.terminalManager.setVerbose(parsed.verbose);
+          deps.terminalManager.setVerbose(effective.verbose);
           applied.push('verbose');
         }
-        if (typeof parsed.debug === 'boolean' && parsed.debug !== deps.runtimeConfig.debug) {
-          deps.runtimeConfig.debug = parsed.debug;
+        if (typeof effective.debug === 'boolean' && effective.debug !== deps.runtimeConfig.debug) {
+          deps.runtimeConfig.debug = effective.debug;
           applied.push('debug');
         }
         if (
-          (parsed.logFile === null || typeof parsed.logFile === 'string') &&
-          parsed.logFile !== deps.runtimeConfig.logFile
+          (effective.logFile === null || typeof effective.logFile === 'string') &&
+          effective.logFile !== deps.runtimeConfig.logFile
         ) {
-          deps.runtimeConfig.logFile = parsed.logFile;
+          deps.runtimeConfig.logFile = effective.logFile as string | null;
           applied.push('logFile');
         }
       }
       res.json({ success: true, applied });
     } catch (err) {
       log.error(
-        { err, route: '/api/config/reload', configFile: deps.configFilePath },
+        { err, route: '/api/config/reload', configFile: overridePath },
         `Config reload failed: ${(err as Error)?.message ?? String(err)}`,
       );
       res.status(500).json({ error: safeErrorMessage(err) });
@@ -329,12 +362,15 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
       res.status(423).json({ error: 'Config is read-only (--config-readonly).', code: 'CONFIG_READONLY' });
       return;
     }
-    if (!deps.configFilePath) {
-      res.status(409).json({ error: 'No config file was loaded — nothing to roll back.' });
+    if (!deps.overrideConfigFilePath) {
+      res.status(409).json({ error: 'No override file path configured — nothing to roll back.' });
       return;
     }
     try {
-      const { config, mtimeMs } = await rollbackConfig(deps.configFilePath);
+      const { config, mtimeMs } = await rollbackConfig(
+        deps.overrideConfigFilePath,
+        deps.baselineConfig,
+      );
       res.set('ETag', makeConfigEtag(deps.startupEpoch, mtimeMs));
       res.json({ success: true, config, mtimeMs, restartRequired: true });
     } catch (err) {
@@ -346,7 +382,7 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
           : 500;
         if (status >= 500) {
           log.error(
-            { err, route: '/api/config/rollback', code: err.code, configFile: deps.configFilePath, issues: err.issues },
+            { err, route: '/api/config/rollback', code: err.code, configFile: deps.overrideConfigFilePath, issues: err.issues },
             `Config rollback failed (${err.code})`,
           );
         }
@@ -354,7 +390,7 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
         return;
       }
       log.error(
-        { err, route: '/api/config/rollback', configFile: deps.configFilePath },
+        { err, route: '/api/config/rollback', configFile: deps.overrideConfigFilePath },
         `Unhandled error on rollback: ${(err as Error)?.message ?? String(err)}`,
       );
       res.status(500).json({ error: safeErrorMessage(err) });
@@ -416,10 +452,10 @@ function registerMcpConfigPut(router: Router, deps: Dependencies): void {
       });
       return;
     }
-    if (!deps.configFilePath) {
+    if (!deps.overrideConfigFilePath) {
       res.status(409).json({
         error:
-          'No config file was loaded at startup; the daemon has nothing to write to.',
+          'No override file path configured; the daemon has nowhere to persist runtime changes.',
       });
       return;
     }
@@ -427,8 +463,8 @@ function registerMcpConfigPut(router: Router, deps: Dependencies): void {
     if (ifMatch) {
       let currentMtime: number | null = null;
       try {
-        currentMtime = (await fs.stat(deps.configFilePath)).mtimeMs;
-      } catch { /* treat as mismatch */ }
+        currentMtime = (await fs.stat(deps.overrideConfigFilePath)).mtimeMs;
+      } catch { /* ENOENT / other → treat as mtime 0 */ }
       const currentEtag = makeConfigEtag(deps.startupEpoch, currentMtime);
       if (ifMatch !== currentEtag) {
         res.status(409).json({
@@ -442,8 +478,9 @@ function registerMcpConfigPut(router: Router, deps: Dependencies): void {
     }
     try {
       const { config, mtimeMs } = await writePartialConfig(
-        deps.configFilePath,
+        deps.overrideConfigFilePath,
         parseResult.data as any,
+        deps.baselineConfig,
       );
       if (deps.runtimeConfig) {
         deps.runtimeConfig.enableMcpHttp = wantEnabled ?? false;
@@ -457,7 +494,7 @@ function registerMcpConfigPut(router: Router, deps: Dependencies): void {
         const status = err.code === 'NOT_WRITABLE' ? 403 : err.code === 'VALIDATION_FAILED' ? 400 : 500;
         if (status >= 500) {
           log.error(
-            { err, route: '/api/config/mcp', code: err.code, configFile: deps.configFilePath, issues: err.issues },
+            { err, route: '/api/config/mcp', code: err.code, configFile: deps.overrideConfigFilePath, issues: err.issues },
             `MCP config save failed (${err.code})`,
           );
         }
@@ -465,7 +502,7 @@ function registerMcpConfigPut(router: Router, deps: Dependencies): void {
         return;
       }
       log.error(
-        { err, route: '/api/config/mcp', configFile: deps.configFilePath },
+        { err, route: '/api/config/mcp', configFile: deps.overrideConfigFilePath },
         `Unhandled error on /api/config/mcp: ${(err as Error)?.message ?? String(err)}`,
       );
       res.status(500).json({ error: safeErrorMessage(err) });
@@ -503,24 +540,23 @@ function registerSectionPut(
     }
 
     try {
-      if (!deps.configFilePath) {
+      if (!deps.overrideConfigFilePath) {
         res.status(409).json({
           error:
-            'No config file was loaded at startup; the daemon has nothing to write to. ' +
-            'Start with --config <path> or drop a config file into one of the default locations.',
+            'No override file path configured; the daemon has nowhere to persist runtime changes.',
         });
         return;
       }
       // Optional concurrency guard: if the caller sent an If-Match
-      // ETag, reject the write when the file has moved on since they
-      // last read it (someone else saved / the daemon restarted).
+      // ETag, reject the write when the override has moved on since
+      // they last read it (someone else saved / the daemon restarted).
       const ifMatch = req.header('if-match');
       if (ifMatch) {
         let currentMtime: number | null = null;
         try {
-          currentMtime = (await fs.stat(deps.configFilePath)).mtimeMs;
+          currentMtime = (await fs.stat(deps.overrideConfigFilePath)).mtimeMs;
         } catch {
-          /* fall through — treat missing file as mismatch */
+          /* ENOENT — override doesn't exist yet, treat as mtime 0 */
         }
         const currentEtag = makeConfigEtag(deps.startupEpoch, currentMtime);
         if (ifMatch !== currentEtag) {
@@ -534,8 +570,9 @@ function registerSectionPut(
         }
       }
       const { config, mtimeMs } = await writePartialConfig(
-        deps.configFilePath,
+        deps.overrideConfigFilePath,
         parseResult.data as any,
+        deps.baselineConfig,
       );
       res.set('ETag', makeConfigEtag(deps.startupEpoch, mtimeMs));
       res.json({ success: true, config, mtimeMs, restartRequired: true });
@@ -547,7 +584,7 @@ function registerSectionPut(
         // spam the journal on every bad request.
         if (status >= 500) {
           log.error(
-            { err, route: routePath, code: err.code, configFile: deps.configFilePath, issues: err.issues },
+            { err, route: routePath, code: err.code, configFile: deps.overrideConfigFilePath, issues: err.issues },
             `Config save failed (${err.code}) on ${routePath}`,
           );
         }
@@ -557,7 +594,7 @@ function registerSectionPut(
       // Unknown error — safe message goes to the client, full stack + type
       // go to the log so we can actually diagnose it after the fact.
       log.error(
-        { err, route: routePath, configFile: deps.configFilePath },
+        { err, route: routePath, configFile: deps.overrideConfigFilePath },
         `Unhandled error on ${routePath}: ${(err as Error)?.message ?? String(err)}`,
       );
       res.status(500).json({ error: safeErrorMessage(err) });

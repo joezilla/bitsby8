@@ -26,6 +26,10 @@ fdcsds.config.json
 *.fdcsds.config.bak.*
 .fdcsds.config.bak.*
 .fdcsds.config.tmp
+# Runtime overrides file + its rotating backups (baseline/overrides split)
+fdcsds.overrides.json
+fdcsds.overrides.json.bak.*
+fdcsds.overrides.json.tmp
 *.config
 !*.config.example
 

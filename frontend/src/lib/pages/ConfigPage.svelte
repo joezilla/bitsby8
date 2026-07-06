@@ -875,9 +875,21 @@
           </span>
         </summary>
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 12px; font: var(--text-body-sm); color: var(--fg-2);">
-          <div><strong style="color: var(--fg-1);">Config file:</strong><br />{configStatus?.configFilePath ?? '(none loaded)'}</div>
+          <div>
+            <strong style="color: var(--fg-1);">Baseline (read-only):</strong><br />
+            {configStatus?.packageConfigFilePath ?? '(none loaded)'}
+            <div style="color: var(--fg-3); font-size: 0.85em; margin-top: 2px;">
+              Admin-managed, package conffile. Daemon never writes this.
+            </div>
+          </div>
+          <div>
+            <strong style="color: var(--fg-1);">Runtime overrides:</strong><br />
+            {configStatus?.overrideConfigFilePath ?? configStatus?.configFilePath ?? '(no path configured)'}
+            <div style="color: var(--fg-3); font-size: 0.85em; margin-top: 2px;">
+              Every UI save writes here — {configStatus?.writable ? 'writable' : 'not writable'}{configStatus?.mtimeMs ? ` · mtime ${new Date(configStatus.mtimeMs).toISOString()}` : ' · not yet created'}.
+            </div>
+          </div>
           <div><strong style="color: var(--fg-1);">Data directory:</strong><br />{config?.dataDir ?? '(cwd)'}</div>
-          <div><strong style="color: var(--fg-1);">Writable:</strong> {configStatus?.writable ? 'yes' : 'no'}</div>
           <div><strong style="color: var(--fg-1);">systemd-managed:</strong> {configStatus?.systemdManaged ? 'yes' : 'no'}</div>
           <div><strong style="color: var(--fg-1);">Startup epoch:</strong> {configStatus?.startupEpoch ?? '—'}</div>
           <div><strong style="color: var(--fg-1);">API key set:</strong> {configStatus?.apiKeySet ? 'yes' : 'no'}</div>

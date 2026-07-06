@@ -59,7 +59,9 @@ export class WebServer {
       server?: FdcServer;
       runtimeConfig?: ConfigFile;
       database?: Database;
-      configFilePath?: string | null;
+      packageConfigFilePath?: string | null;
+      overrideConfigFilePath?: string | null;
+      baselineConfig?: ConfigFile | null;
       startupEpoch?: number;
       configReadonly?: boolean;
     }
@@ -96,7 +98,9 @@ export class WebServer {
       io: this.io,
       database,
       runtimeConfig: options?.runtimeConfig || null,
-      configFilePath: options?.configFilePath ?? null,
+      packageConfigFilePath: options?.packageConfigFilePath ?? null,
+      overrideConfigFilePath: options?.overrideConfigFilePath ?? null,
+      baselineConfig: options?.baselineConfig ?? null,
       startupEpoch: options?.startupEpoch ?? Date.now(),
       configReadonly: options?.configReadonly ?? false,
       server: options?.server || null,

@@ -1,24 +1,37 @@
 /**
  * Config-file persistence service.
  *
- * Atomic write-back to the daemon's loaded config file. Every UI save
- * flows through here. Guarantees:
+ * Atomic write-back to the daemon's *runtime override* file. Every UI
+ * save flows through here. Guarantees:
  *
  *   - Preflight `fs.access(W_OK)` before touching anything → if the
  *     daemon can't write, the caller gets a `ConfigWriteError` with a
  *     specific code (mapped to HTTP 403 by the route layer). Never a
  *     500 from a mid-flight EACCES.
- *   - Zod-validate the merged document before it hits disk. Rejection
- *     is surfaced as issues the API can render inline.
+ *   - Zod-validate the merged override, then Zod-validate the effective
+ *     (baseline + override) doc before the file hits disk. The second
+ *     validation is what catches cross-layer rules like GPIO pin
+ *     uniqueness spanning baseline and override.
  *   - Atomic write: `<file>.tmp` → `fsync` → `rename`. If we crash
  *     mid-rename the original file is untouched.
  *   - Rotating backups `<file>.bak.1..3`. `bak.1` is the newest.
+ *
+ * The daemon never writes to `/etc/fdcsds/fdcsds.config.json` (the
+ * package baseline / dpkg conffile). All UI-driven changes land in
+ * `${dataDir}/fdcsds.overrides.json`, layered on top of the baseline
+ * at daemon startup by `mergeConfigLayers` in `src/config.ts`.
  */
 
 import * as fs from 'fs/promises';
 import { constants as FS } from 'fs';
 import * as path from 'path';
-import { ConfigFile, ConfigSchema } from '../config';
+import {
+  ConfigFile,
+  ConfigSchema,
+  OverrideConfig,
+  OverrideConfigSchema,
+  mergeConfigLayers,
+} from '../config';
 
 export const MAX_BACKUPS = 3;
 
@@ -40,7 +53,11 @@ export class ConfigWriteError extends Error {
   }
 }
 
-/** Read the current on-disk config, returning both the parsed object and the raw text. */
+/**
+ * Read the current on-disk config file at `filePath`, validating against
+ * the full `ConfigSchema` (i.e. treats the file as a complete config).
+ * Retained for tests and any consumer that needs the strict view.
+ */
 export async function readCurrentConfig(
   filePath: string,
 ): Promise<{ config: ConfigFile; raw: string; mtimeMs: number }> {
@@ -67,45 +84,97 @@ export async function readCurrentConfig(
 }
 
 /**
- * Apply `patch` on top of the current config file at `filePath`, then
- * atomically write the result back. Returns the new (parsed) config and
- * the fresh `mtimeMs` so the caller can emit an ETag / If-Match token.
- *
- * `patch` is merged shallowly at the top level (drives, GPIO tree, etc.
- * are replaced wholesale, not deep-merged) — matches how per-section
- * PUTs are meant to work: the caller sends the section subtree it owns
- * and gets that subtree written verbatim.
+ * Read the current override file at `overrideFilePath` (permissive schema
+ * — missing keys are valid). Returns an empty `{}` when the file doesn't
+ * exist (a fresh install has never touched runtime overrides).
  */
-export async function writePartialConfig(
-  filePath: string,
-  patch: Partial<ConfigFile>,
-): Promise<{ config: ConfigFile; mtimeMs: number }> {
-  if (!filePath) {
+async function readCurrentOverride(
+  overrideFilePath: string,
+): Promise<OverrideConfig> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(overrideFilePath, 'utf-8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    throw err;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
     throw new ConfigWriteError(
-      'NO_CONFIG_FILE',
-      'No config file was loaded at startup — the daemon has nothing to write to. ' +
-        'Start with --config <path> or drop a config file into one of the default locations.',
+      'INVALID_JSON',
+      `Existing override file at ${overrideFilePath} is not valid JSON: ${(err as Error).message}`,
     );
   }
-
-  await preflightWritable(filePath);
-  const { config: current } = await readCurrentConfig(filePath);
-
-  const merged = { ...current, ...patch } as unknown;
-  const result = ConfigSchema.safeParse(merged);
+  const result = OverrideConfigSchema.safeParse(parsed);
   if (!result.success) {
     throw new ConfigWriteError(
       'VALIDATION_FAILED',
-      result.error.issues[0].message,
+      `Existing override file failed validation: ${result.error.issues[0].message}`,
       result.error.issues.map(i => ({ path: normalizeIssuePath(i.path), message: i.message })),
     );
   }
+  return result.data as OverrideConfig;
+}
 
-  await rotateBackups(filePath);
-  await atomicWrite(filePath, JSON.stringify(result.data, null, 2) + '\n');
+/**
+ * Apply `patch` on top of the current override file at
+ * `overrideFilePath`, then atomically write the result back.
+ *
+ * `patch` is merged shallowly at the top level over the current
+ * override (gpioLeds is replaced wholesale, same semantics as before).
+ * The merged override is validated as a partial document; the effective
+ * (baseline + newOverride) document is then validated against the full
+ * `ConfigSchema` so cross-layer rules like GPIO pin uniqueness fire.
+ *
+ * Returns the new *effective* config (what the daemon would see after a
+ * restart) plus the override file's fresh mtime for ETag generation.
+ */
+export async function writePartialConfig(
+  overrideFilePath: string,
+  patch: Partial<ConfigFile>,
+  baseline: ConfigFile | null,
+): Promise<{ config: ConfigFile; mtimeMs: number }> {
+  if (!overrideFilePath) {
+    throw new ConfigWriteError(
+      'NO_CONFIG_FILE',
+      'No override file path was configured — the daemon has no writable location for runtime overrides.',
+    );
+  }
 
-  const stat = await fs.stat(filePath);
-  return { config: result.data, mtimeMs: stat.mtimeMs };
+  await preflightWritable(overrideFilePath);
+  const currentOverride = await readCurrentOverride(overrideFilePath);
+
+  const mergedOverride = { ...currentOverride, ...patch } as OverrideConfig;
+
+  const overrideResult = OverrideConfigSchema.safeParse(mergedOverride);
+  if (!overrideResult.success) {
+    throw new ConfigWriteError(
+      'VALIDATION_FAILED',
+      overrideResult.error.issues[0].message,
+      overrideResult.error.issues.map(i => ({ path: normalizeIssuePath(i.path), message: i.message })),
+    );
+  }
+
+  const effective = mergeConfigLayers(baseline, overrideResult.data as OverrideConfig);
+  const effectiveResult = ConfigSchema.safeParse(effective);
+  if (!effectiveResult.success) {
+    throw new ConfigWriteError(
+      'VALIDATION_FAILED',
+      effectiveResult.error.issues[0].message,
+      effectiveResult.error.issues.map(i => ({ path: normalizeIssuePath(i.path), message: i.message })),
+    );
+  }
+
+  await rotateBackups(overrideFilePath);
+  await atomicWrite(
+    overrideFilePath,
+    JSON.stringify(overrideResult.data, null, 2) + '\n',
+  );
+
+  const stat = await fs.stat(overrideFilePath);
+  return { config: effectiveResult.data, mtimeMs: stat.mtimeMs };
 }
 
 // ---------------------------------------------------------------------------
@@ -120,7 +189,7 @@ function normalizeIssuePath(zPath: readonly PropertyKey[]): (string | number)[] 
 async function preflightWritable(filePath: string): Promise<void> {
   // The file itself must be writable OR the directory must accept a
   // temp file. Check the file; if it's missing, check the directory
-  // (someone might legitimately be recovering from a corrupted file).
+  // (fresh install: override file doesn't exist yet).
   try {
     await fs.access(filePath, FS.W_OK);
     return;
@@ -131,21 +200,19 @@ async function preflightWritable(filePath: string): Promise<void> {
     } else if (code === 'EACCES' || code === 'EPERM') {
       throw new ConfigWriteError(
         'NOT_WRITABLE',
-        `Config file ${filePath} is not writable by the current user. ` +
+        `Override file ${filePath} is not writable by the current user. ` +
           `On a .deb install run \`sudo chown fdcsds:fdcsds "${filePath}" && sudo chmod 664 "${filePath}"\`.`,
       );
     } else if (code === 'EROFS') {
-      // Filesystem-level read-only. On our .deb this usually means the
-      // systemd unit's `ProtectSystem=strict` is bind-mounting /etc as
-      // read-only and the config file's directory isn't in
-      // `ReadWritePaths` — reinstall a .deb that has the fix, or add
-      // the path via a systemd drop-in.
+      // On the .deb install the override lives under /var/lib/fdcsds
+      // which should be writable by the fdcsds service user. If we
+      // still see EROFS here it means the systemd unit's
+      // `ReadWritePaths=` is missing the state directory.
       throw new ConfigWriteError(
         'NOT_WRITABLE',
-        `Config file ${filePath} is on a read-only filesystem. ` +
-          `If you're on the .deb install this usually means the fdcsds systemd unit's ` +
-          `ReadWritePaths= is missing the config directory — upgrade to a build that ` +
-          `includes /etc/fdcsds in ReadWritePaths (fdcsds ≥ 2.0.1-rc4).`,
+        `Override file ${filePath} is on a read-only filesystem. ` +
+          `Check that /var/lib/fdcsds is owned by the fdcsds service user and that ` +
+          `the systemd unit lists it in ReadWritePaths=.`,
       );
     } else {
       throw err;
@@ -153,48 +220,54 @@ async function preflightWritable(filePath: string): Promise<void> {
   }
   try {
     await fs.access(path.dirname(filePath), FS.W_OK);
-  } catch {
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'EROFS') {
+      throw new ConfigWriteError(
+        'NOT_WRITABLE',
+        `Directory ${path.dirname(filePath)} is on a read-only filesystem. ` +
+          `Check /var/lib/fdcsds is owned by the fdcsds service user and included in the systemd unit's ReadWritePaths=.`,
+      );
+    }
     throw new ConfigWriteError(
       'NOT_WRITABLE',
-      `Config file ${filePath} is missing and its parent directory is not writable.`,
+      `Override file ${filePath} is missing and its parent directory is not writable.`,
     );
   }
 }
 
 /**
- * Restore `.bak.1` on top of the live config file. Backups shift up
+ * Restore `.bak.1` on top of the live override file. Backups shift up
  * (`.bak.2` → `.bak.1`, `.bak.3` → `.bak.2`, oldest is dropped) so
  * repeated rollbacks walk further back through history.
  *
- * Fails with `NO_CONFIG_FILE` if there's no `.bak.1` — that only
- * happens on a brand-new install that's never been saved through the
- * UI, and there's nothing meaningful to roll back to in that case.
+ * Returns the new effective config (baseline + restored override) so the
+ * caller can hand it straight back to the client, and a friendly
+ * "nothing to roll back" error when no backup exists.
  */
 export async function rollbackConfig(
-  filePath: string,
+  overrideFilePath: string,
+  baseline: ConfigFile | null,
 ): Promise<{ config: ConfigFile; mtimeMs: number }> {
-  if (!filePath) {
-    throw new ConfigWriteError('NO_CONFIG_FILE', 'No config file was loaded.');
+  if (!overrideFilePath) {
+    throw new ConfigWriteError('NO_CONFIG_FILE', 'No override file path was configured.');
   }
-  const bak1 = `${filePath}.bak.1`;
+  const bak1 = `${overrideFilePath}.bak.1`;
   try {
     await fs.access(bak1);
   } catch {
     throw new ConfigWriteError(
       'NO_CONFIG_FILE',
-      `No backup to roll back to at ${bak1}.`,
+      `No runtime changes to roll back — the daemon has not written a backup yet.`,
     );
   }
-  await preflightWritable(filePath);
+  await preflightWritable(overrideFilePath);
 
-  // Validate the backup before we clobber the live file. A corrupt
-  // .bak.1 means whichever earlier save wrote it must have been bad —
-  // don't compound the problem by promoting garbage.
-  let restored: ConfigFile;
+  let restored: OverrideConfig;
   try {
     const raw = await fs.readFile(bak1, 'utf-8');
     const parsed = JSON.parse(raw);
-    const result = ConfigSchema.safeParse(parsed);
+    const result = OverrideConfigSchema.safeParse(parsed);
     if (!result.success) {
       throw new ConfigWriteError(
         'VALIDATION_FAILED',
@@ -202,7 +275,7 @@ export async function rollbackConfig(
         result.error.issues.map(i => ({ path: normalizeIssuePath(i.path), message: i.message })),
       );
     }
-    restored = result.data;
+    restored = result.data as OverrideConfig;
   } catch (err) {
     if (err instanceof ConfigWriteError) throw err;
     throw new ConfigWriteError(
@@ -211,18 +284,29 @@ export async function rollbackConfig(
     );
   }
 
-  // Slide bak.2 → bak.1, bak.3 → bak.2 so the caller can roll back
-  // further. Missing higher-numbered backups are fine.
-  await atomicWrite(filePath, JSON.stringify(restored, null, 2) + '\n');
+  // Cross-layer validation on the restored effective doc so a
+  // backup-with-pin-conflict-against-current-baseline doesn't silently
+  // promote to live.
+  const effective = mergeConfigLayers(baseline, restored);
+  const effectiveResult = ConfigSchema.safeParse(effective);
+  if (!effectiveResult.success) {
+    throw new ConfigWriteError(
+      'VALIDATION_FAILED',
+      `Rolled-back effective config failed validation: ${effectiveResult.error.issues[0].message}`,
+      effectiveResult.error.issues.map(i => ({ path: normalizeIssuePath(i.path), message: i.message })),
+    );
+  }
+
+  await atomicWrite(overrideFilePath, JSON.stringify(restored, null, 2) + '\n');
   for (let i = 1; i < MAX_BACKUPS; i++) {
-    const from = `${filePath}.bak.${i + 1}`;
-    const to = `${filePath}.bak.${i}`;
+    const from = `${overrideFilePath}.bak.${i + 1}`;
+    const to = `${overrideFilePath}.bak.${i}`;
     try {
       await fs.rename(from, to);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        // The old .bak.1 slot needs clearing if bak.2 didn't exist, so
-        // a second consecutive rollback doesn't restore the same file.
+        // Clear the old .bak.1 slot if bak.2 didn't exist, so a second
+        // consecutive rollback doesn't restore the same file.
         if (i === 1) {
           try { await fs.unlink(to); } catch { /* ignore */ }
         }
@@ -232,8 +316,8 @@ export async function rollbackConfig(
     }
   }
 
-  const stat = await fs.stat(filePath);
-  return { config: restored, mtimeMs: stat.mtimeMs };
+  const stat = await fs.stat(overrideFilePath);
+  return { config: effectiveResult.data, mtimeMs: stat.mtimeMs };
 }
 
 async function rotateBackups(filePath: string): Promise<void> {

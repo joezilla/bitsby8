@@ -189,6 +189,13 @@ export interface ConfigDoc
 }
 
 export interface ConfigStatus {
+  // Read-only baseline shipped by the package (e.g. /etc/fdcsds/fdcsds.config.json).
+  // Editable by an admin, never by the daemon.
+  packageConfigFilePath: string | null;
+  // Writable runtime overrides file (e.g. /var/lib/fdcsds/fdcsds.overrides.json).
+  // Every UI-driven save lands here, shallow-merged on top of the baseline.
+  overrideConfigFilePath: string | null;
+  // Alias for overrideConfigFilePath — kept one release for old frontends.
   configFilePath: string | null;
   writable: boolean;
   mtimeMs: number | null;

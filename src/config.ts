@@ -96,6 +96,26 @@ export const GpioSchema = z
   })
   .passthrough();
 
+// Variant used to parse the runtime override file. `enabled` is optional
+// with no default here — otherwise Zod would inject `enabled: false` when
+// the override document names `gpioLeds` without an explicit `enabled`
+// key, which then wins in the shallow merge and silently disables LEDs
+// the baseline had turned on.
+const GpioSchemaOverride = z
+  .object({
+    enabled: z.boolean().optional(),
+    activeLow: z.boolean().optional(),
+    blinkDuration: z.number().int().positive().optional(),
+    activityBlinkDuration: z.number().int().positive().optional(),
+    activityLed: GpioPinSchema,
+    drive0: GpioDrivePinsSchema.optional(),
+    drive1: GpioDrivePinsSchema.optional(),
+    drive2: GpioDrivePinsSchema.optional(),
+    drive3: GpioDrivePinsSchema.optional(),
+    terminal: GpioTerminalPinsSchema.optional(),
+  })
+  .passthrough();
+
 // ---------------------------------------------------------------------------
 // Top-level schema
 // ---------------------------------------------------------------------------
@@ -126,6 +146,32 @@ export const ConfigSchema = z
       }
     }
   });
+
+/**
+ * Permissive schema used to parse the runtime override file.
+ *
+ * Same shape as `ConfigSchema` but with the `gpioLeds` sub-schema
+ * variant that does NOT default `enabled` to false. The override file
+ * is a *partial* document — missing keys mean "fall through to the
+ * baseline" — so we can't have Zod materialise defaults during load.
+ *
+ * The cross-cutting `superRefine` (GPIO pin dedup) intentionally isn't
+ * attached here: overrides on their own are half-configs; the merged
+ * baseline+override doc is what needs the dedup check, and that's
+ * validated separately at write time.
+ */
+export const OverrideConfigSchema = z
+  .object({
+    ...SerialSchema.shape,
+    ...WebSchema.shape,
+    ...McpSchema.shape,
+    ...TerminalSchema.shape,
+    ...LoggingSchema.shape,
+    ...DataSchema.shape,
+    gpioLeds: GpioSchemaOverride.optional(),
+    system: SystemSchema.optional(),
+  })
+  .passthrough();
 
 export type ConfigFile = z.infer<typeof ConfigSchema>;
 
@@ -268,6 +314,115 @@ function parseConfigContent(content: string, filePath: string): ConfigFile {
     throw new Error(`Config error in ${filePath}: ${issue.message} at "${at}"`);
   }
   return result.data;
+}
+
+// ---------------------------------------------------------------------------
+// Runtime override layer
+// ---------------------------------------------------------------------------
+
+/**
+ * Standard filename for the runtime override file inside `dataDir`.
+ * Deliberately distinct from any name in `DEFAULT_CONFIG_LOCATIONS` so
+ * a dev-mode override in the repo CWD is never re-detected as a
+ * baseline on the next startup.
+ */
+export const OVERRIDE_FILENAME = 'fdcsds.overrides.json';
+
+/**
+ * A parsed override document. Fields are all optional — an override
+ * only names the keys the operator has explicitly changed. Missing
+ * keys fall through to the baseline during effective-config merge.
+ */
+export type OverrideConfig = Partial<ConfigFile>;
+
+export interface LoadedOverride {
+  config: OverrideConfig;
+  filePath: string;
+}
+
+/**
+ * Load the runtime override file from a specific path.
+ *
+ * Returns `null` cleanly when the file doesn't exist — a fresh install
+ * has never saved any config through the UI, and that's a valid
+ * steady state (effective config == baseline). Backup rescue mirrors
+ * `loadConfigFile`.
+ */
+export async function loadOverridesFile(overridePath: string): Promise<LoadedOverride | null> {
+  const absolutePath = path.resolve(overridePath);
+  try {
+    const content = await fs.readFile(absolutePath, 'utf-8');
+    return { config: parseOverrideContent(content, absolutePath), filePath: absolutePath };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    // Corrupt primary — try the rotating backups so a bad save doesn't
+    // permanently mask the /etc baseline. Any exception during backup
+    // rescue is swallowed in favour of "no override" — losing overrides
+    // is recoverable, dropping the daemon to nothing is not.
+    const rescued = await tryLoadOverrideFromBackup(absolutePath);
+    if (rescued) return rescued;
+    console.warn(
+      `Warning: override file ${absolutePath} is invalid and no backup rescued — continuing with baseline only. Reason: ${(error as Error).message}`,
+    );
+    return null;
+  }
+}
+
+async function tryLoadOverrideFromBackup(filePath: string): Promise<LoadedOverride | null> {
+  for (let i = 1; i <= 3; i++) {
+    const bak = `${filePath}.bak.${i}`;
+    try {
+      const content = await fs.readFile(bak, 'utf-8');
+      const config = parseOverrideContent(content, bak);
+      console.warn(`WARN: override file at ${filePath} was invalid — loaded from ${bak}.`);
+      return { config, filePath };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      // corrupt backup — try the next one
+    }
+  }
+  return null;
+}
+
+function parseOverrideContent(content: string, filePath: string): OverrideConfig {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch (error) {
+    throw new Error(`Invalid JSON in override file ${filePath}: ${(error as Error).message}`);
+  }
+  const result = OverrideConfigSchema.safeParse(parsed);
+  if (!result.success) {
+    const issue = result.error.issues[0];
+    const at = issue.path.join('.') || '(root)';
+    throw new Error(`Override error in ${filePath}: ${issue.message} at "${at}"`);
+  }
+  return result.data as OverrideConfig;
+}
+
+/**
+ * Compute the effective runtime config by layering an override document
+ * on top of a baseline. Shallow at the top level: `gpioLeds` in the
+ * override replaces the baseline gpioLeds wholesale, matching how the
+ * UI's GPIO save handler ships the full subtree.
+ *
+ * Uses `Object.hasOwn` so an explicit `null` in the override (e.g.
+ * unsetting `drive1`) beats a non-null baseline value. A truthiness
+ * check would swallow that intentional erasure.
+ */
+export function mergeConfigLayers(
+  baseline: ConfigFile | null,
+  overrides: OverrideConfig | null,
+): ConfigFile {
+  const b = (baseline ?? {}) as Record<string, unknown>;
+  const o = (overrides ?? {}) as Record<string, unknown>;
+  const merged: Record<string, unknown> = { ...b };
+  for (const key of Object.keys(o)) {
+    if (Object.hasOwn(o, key)) {
+      merged[key] = o[key];
+    }
+  }
+  return merged as ConfigFile;
 }
 
 // ---------------------------------------------------------------------------

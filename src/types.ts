@@ -40,10 +40,23 @@ export interface Dependencies {
   database: Database;
   runtimeConfig: ConfigFile | null;
 
-  // Absolute path of the config file this daemon loaded at startup.
-  // `null` when the daemon runs with no config file (all defaults).
-  // Used by config-persistence to write back to the same location.
-  configFilePath: string | null;
+  // Absolute path of the package-installed baseline config the daemon
+  // loaded at startup — this file is read-only from the app's POV.
+  // On a .deb install this is `/etc/fdcsds/fdcsds.config.json`.
+  // `null` when no baseline was loaded (all-defaults mode).
+  packageConfigFilePath: string | null;
+
+  // Absolute path of the runtime override file. Every UI-driven save
+  // writes here (shallow-merged on top of the baseline at daemon
+  // startup). Lives under `dataDir` — `/var/lib/fdcsds/fdcsds.overrides.json`
+  // on a .deb install. Never null in practice: even a fresh install
+  // has a writable dataDir.
+  overrideConfigFilePath: string | null;
+
+  // The parsed baseline config as-loaded from `packageConfigFilePath`.
+  // Passed to `writePartialConfig` so cross-layer validation (GPIO pin
+  // uniqueness spanning baseline + override) fires on every save.
+  baselineConfig: ConfigFile | null;
 
   // Millisecond epoch captured once at process start. The UI polls
   // this via `GET /api/config/status` after a Restart-now click to
