@@ -35,6 +35,8 @@ import { registerCassetteRoutes } from './routes/cassettes';
 import { registerTerminalRoutes } from './routes/terminal';
 import { registerScriptRoutes } from './routes/scripts';
 import { registerReplayRoutes } from './routes/replay';
+import { registerMcpRoutes, setMcpHttpEnabled } from './mcp-http';
+import { createAuthMiddleware } from './middleware/auth';
 
 // Re-export types for backward compatibility
 export { WebServerConfig, PreferredTerminalSettings } from './types';
@@ -132,6 +134,16 @@ export class WebServer {
     registerTerminalRoutes(router, this.deps);
     registerScriptRoutes(router, this.deps);
     registerReplayRoutes(router, this.deps);
+
+    // MCP over HTTP (opt-in via config.enableMcpHttp). Bearer auth is
+    // reused from the main API — MCP shares the same trust boundary.
+    // The endpoint is always mounted; a runtime guard in mcp-http.ts
+    // returns 503 when disabled, so operators can flip it without a
+    // daemon restart. Refuse to activate without an api key.
+    const apiKey = this.deps.runtimeConfig?.apiKey ?? null;
+    this.app.use('/mcp', createAuthMiddleware(apiKey));
+    registerMcpRoutes(this.app as any, this.deps);
+    setMcpHttpEnabled(!!apiKey && !!this.deps.runtimeConfig?.enableMcpHttp);
 
     // WebSocket handlers
     setupWebSocket(this.io, this.deps);

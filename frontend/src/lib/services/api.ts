@@ -11,6 +11,7 @@ import type {
   ConfigStatus,
   SerialSection,
   WebSection,
+  McpSection,
   TerminalSection,
   LoggingSection,
   DataSection,
@@ -215,6 +216,15 @@ export const api = {
       body: JSON.stringify(patch),
       headers: ifMatch ? { 'If-Match': ifMatch } : {},
     }),
+  putMcpConfig: (patch: Partial<McpSection>, ifMatch?: string) =>
+    request<{ success: true; config: ConfigDoc; mtimeMs: number; restartRequired: false }>(
+      '/api/config/mcp',
+      {
+        method: 'PUT',
+        body: JSON.stringify(patch),
+        headers: ifMatch ? { 'If-Match': ifMatch } : {},
+      },
+    ),
   putTerminalConfig: (patch: Partial<TerminalSection>, ifMatch?: string) =>
     request<{ success: true; config: ConfigDoc; mtimeMs: number }>('/api/config/terminal', {
       method: 'PUT',

@@ -25,11 +25,13 @@ import {
   ConfigSchema,
   SerialSchema,
   WebSchema,
+  McpSchema,
   TerminalSchema,
   LoggingSchema,
   DataSchema,
   GpioSchema,
 } from '../config';
+import { setMcpHttpEnabled, isMcpHttpEnabled, activeMcpSessionCount } from '../mcp-http';
 import { writePartialConfig, rollbackConfig, ConfigWriteError } from '../services/config-persistence';
 import { isSystemdManaged, scheduleRestart } from '../services/restart-manager';
 
@@ -72,6 +74,9 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
       web: safe.web,
       webPort: safe.webPort,
       webHost: safe.webHost,
+
+      // MCP over HTTP (opt-in; requires apiKey to be set)
+      enableMcpHttp: safe.enableMcpHttp,
 
       // Terminal
       terminalPort: safe.terminalPort,
@@ -137,6 +142,7 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
           sections: {
             serial: toJSONSchema(SerialSchema),
             web: toJSONSchema(WebSchema),
+            mcp: toJSONSchema(McpSchema),
             terminal: toJSONSchema(TerminalSchema),
             logging: toJSONSchema(LoggingSchema),
             data: toJSONSchema(DataSchema),
@@ -190,6 +196,9 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
       systemdManaged: isSystemdManaged(),
       startupEpoch: deps.startupEpoch,
       apiKeySet: !!deps.runtimeConfig?.apiKey,
+      mcpHttpEnabled: !!deps.runtimeConfig?.enableMcpHttp,
+      mcpHttpLive: isMcpHttpEnabled(),
+      mcpHttpSessions: activeMcpSessionCount(),
       configReadonly: deps.configReadonly,
       etag,
     });
@@ -362,9 +371,106 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
   registerSectionPut(router, deps, '/api/config/logging', LoggingSchema);
   registerSectionPut(router, deps, '/api/config/data', DataSchema);
 
+  // MCP HTTP: dedicated handler because it takes effect live (no restart)
+  // and refuses to enable when no api key is set.
+  registerMcpConfigPut(router, deps);
+
   // GPIO comes in as a full { gpioLeds: {...} } shape — the section
   // schema is the inner object, so wrap it here.
   registerSectionPut(router, deps, '/api/config/gpio', z.object({ gpioLeds: GpioSchema }));
+}
+
+/**
+ * @openapi
+ * /api/config/mcp:
+ *   put:
+ *     tags: [Config]
+ *     summary: Toggle MCP-over-HTTP for remote AI clients
+ *     description: |
+ *       Persists `enableMcpHttp` and flips the runtime guard immediately —
+ *       no daemon restart. Refuses to enable when no API key is set (400).
+ *       Disabling drops any live MCP sessions.
+ */
+function registerMcpConfigPut(router: Router, deps: Dependencies): void {
+  router.put('/api/config/mcp', async (req: Request, res: Response): Promise<void> => {
+    if (deps.configReadonly) {
+      res.status(423).json({
+        error: 'Config is read-only (--config-readonly).',
+        code: 'CONFIG_READONLY',
+      });
+      return;
+    }
+    const parseResult = McpSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      res.status(400).json({
+        error: 'Invalid config payload',
+        issues: parseResult.error.issues.map(i => ({ path: i.path, message: i.message })),
+      });
+      return;
+    }
+    const wantEnabled = parseResult.data.enableMcpHttp;
+    if (wantEnabled && !deps.runtimeConfig?.apiKey) {
+      res.status(400).json({
+        error: 'Set an API key in Web & API before enabling MCP over HTTP.',
+        code: 'MCP_REQUIRES_API_KEY',
+      });
+      return;
+    }
+    if (!deps.configFilePath) {
+      res.status(409).json({
+        error:
+          'No config file was loaded at startup; the daemon has nothing to write to.',
+      });
+      return;
+    }
+    const ifMatch = req.header('if-match');
+    if (ifMatch) {
+      let currentMtime: number | null = null;
+      try {
+        currentMtime = (await fs.stat(deps.configFilePath)).mtimeMs;
+      } catch { /* treat as mismatch */ }
+      const currentEtag = makeConfigEtag(deps.startupEpoch, currentMtime);
+      if (ifMatch !== currentEtag) {
+        res.status(409).json({
+          error: 'Config file changed since you last loaded it. Reload and try again.',
+          code: 'STALE_ETAG',
+          expected: currentEtag,
+          got: ifMatch,
+        });
+        return;
+      }
+    }
+    try {
+      const { config, mtimeMs } = await writePartialConfig(
+        deps.configFilePath,
+        parseResult.data as any,
+      );
+      if (deps.runtimeConfig) {
+        deps.runtimeConfig.enableMcpHttp = wantEnabled ?? false;
+      }
+      setMcpHttpEnabled(!!deps.runtimeConfig?.apiKey && !!wantEnabled);
+      res.set('ETag', makeConfigEtag(deps.startupEpoch, mtimeMs));
+      // restartRequired: false — this section is live-applied.
+      res.json({ success: true, config, mtimeMs, restartRequired: false });
+    } catch (err) {
+      if (err instanceof ConfigWriteError) {
+        const status = err.code === 'NOT_WRITABLE' ? 403 : err.code === 'VALIDATION_FAILED' ? 400 : 500;
+        if (status >= 500) {
+          log.error(
+            { err, route: '/api/config/mcp', code: err.code, configFile: deps.configFilePath, issues: err.issues },
+            `MCP config save failed (${err.code})`,
+          );
+        }
+        res.status(status).json({ error: err.message, code: err.code, issues: err.issues });
+        return;
+      }
+      log.error(
+        { err, route: '/api/config/mcp', configFile: deps.configFilePath },
+        `Unhandled error on /api/config/mcp: ${(err as Error)?.message ?? String(err)}`,
+      );
+      res.status(500).json({ error: safeErrorMessage(err) });
+    }
+  });
 }
 
 /**

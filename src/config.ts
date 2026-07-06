@@ -37,6 +37,10 @@ export const WebSchema = z.object({
   apiKey: z.string().nullable().optional(),
 });
 
+export const McpSchema = z.object({
+  enableMcpHttp: z.boolean().optional(),
+});
+
 export const TerminalSchema = z.object({
   terminalPort: z.string().optional(),
   terminalBaud: z.number().int().positive().optional(),
@@ -100,6 +104,7 @@ export const ConfigSchema = z
   .object({
     ...SerialSchema.shape,
     ...WebSchema.shape,
+    ...McpSchema.shape,
     ...TerminalSchema.shape,
     ...LoggingSchema.shape,
     ...DataSchema.shape,
@@ -295,6 +300,7 @@ export function mergeConfig(configFile: ConfigFile | null, cmdLineOptions: any):
   if (cmdLineOptions.web !== undefined) merged.web = cmdLineOptions.web;
   if (cmdLineOptions.webPort !== undefined) merged.webPort = parseInt(cmdLineOptions.webPort);
   if (cmdLineOptions.webHost !== undefined) merged.webHost = cmdLineOptions.webHost;
+  if (cmdLineOptions.mcpHttp !== undefined) merged.enableMcpHttp = cmdLineOptions.mcpHttp;
 
   if (cmdLineOptions.terminalPort !== undefined) merged.terminalPort = cmdLineOptions.terminalPort;
   if (cmdLineOptions.terminalBaud !== undefined) merged.terminalBaud = parseInt(cmdLineOptions.terminalBaud);
@@ -336,6 +342,7 @@ export function getExampleConfig(): string {
     terminalBaud: 9600,
     terminalAutoconnect: false,
     apiKey: null as string | null,
+    enableMcpHttp: false,
     gpioLeds: {
       enabled: true,
       blinkDuration: 100,

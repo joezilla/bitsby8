@@ -108,6 +108,7 @@ async function main(): Promise<void> {
     .option('--example-config', 'Print example configuration file and exit')
     .option('--show-persistent-paths', 'Show persistent path alternatives for configured ports')
     .option('--mcp', 'Start as MCP (Model Context Protocol) server over stdio')
+    .option('--mcp-http', 'Serve MCP over HTTP on the web server at /mcp (requires --api-key or apiKey in config)')
     .helpOption('-h, --help', 'Display help information');
 
   program.parse(process.argv);

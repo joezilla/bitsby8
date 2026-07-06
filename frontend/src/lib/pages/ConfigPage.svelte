@@ -41,6 +41,9 @@
     webHost: 'localhost',
     apiKey: '' as string | null,
   });
+  let mcpForm = $state({
+    enableMcpHttp: false,
+  });
   let terminalForm = $state({
     terminalPort: '',
     terminalBaud: 9600,
@@ -71,6 +74,7 @@
   // reading "unsaved" on cold load).
   let serialBaseline = $state('');
   let webBaseline = $state('');
+  let mcpBaseline = $state('');
   let terminalBaseline = $state('');
   let loggingBaseline = $state('');
   let gpioBaseline = $state('');
@@ -204,6 +208,9 @@
       webHost: config.webHost ?? 'localhost',
       apiKey: (config as any).apiKey ?? '',
     };
+    mcpForm = {
+      enableMcpHttp: config.enableMcpHttp ?? false,
+    };
     terminalForm = {
       terminalPort: config.terminalPort ?? '',
       terminalBaud: config.terminalBaud ?? 9600,
@@ -225,6 +232,7 @@
     // a false-dirty flag on load.
     serialBaseline = JSON.stringify($state.snapshot(serialForm));
     webBaseline = JSON.stringify($state.snapshot(webForm));
+    mcpBaseline = JSON.stringify($state.snapshot(mcpForm));
     terminalBaseline = JSON.stringify($state.snapshot(terminalForm));
     loggingBaseline = JSON.stringify($state.snapshot(loggingForm));
     gpioBaseline = JSON.stringify($state.snapshot(gpioForm));
@@ -234,6 +242,7 @@
 
   const serialDirty = $derived(!!config && JSON.stringify($state.snapshot(serialForm)) !== serialBaseline);
   const webDirty = $derived(!!config && JSON.stringify($state.snapshot(webForm)) !== webBaseline);
+  const mcpDirty = $derived(!!config && JSON.stringify($state.snapshot(mcpForm)) !== mcpBaseline);
   const terminalDirty = $derived(!!config && JSON.stringify($state.snapshot(terminalForm)) !== terminalBaseline);
   const loggingDirty = $derived(!!config && JSON.stringify($state.snapshot(loggingForm)) !== loggingBaseline);
   const gpioDirty = $derived(!!config && JSON.stringify($state.snapshot(gpioForm)) !== gpioBaseline);
@@ -311,6 +320,18 @@
       apiKey,
     }, configStatus?.etag);
     await refresh();
+  }
+  async function saveMcp() {
+    if (mcpForm.enableMcpHttp && !configStatus?.apiKeySet) {
+      showToast('Set an API key in Web & API before enabling MCP over HTTP.', 'error');
+      throw new Error('API key required');
+    }
+    await api.putMcpConfig({ enableMcpHttp: mcpForm.enableMcpHttp }, configStatus?.etag);
+    await refresh();
+    showToast(
+      mcpForm.enableMcpHttp ? 'MCP over HTTP enabled' : 'MCP over HTTP disabled',
+      'success',
+    );
   }
   async function saveTerminal() {
     await api.putTerminalConfig({
@@ -533,6 +554,93 @@
           <Input bind:value={webForm.apiKey as string} placeholder="(no key)" type="password" />
         </FormField>
       </div>
+    </ConfigSection>
+
+    <!-- MCP over HTTP (live toggle) -->
+    <ConfigSection
+      id="mcp"
+      title="MCP server (HTTP)"
+      description="Expose FDC+ tools to Claude Code and other AI clients over HTTP at /mcp. Uses the API key from Web & API for auth."
+      dirty={mcpDirty}
+      onSave={saveMcp}
+      onDiscard={resetAllForms}
+    >
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px;">
+        <FormField
+          label="MCP HTTP enabled"
+          hint={configStatus?.mcpHttpLive ? 'live' : 'off'}
+          hintColor={configStatus?.mcpHttpLive ? 'green' : 'gray'}
+          help="Mounts the MCP endpoint at /mcp. Takes effect immediately — no restart.">
+          <label style="display: flex; align-items: center; gap: 8px;">
+            <input
+              type="checkbox"
+              bind:checked={mcpForm.enableMcpHttp}
+              disabled={!configStatus?.apiKeySet}
+            />
+            <span class="fdc-label-strip" style="text-transform: none; letter-spacing: 0;">
+              Serve /mcp for remote AI clients
+            </span>
+          </label>
+        </FormField>
+        <FormField label="Status">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <Led
+              color={configStatus?.mcpHttpLive ? 'green' : 'off'}
+              label={configStatus?.mcpHttpLive
+                ? `Serving (${configStatus?.mcpHttpSessions ?? 0} session${(configStatus?.mcpHttpSessions ?? 0) === 1 ? '' : 's'})`
+                : 'Off'}
+            />
+            {#if configStatus?.mcpHttpLive}
+              <Chip color="green" icon="bolt">Live</Chip>
+            {/if}
+          </div>
+        </FormField>
+      </div>
+
+      {#if !configStatus?.apiKeySet}
+        <div
+          style="
+            margin-top: 12px;
+            padding: 10px 14px;
+            background: var(--surface-variant);
+            border: 1px solid var(--border-1);
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--fg-2);
+            font: var(--text-body-sm);
+          "
+        >
+          <span class="material-symbols-rounded" style="font-size: 18px;">key_off</span>
+          Set an API key in <strong>Web &amp; API</strong> before enabling MCP over HTTP.
+          Bearer auth is required — this endpoint is never served unauthenticated.
+        </div>
+      {/if}
+
+      {#if configStatus?.mcpHttpLive}
+        <div style="margin-top: 16px; display: flex; flex-direction: column; gap: 6px;">
+          <LabelStrip>Client setup</LabelStrip>
+          <p class="fdc-label-strip" style="color: var(--fg-3); margin: 0; text-transform: none; letter-spacing: 0;">
+            Register this server with Claude Code (paste your API key):
+          </p>
+          <pre
+            style="
+              margin: 0;
+              padding: 10px 12px;
+              background: var(--surface-variant);
+              border: 1px solid var(--border-1);
+              border-radius: var(--radius-sm);
+              color: var(--fg-1);
+              font: var(--text-code-sm);
+              overflow-x: auto;
+              white-space: pre-wrap;
+              word-break: break-all;
+            ">claude mcp add --transport http fdcplus \
+  http://{typeof window !== 'undefined' ? window.location.host : 'HOST:PORT'}/mcp \
+  --header "Authorization: Bearer &lt;api-key&gt;"</pre>
+        </div>
+      {/if}
     </ConfigSection>
 
     <!-- Terminal -->
@@ -773,6 +881,7 @@
           <div><strong style="color: var(--fg-1);">systemd-managed:</strong> {configStatus?.systemdManaged ? 'yes' : 'no'}</div>
           <div><strong style="color: var(--fg-1);">Startup epoch:</strong> {configStatus?.startupEpoch ?? '—'}</div>
           <div><strong style="color: var(--fg-1);">API key set:</strong> {configStatus?.apiKeySet ? 'yes' : 'no'}</div>
+          <div><strong style="color: var(--fg-1);">MCP over HTTP:</strong> {configStatus?.mcpHttpLive ? `live (${configStatus?.mcpHttpSessions ?? 0} session${(configStatus?.mcpHttpSessions ?? 0) === 1 ? '' : 's'})` : 'off'}</div>
           <div><strong style="color: var(--fg-1);">Read-only:</strong> {configStatus?.configReadonly ? 'yes' : 'no'}</div>
           <div><strong style="color: var(--fg-1);">Build:</strong> {$serverStatus?.system.build ?? '(dev)'}</div>
         </div>

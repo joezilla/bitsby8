@@ -17,6 +17,7 @@ import { writable, derived, get } from 'svelte/store';
 export type SectionId =
   | 'serial'
   | 'web'
+  | 'mcp'
   | 'terminal'
   | 'logging'
   | 'gpio';
@@ -29,6 +30,7 @@ interface SectionState {
 const initial: Record<SectionId, SectionState> = {
   serial: { dirty: false, restartPending: false },
   web: { dirty: false, restartPending: false },
+  mcp: { dirty: false, restartPending: false },
   terminal: { dirty: false, restartPending: false },
   logging: { dirty: false, restartPending: false },
   gpio: { dirty: false, restartPending: false },

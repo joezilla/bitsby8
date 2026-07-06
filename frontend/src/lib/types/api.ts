@@ -132,6 +132,10 @@ export interface WebSection {
   apiKey?: string | null;
 }
 
+export interface McpSection {
+  enableMcpHttp?: boolean;
+}
+
 export interface TerminalSection {
   terminalPort?: string;
   terminalBaud?: number;
@@ -177,6 +181,7 @@ export interface GpioSection {
 export interface ConfigDoc
   extends SerialSection,
     WebSection,
+    McpSection,
     TerminalSection,
     LoggingSection,
     DataSection {
@@ -190,6 +195,9 @@ export interface ConfigStatus {
   systemdManaged: boolean;
   startupEpoch: number;
   apiKeySet: boolean;
+  mcpHttpEnabled: boolean;
+  mcpHttpLive: boolean;
+  mcpHttpSessions: number;
   configReadonly: boolean;
   etag?: string;
 }

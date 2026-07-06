@@ -2984,6 +2984,15 @@
         }
       }
     },
+    "/api/config/mcp": {
+      "put": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Toggle MCP-over-HTTP for remote AI clients",
+        "description": "Persists `enableMcpHttp` and flips the runtime guard immediately —\nno daemon restart. Refuses to enable when no API key is set (400).\nDisabling drops any live MCP sessions.\n"
+      }
+    },
     "/api/cassettes/details": {
       "get": {
         "tags": [
