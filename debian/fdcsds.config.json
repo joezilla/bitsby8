@@ -1,0 +1,18 @@
+{
+  "dataDir": "/var/lib/fdcsds",
+  "port": "/dev/ttyUSB0",
+  "baud": 230400,
+  "drive0": "disks/cpm22.dsk",
+  "drive1": null,
+  "drive2": null,
+  "drive3": null,
+  "readonly": [0],
+  "verbose": false,
+  "debug": false,
+  "web": true,
+  "webPort": 3000,
+  "webHost": "0.0.0.0",
+  "terminalPort": "/dev/ttyUSB1",
+  "terminalBaud": 9600,
+  "terminalAutoconnect": false
+}

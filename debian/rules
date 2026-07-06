@@ -81,6 +81,10 @@ override_dh_auto_install:
 	# Install configuration files
 	mkdir -p debian/fdcsds/etc/fdcsds
 	cp .fdcsds.config.example debian/fdcsds/etc/fdcsds/fdcsds.config.example
+	# Ship the default baseline config as a dpkg conffile. The daemon
+	# reads this at startup; UI-driven changes are persisted separately
+	# to /var/lib/fdcsds/fdcsds.overrides.json and layered on top.
+	cp debian/fdcsds.config.json debian/fdcsds/etc/fdcsds/fdcsds.config.json
 
 	# Install default configuration to /etc/fdcplus (system-wide default)
 	mkdir -p debian/fdcsds/etc/fdcplus
