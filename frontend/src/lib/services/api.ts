@@ -19,9 +19,14 @@ import type {
 } from '$lib/types/api';
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
+  // Spread options first, then set headers last — otherwise a caller
+  // that passes `headers: { 'If-Match': ... }` silently drops the
+  // default Content-Type: application/json, Express's express.json()
+  // middleware refuses to parse the body, and every section PUT
+  // ships an empty {} to disk.
   const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
     ...options,
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
