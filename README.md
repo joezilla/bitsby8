@@ -48,7 +48,7 @@ A TypeScript implementation of an FDC+ Serial Disk Server. It speaks the FDC+ wi
 - Cross-platform support (Linux + macOS tested; Windows untested)
 - **Svelte 5 + Tailwind 4 web interface** with real-time Socket.IO status updates
 - **VT102 terminal emulator** for a second serial port (with optional CRT phosphor mode)
-- **MCP server** with 30 tools for AI assistant integration — local (stdio) and remote (HTTP with bearer auth); see [AI Assistant Integration](#ai-assistant-integration-mcp)
+- **MCP server** with 32 tools for AI assistant integration — local (stdio) and remote (HTTP with bearer auth); see [AI Assistant Integration](#ai-assistant-integration-mcp)
 - **GPIO LED status indicators** for Raspberry Pi
 - **OpenAPI/Swagger documentation** at `/api/docs` (also committed as [`openapi.json`](openapi.json))
 - SQLite database with WAL mode for persistent state
@@ -71,7 +71,7 @@ src/
 ├── protocol.ts           # FDC+ protocol definitions & types
 ├── config.ts             # Configuration file loading & validation
 ├── database.ts           # SQLite database management
-├── mcp-server.ts         # MCP server (30 AI-accessible tools)
+├── mcp-server.ts         # MCP server (32 AI-accessible tools)
 ├── openapi-def.ts        # OpenAPI/Swagger specification
 ├── types.ts              # Shared TypeScript types
 ├── routes/               # Express route handlers
@@ -128,7 +128,7 @@ frontend/                  # Svelte 5 + Vite + Tailwind 4 SPA
 - **routes/**: 11 Express route modules covering drives, images, cassettes, scripts, terminal, etc.
 - **services/**: Business logic separated from HTTP handling (status, transfers, audio, file listing)
 - **middleware/**: Security (Helmet, CORS, rate limiting), API key auth, and static file serving
-- **mcp-server.ts** / **mcp-http.ts**: MCP server exposing 30 tools for AI assistant integration. `mcp-server.ts` builds the tool registry; `mcp-http.ts` mounts the Streamable HTTP transport on the web server (opt-in). Stdio transport is served from `mcp-server.ts` directly via `--mcp`. See [AI Assistant Integration](#ai-assistant-integration-mcp).
+- **mcp-server.ts** / **mcp-http.ts**: MCP server exposing 32 tools for AI assistant integration. `mcp-server.ts` builds the tool registry; `mcp-http.ts` mounts the Streamable HTTP transport on the web server (opt-in). Stdio transport is served from `mcp-server.ts` directly via `--mcp`. See [AI Assistant Integration](#ai-assistant-integration-mcp).
 - **frontend/**: Modern Svelte 5 SPA with real-time Socket.IO updates, xterm.js terminal, and retro CRT mode
 
 ---
@@ -528,27 +528,49 @@ The web interface uses Socket.IO for real-time updates.
 
 ## AI Assistant Integration (MCP)
 
-The server ships a [Model Context Protocol](https://modelcontextprotocol.io/) server that exposes **30 tools** to MCP-compatible assistants (Claude Desktop, Claude Code, etc.). Two transports are supported and mutually opt-in:
+The server ships a [Model Context Protocol](https://modelcontextprotocol.io/) server that exposes **32 tools** to MCP-compatible assistants (Claude Desktop, Claude Code, etc.). Two transports are supported and mutually opt-in:
 
 | Transport | When to use | Auth | Enable with |
 |---|---|---|---|
 | **stdio** | Assistant runs on the same machine as `fdcsds` | None (parent process trust) | `fdcsds --mcp` (blocks; not the web server) |
 | **HTTP (Streamable)** | Assistant runs elsewhere on the LAN and connects over the network | Bearer token (required — refuses to enable without an API key) | `--mcp-http`, `enableMcpHttp: true` in the config file, or the Config page toggle |
 
-### Tool surface (30 tools, by category)
+### Tool surface (32 tools, by category)
 
 | Category | Capabilities (examples) |
 |---|---|
 | **Status** | `get_status`, `get_drive_status` |
 | **Drives** | `list_drives`, `mount_disk`, `unmount_disk`, `set_drive_readonly` |
 | **Disk images** | `list_disk_images`, `create_disk_image`, `clone_disk_image`, `delete_disk_image`, `upload_disk_image` |
-| **CP/M filesystem** | `list_cpm_files`, `read_cpm_file`, `write_cpm_file`, `delete_cpm_file`, `format_cpm_disk` |
+| **CP/M filesystem** | `list_cpm_files`, `read_cpm_file`, `write_cpm_file`, `write_cpm_file_from_upload`, `list_uploads`, `delete_cpm_file`, `format_cpm_disk` |
 | **Terminal serial** | `list_terminal_ports`, `open_terminal`, `close_terminal`, `send_to_terminal` |
 | **Replay / transfer** | `start_replay`, `cancel_replay`, `list_scripts` |
 | **Cassettes** | `list_cassettes`, `play_cassette`, `stop_cassette` |
 | **Configuration** | `configure_serial`, `enable_disk_serving`, `disable_disk_serving` |
 
 The exact, current list is the source of truth in [`src/mcp-server.ts`](src/mcp-server.ts).
+
+### Writing large files to a CP/M disk (avoid inline base64)
+
+`write_cpm_file` takes the file bytes as a base64 string in its `data` argument.
+That works, but the **assistant has to generate the entire base64 blob
+token-by-token** — a 16 KB file expands to ~22,000 base64 characters (~8,700
+output tokens), so large writes feel like they hang even though the server-side
+write is sub-millisecond. Reserve `write_cpm_file` for small, model-authored
+content (a short BASIC program, a config file).
+
+For anything larger, keep the bytes out of the model:
+
+1. **Stage the file** in the server's uploads directory (`<data-dir>/uploads`) —
+   copy it there directly, or POST it to the REST upload endpoint.
+2. **Confirm the name** with `list_uploads`.
+3. **Write it** with `write_cpm_file_from_upload`, passing `uploadFilename`
+   (from step 2), the destination `diskFilename`, and the `cpmFilename` to create.
+   The server reads the staged file itself, so cost and speed are independent of
+   file size. The destination disk must not be mounted on a drive.
+
+Example prompt to a Claude Code client: *"List the uploads, then write
+`MBASIC.COM` from the uploads onto `cpm22.dsk` as `0:MBASIC.COM`."*
 
 ### Security posture
 

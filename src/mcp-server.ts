@@ -864,7 +864,13 @@ export function createMcpServer(deps: Dependencies): McpServer {
 
   server.tool(
     'write_cpm_file',
-    'Write a file to a CP/M disk image (data must be base64-encoded)',
+    'Write a file to a CP/M disk image from inline base64 data. ' +
+      'PREFER write_cpm_file_from_upload for anything but a few hundred bytes: ' +
+      'this tool requires the entire file to be passed as a base64 string in the ' +
+      '`data` argument, which the calling model must generate token-by-token. ' +
+      'A 16 KB file expands to ~22,000 base64 characters (~8,700 output tokens), ' +
+      'so large writes are slow and expensive even though the server-side write ' +
+      'is instant. Use this tool only for small, model-generated content.',
     {
       diskFilename: z.string().describe('Disk image filename'),
       cpmFilename: z.string().describe('CP/M filename (e.g. HELLO.BAS or 0:HELLO.BAS)'),
@@ -900,6 +906,116 @@ export function createMcpServer(deps: Dependencies): McpServer {
               success: true,
               diskFilename,
               cpmFilename: `${parsed.filename.trimEnd()}.${parsed.extension.trimEnd()}`,
+              user: parsed.user,
+              size: fileData.length,
+            }, null, 2),
+          }],
+        };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  // ===========================================================================
+  // Tool 18b: list_uploads
+  // ===========================================================================
+
+  server.tool(
+    'list_uploads',
+    'List files staged in the server\'s uploads directory. These files can be ' +
+      'written into a CP/M disk image with write_cpm_file_from_upload WITHOUT ' +
+      'transferring their bytes through the model. Drop a file into the uploads ' +
+      'directory (or POST it to the REST upload endpoint) first, then reference ' +
+      'it here by name.',
+    async () => {
+      try {
+        const uploadsDir = deps.config.uploadsDir;
+        if (!uploadsDir) {
+          throw new Error('Uploads directory is not configured on this server.');
+        }
+        if (!existsSync(uploadsDir)) {
+          return { content: [{ type: 'text', text: JSON.stringify({ uploadsDir, files: [] }, null, 2) }] };
+        }
+
+        const names = await fs.readdir(uploadsDir);
+        const files = [];
+        for (const name of names) {
+          const resolved = safeResolvePath(uploadsDir, name);
+          if (!resolved) continue; // skip symlink escapes / vanished entries
+          const st = await fs.stat(resolved);
+          if (!st.isFile()) continue;
+          files.push({ name, size: st.size });
+        }
+
+        return { content: [{ type: 'text', text: JSON.stringify({ uploadsDir, files }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  // ===========================================================================
+  // Tool 18c: write_cpm_file_from_upload
+  // ===========================================================================
+
+  server.tool(
+    'write_cpm_file_from_upload',
+    'Write a file to a CP/M disk image by copying it from the server\'s uploads ' +
+      'directory. This is the PREFERRED way to put a real file onto a disk: the ' +
+      'file bytes never pass through the model, so it is fast and cheap regardless ' +
+      'of file size (unlike write_cpm_file, which needs inline base64). ' +
+      'Workflow for a Claude Code client: (1) place the source file in the server\'s ' +
+      'uploads directory — either drop it there directly or POST it to the REST ' +
+      'upload endpoint; (2) call list_uploads to confirm the name; ' +
+      '(3) call this tool with uploadFilename set to that name. The disk image must ' +
+      'not be mounted on a drive.',
+    {
+      diskFilename: z.string().describe('Destination disk image filename (in the disks directory)'),
+      cpmFilename: z.string().describe('CP/M filename to create (e.g. HELLO.BAS or 0:HELLO.BAS)'),
+      uploadFilename: z.string().describe('Name of the source file in the uploads directory (see list_uploads)'),
+    },
+    async ({ diskFilename, cpmFilename, uploadFilename }) => {
+      try {
+        // Writing to a mounted disk is unsafe — the daemon may be serving it.
+        const mountedDrive = isDiskMounted(deps, diskFilename);
+        if (mountedDrive !== false) {
+          throw new Error(`Cannot modify: disk image is mounted on drive ${mountedDrive}`);
+        }
+
+        const uploadsDir = deps.config.uploadsDir;
+        if (!uploadsDir) {
+          throw new Error('Uploads directory is not configured on this server.');
+        }
+
+        // Confine the source to the uploads directory (blocks traversal / symlink escape).
+        const sourcePath = safeResolvePath(uploadsDir, uploadFilename);
+        if (!sourcePath) {
+          throw new Error(`Upload not found: ${uploadFilename}`);
+        }
+
+        const filePath = safeResolvePath(deps.config.disksDir, diskFilename);
+        if (!filePath) {
+          throw new Error(`Disk image not found: ${diskFilename}`);
+        }
+
+        const fileData = await fs.readFile(sourcePath);
+        const imageData = await fs.readFile(filePath);
+        const cpmFs = new CpmFilesystem(imageData);
+        const parsed = CpmFilesystem.parseFilenameParam(cpmFilename);
+
+        cpmFs.writeFile(parsed.filename, parsed.extension, fileData, parsed.user);
+
+        await fs.writeFile(filePath, cpmFs.getImageData());
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              diskFilename,
+              cpmFilename: `${parsed.filename.trimEnd()}.${parsed.extension.trimEnd()}`,
+              uploadFilename,
               user: parsed.user,
               size: fileData.length,
             }, null, 2),

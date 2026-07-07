@@ -464,6 +464,7 @@ export function mergeConfig(configFile: ConfigFile | null, cmdLineOptions: any):
   if (cmdLineOptions.webHost !== undefined) merged.webHost = cmdLineOptions.webHost;
   if (cmdLineOptions.mcpHttp !== undefined) merged.enableMcpHttp = cmdLineOptions.mcpHttp;
 
+  if (cmdLineOptions.terminalOnly !== undefined) merged.terminalOnly = cmdLineOptions.terminalOnly;
   if (cmdLineOptions.terminalPort !== undefined) merged.terminalPort = cmdLineOptions.terminalPort;
   if (cmdLineOptions.terminalBaud !== undefined) merged.terminalBaud = parseInt(cmdLineOptions.terminalBaud);
   if (cmdLineOptions.terminalAutoconnect !== undefined) merged.terminalAutoconnect = cmdLineOptions.terminalAutoconnect;

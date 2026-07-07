@@ -33,6 +33,7 @@
     'get_status', 'list_drives', 'mount_disk', 'unmount_disk',
     'list_disk_images', 'create_disk_image', 'clone_disk_image',
     'list_cpm_files', 'read_cpm_file', 'write_cpm_file',
+    'write_cpm_file_from_upload', 'list_uploads',
     'open_terminal', 'send_to_terminal', 'close_terminal',
     'start_replay', 'list_scripts', 'list_cassettes',
     'configure_serial', 'enable_disk_serving',
