@@ -9,6 +9,7 @@
     type?: 'text' | 'number' | 'email' | 'password' | 'url';
     variant?: Variant;
     disabled?: boolean;
+    readonly?: boolean;
     error?: string;
     name?: string;
     id?: string;
@@ -24,6 +25,7 @@
     type = 'text',
     variant = 'default',
     disabled = false,
+    readonly = false,
     error,
     name,
     id,
@@ -44,6 +46,7 @@
       {type}
       {placeholder}
       {disabled}
+      {readonly}
       {name}
       {id}
       {onkeydown}
@@ -58,6 +61,7 @@
     {type}
     {placeholder}
     {disabled}
+    {readonly}
     {name}
     {id}
     {onkeydown}

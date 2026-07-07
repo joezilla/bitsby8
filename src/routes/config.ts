@@ -232,6 +232,28 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
 
   /**
    * @openapi
+   * /api/config/web/apikey:
+   *   get:
+   *     tags: [Config]
+   *     summary: Reveal the current API key (plaintext)
+   *     description: |
+   *       Returns the configured `apiKey` verbatim so an authenticated
+   *       operator can copy it back out at any time (password managers,
+   *       MCP client config, curl scripts). Unlike `adminPassword` — which
+   *       is bcrypt-hashed and unrecoverable — the API key is stored as
+   *       plaintext, so it can be read back. Protected by the same
+   *       session-or-Bearer auth as every other `/api/*` route, so only an
+   *       authenticated admin can reach it. Returns `{ apiKey: null }` when
+   *       no key is set.
+   *     responses:
+   *       200: { description: The current API key (or null if unset) }
+   */
+  router.get('/api/config/web/apikey', (_req: Request, res: Response) => {
+    res.json({ apiKey: deps.runtimeConfig?.apiKey ?? null });
+  });
+
+  /**
+   * @openapi
    * /api/config/restart:
    *   post:
    *     tags: [Config]

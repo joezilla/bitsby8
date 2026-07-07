@@ -291,6 +291,10 @@ export const api = {
       body: JSON.stringify(updates),
     }),
   getConfigStatus: () => request<ConfigStatus>('/api/config/status'),
+  // Reveal the current plaintext API key for copy-out. Auth-gated like
+  // every /api/* route; the key is stored plaintext (unlike the bcrypt
+  // adminPassword hash), so it can be read back on demand.
+  getApiKey: () => request<{ apiKey: string | null }>('/api/config/web/apikey'),
   getConfigSchema: () => request<any>('/api/config/schema'),
   putSerialConfig: (patch: Partial<SerialSection>, ifMatch?: string) =>
     request<{ success: true; config: ConfigDoc; mtimeMs: number }>('/api/config/serial', {

@@ -2934,6 +2934,20 @@
         "description": "Metadata the UI needs to decide whether the \"Restart now\" button\nis available, whether saves will work, and how to detect a\nsuccessful restart (poll `startupEpoch`).\n"
       }
     },
+    "/api/config/web/apikey": {
+      "get": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Reveal the current API key (plaintext)",
+        "description": "Returns the configured `apiKey` verbatim so an authenticated\noperator can copy it back out at any time (password managers,\nMCP client config, curl scripts). Unlike `adminPassword` — which\nis bcrypt-hashed and unrecoverable — the API key is stored as\nplaintext, so it can be read back. Protected by the same\nsession-or-Bearer auth as every other `/api/*` route, so only an\nauthenticated admin can reach it. Returns `{ apiKey: null }` when\nno key is set.\n",
+        "responses": {
+          "200": {
+            "description": "The current API key (or null if unset)"
+          }
+        }
+      }
+    },
     "/api/config/restart": {
       "post": {
         "tags": [
