@@ -19,7 +19,17 @@ import { getSerialPortManager } from './serial';
 import { getTerminalSerialManager } from './terminal-serial';
 import { FdcServer } from './server';
 import { WebServer } from './web-server';
-import { loadConfigFile, mergeConfig, getExampleConfig, DEFAULT_CONFIG_LOCATIONS, resolveDataDir, resolveDrivePath } from './config';
+import {
+  loadConfigFile,
+  loadOverridesFile,
+  mergeConfig,
+  mergeConfigLayers,
+  getExampleConfig,
+  DEFAULT_CONFIG_LOCATIONS,
+  OVERRIDE_FILENAME,
+  resolveDataDir,
+  resolveDrivePath,
+} from './config';
 import { getGpioLedController, DEFAULT_GPIO_CONFIG } from './gpio';
 import { getLogger } from './logger';
 import { resolvePortPath, listPortsWithPersistent } from './port-resolver';
@@ -108,6 +118,7 @@ async function main(): Promise<void> {
     .option('--example-config', 'Print example configuration file and exit')
     .option('--show-persistent-paths', 'Show persistent path alternatives for configured ports')
     .option('--mcp', 'Start as MCP (Model Context Protocol) server over stdio')
+    .option('--mcp-http', 'Serve MCP over HTTP on the web server at /mcp (requires --api-key or apiKey in config)')
     .helpOption('-h, --help', 'Display help information');
 
   program.parse(process.argv);
@@ -211,12 +222,17 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // Load configuration file
+  // Load the package baseline config file. This is the .deb-installed
+  // /etc/fdcsds/fdcsds.config.json in prod, or whichever file was found
+  // in DEFAULT_CONFIG_LOCATIONS in dev. The daemon *reads* this file at
+  // startup and *never writes it* — every UI-driven save lands in the
+  // runtime override file (see below).
   let loaded = null;
   try {
     loaded = await loadConfigFile(options.config);
     if (loaded) {
-      console.log('Configuration loaded successfully');
+      console.log('Baseline configuration loaded successfully');
+      console.log(`  Baseline: ${loaded.filePath}`);
       console.log(`  Port: ${loaded.config.port || '(not set)'}`);
       console.log(`  Baud: ${loaded.config.baud || '(not set)'}`);
     }
@@ -225,12 +241,38 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Merge config file with command line options (CLI takes precedence).
-  // Keep the resolved filePath around so the web server can write back
-  // to the same location later (used by /api/config/:section PUTs).
-  const configFile = loaded?.config ?? null;
-  const configFilePath = loaded?.filePath ?? null;
-  const mergedOptions = mergeConfig(configFile, options);
+  // Baseline (package config) and its absolute path. Both are read-only
+  // from the app's POV. `null` filePath means no baseline was found and
+  // the daemon runs with all-defaults, which is fine for dev.
+  const baselineConfig = loaded?.config ?? null;
+  const packageConfigFilePath = loaded?.filePath ?? null;
+
+  // Resolve dataDir before loading the override — the override file
+  // lives inside dataDir. CLI --data-dir wins over the baseline value.
+  const preliminaryDataDir = resolveDataDir(options.dataDir ?? baselineConfig?.dataDir ?? null);
+  const overrideConfigFilePath = path.join(preliminaryDataDir, OVERRIDE_FILENAME);
+
+  // Load the runtime override. Fresh installs return null cleanly.
+  let overrideLoaded = null;
+  try {
+    overrideLoaded = await loadOverridesFile(overrideConfigFilePath);
+    if (overrideLoaded) {
+      console.log(`Runtime overrides loaded from: ${overrideLoaded.filePath}`);
+    } else {
+      console.log(`Runtime overrides: (none yet at ${overrideConfigFilePath})`);
+    }
+  } catch (error) {
+    // loadOverridesFile already logs a warning on corrupt files and
+    // returns null for the "no override" case — anything reaching here
+    // is exceptional. Continue with baseline-only rather than fail-fast:
+    // losing overrides is recoverable, refusing to start is not.
+    console.error(`Warning: could not load runtime override: ${(error as Error).message}`);
+  }
+
+  // Effective config = shallow merge (override wins per top-level key).
+  // Merge CLI options on top (still highest precedence).
+  const effectiveConfig = mergeConfigLayers(baselineConfig, overrideLoaded?.config ?? null);
+  const mergedOptions = mergeConfig(effectiveConfig, options);
 
   // Millisecond epoch captured once so `GET /api/config/status` can
   // report a monotonic per-process value; the UI compares this after
@@ -282,8 +324,8 @@ async function main(): Promise<void> {
   const baudRate = typeof baudRateValue === 'string' ? parseInt(baudRateValue) : baudRateValue;
 
   // Debug output
-  if (configFile) {
-    console.log(`Loaded config from file. Baud rate: ${baudRate}`);
+  if (baselineConfig || overrideLoaded) {
+    console.log(`Effective config resolved. Baud rate: ${baudRate}`);
   }
 
   if (!Object.values(BaudRate).includes(baudRate as BaudRate)) {
@@ -525,7 +567,9 @@ async function main(): Promise<void> {
       io: dummyIo,
       database: database!,
       runtimeConfig: mergedOptions,
-      configFilePath,
+      packageConfigFilePath,
+      overrideConfigFilePath,
+      baselineConfig,
       startupEpoch,
       configReadonly,
       server: server,
@@ -567,7 +611,16 @@ async function main(): Promise<void> {
       serialManager,
       terminalManager,
       preferredTerminalSettings,
-      { server: server || undefined, runtimeConfig: mergedOptions, database, configFilePath, startupEpoch, configReadonly }
+      {
+        server: server || undefined,
+        runtimeConfig: mergedOptions,
+        database,
+        packageConfigFilePath,
+        overrideConfigFilePath,
+        baselineConfig,
+        startupEpoch,
+        configReadonly,
+      }
     );
     await webServer.start();
   }

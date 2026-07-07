@@ -11,9 +11,9 @@
   }
 
   let { open = false, onclose }: Props = $props();
-  let copied = $state(false);
+  let copiedTransport = $state<'stdio' | 'http' | null>(null);
 
-  const mcpConfig = JSON.stringify({
+  const mcpStdioConfig = JSON.stringify({
     mcpServers: {
       fdcplus: {
         command: 'fdcsds',
@@ -21,6 +21,13 @@
       },
     },
   }, null, 2);
+
+  // Remote HTTP transport — pre-fill the URL with the origin the user is
+  // currently browsing to, so a paste on the same LAN works out of the box.
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://HOST:PORT';
+  const mcpHttpCommand = `claude mcp add --transport http fdcplus \\
+  ${currentOrigin}/mcp \\
+  --header "Authorization: Bearer <api-key>"`;
 
   const exampleTools = [
     'get_status', 'list_drives', 'mount_disk', 'unmount_disk',
@@ -40,11 +47,13 @@
     'Create a blank 8-inch disk image',
   ];
 
-  async function copyConfig() {
+  async function copy(text: string, kind: 'stdio' | 'http') {
     try {
-      await navigator.clipboard.writeText(mcpConfig);
-      copied = true;
-      setTimeout(() => { copied = false; }, 2000);
+      await navigator.clipboard.writeText(text);
+      copiedTransport = kind;
+      setTimeout(() => {
+        if (copiedTransport === kind) copiedTransport = null;
+      }, 2000);
     } catch {
       showToast('Failed to copy', 'error');
     }
@@ -89,16 +98,17 @@
 
     <!-- Content -->
     <div style="flex: 1; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px;">
-      <!-- MCP setup -->
+      <!-- MCP setup: local stdio -->
       <Card>
         <div style="padding: 16px;">
           <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
             <Icon name="extension" size={18} class="text-accent" />
-            <span style="font: var(--text-title-sm); color: var(--fg-1);">MCP server integration</span>
+            <span style="font: var(--text-title-sm); color: var(--fg-1);">MCP server — local (stdio)</span>
           </div>
           <p style="font: var(--text-body-sm); color: var(--fg-2); margin: 0 0 12px;">
-            Control your Altair 8800 with AI using the FDC+ MCP server. Add this
-            configuration to Claude Desktop or Claude Code to get started.
+            Spawn the FDC+ MCP server as a child process from Claude Desktop or
+            Claude Code running on the same machine. No API key required — the
+            parent process trust model applies.
           </p>
 
           <div style="position: relative;">
@@ -114,13 +124,55 @@
                 overflow-x: auto;
                 margin: 0;
               "
-            >{mcpConfig}</pre>
+            >{mcpStdioConfig}</pre>
             <span style="position: absolute; top: 6px; right: 6px;">
               <IconButton
-                icon={copied ? 'check' : 'content_copy'}
+                icon={copiedTransport === 'stdio' ? 'check' : 'content_copy'}
                 size={16}
                 title="Copy configuration"
-                onclick={copyConfig}
+                onclick={() => copy(mcpStdioConfig, 'stdio')}
+              />
+            </span>
+          </div>
+        </div>
+      </Card>
+
+      <!-- MCP setup: remote HTTP -->
+      <Card>
+        <div style="padding: 16px;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+            <Icon name="cloud" size={18} class="text-accent" />
+            <span style="font: var(--text-title-sm); color: var(--fg-1);">MCP server — remote (HTTP)</span>
+          </div>
+          <p style="font: var(--text-body-sm); color: var(--fg-2); margin: 0 0 12px;">
+            Drive this Pi's FDC+ from a Claude Code instance running elsewhere
+            on the LAN. Requires an API key — set one in
+            <strong>Configuration → Web &amp; API</strong>, then enable MCP
+            over HTTP in <strong>Configuration → MCP server</strong>.
+          </p>
+
+          <div style="position: relative;">
+            <pre
+              class="fdc-mono"
+              style="
+                background: var(--surface-sunken);
+                border: 1px solid var(--border-1);
+                border-radius: var(--radius-sm);
+                padding: 12px;
+                font-size: 11px;
+                color: var(--info);
+                overflow-x: auto;
+                white-space: pre-wrap;
+                word-break: break-all;
+                margin: 0;
+              "
+            >{mcpHttpCommand}</pre>
+            <span style="position: absolute; top: 6px; right: 6px;">
+              <IconButton
+                icon={copiedTransport === 'http' ? 'check' : 'content_copy'}
+                size={16}
+                title="Copy command"
+                onclick={() => copy(mcpHttpCommand, 'http')}
               />
             </span>
           </div>

@@ -1,5 +1,16 @@
 /**
  * WebSocket (Socket.IO) event handlers.
+ *
+ * SECURITY: WebSocket connections are NOT gated by session/bearer
+ * auth today. The Express `createSessionOrBearerAuth` middleware runs
+ * on HTTP requests to `/api/*`; Socket.IO's initial HTTP handshake
+ * bypasses that mount and long-poll upgrades don't run Express
+ * middleware at all. Copying the auth middleware into this file
+ * "helpfully" will NOT fix it. A real fix needs one of: Socket.IO's
+ * `use((socket, next) => ...)` connection middleware with cookie
+ * parsing, a signed WS-connect token exchange, or gating this whole
+ * mount behind the Express middleware before Socket.IO attaches.
+ * Tracked separately from the login/API-key split.
  */
 
 import { Server as SocketIOServer } from 'socket.io';

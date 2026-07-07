@@ -53,42 +53,17 @@ case "$1" in
             done
         fi
 
-        # Create default configuration file if it doesn't exist
-        if [ ! -f /etc/fdcsds/fdcsds.config.json ]; then
-            cat > /etc/fdcsds/fdcsds.config.json <<'EOF'
-{
-  "dataDir": "/var/lib/fdcsds",
-  "port": "/dev/ttyUSB0",
-  "baud": 230400,
-  "drive0": "disks/cpm22.dsk",
-  "drive1": null,
-  "drive2": null,
-  "drive3": null,
-  "readonly": [0],
-  "verbose": false,
-  "debug": false,
-  "web": true,
-  "webPort": 3000,
-  "webHost": "0.0.0.0",
-  "terminalPort": "/dev/ttyUSB1",
-  "terminalBaud": 9600,
-  "terminalAutoconnect": false
-}
-EOF
-            # Owned by the service user so the daemon can write it back
-            # atomically when an operator saves changes from the web UI.
-            # Was root:root 0644 in earlier packages, which forced every
-            # UI save through a sudo edit.
-            chown fdcsds:fdcsds /etc/fdcsds/fdcsds.config.json
-            chmod 664 /etc/fdcsds/fdcsds.config.json
-        else
-            # Existing installs: make sure the service user owns the
-            # file so the UI-write feature works after an upgrade.
-            # `|| true` protects against unusual permission states — the
-            # daemon just falls back to "read-only config" if this fails.
-            chown fdcsds:fdcsds /etc/fdcsds/fdcsds.config.json 2>/dev/null || true
-            chmod 664 /etc/fdcsds/fdcsds.config.json 2>/dev/null || true
-        fi
+        # The baseline lives at /etc/fdcsds/fdcsds.config.json and is
+        # shipped by the package (dpkg-managed conffile). It's read-only
+        # from the daemon's POV — UI-driven changes are persisted to
+        # /var/lib/fdcsds/fdcsds.overrides.json instead. Force
+        # root:root 0644 on every install/upgrade so past packages that
+        # gave the fdcsds user write-permission (RC ≤ 2.0.1) are
+        # normalised back to admin-managed. `|| true` covers unusual
+        # permission states — the daemon still reads and the override
+        # layer works either way.
+        chown root:root /etc/fdcsds/fdcsds.config.json 2>/dev/null || true
+        chmod 644 /etc/fdcsds/fdcsds.config.json 2>/dev/null || true
 
         # Rebuild native modules against the target system's Node ABI.
         # The .deb is built once (usually on a Pi with Node 20) but pnpm's

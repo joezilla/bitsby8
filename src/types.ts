@@ -11,6 +11,7 @@ import { FdcServer } from './server';
 import { Database } from './database';
 import { ReplayEngine } from './replay-engine';
 import { XmodemSender } from './xmodem-sender';
+import { SessionStore } from './services/session-store';
 
 export interface WebServerConfig {
   port: number;
@@ -40,10 +41,23 @@ export interface Dependencies {
   database: Database;
   runtimeConfig: ConfigFile | null;
 
-  // Absolute path of the config file this daemon loaded at startup.
-  // `null` when the daemon runs with no config file (all defaults).
-  // Used by config-persistence to write back to the same location.
-  configFilePath: string | null;
+  // Absolute path of the package-installed baseline config the daemon
+  // loaded at startup — this file is read-only from the app's POV.
+  // On a .deb install this is `/etc/fdcsds/fdcsds.config.json`.
+  // `null` when no baseline was loaded (all-defaults mode).
+  packageConfigFilePath: string | null;
+
+  // Absolute path of the runtime override file. Every UI-driven save
+  // writes here (shallow-merged on top of the baseline at daemon
+  // startup). Lives under `dataDir` — `/var/lib/fdcsds/fdcsds.overrides.json`
+  // on a .deb install. Never null in practice: even a fresh install
+  // has a writable dataDir.
+  overrideConfigFilePath: string | null;
+
+  // The parsed baseline config as-loaded from `packageConfigFilePath`.
+  // Passed to `writePartialConfig` so cross-layer validation (GPIO pin
+  // uniqueness spanning baseline + override) fires on every save.
+  baselineConfig: ConfigFile | null;
 
   // Millisecond epoch captured once at process start. The UI polls
   // this via `GET /api/config/status` after a Restart-now click to
@@ -54,6 +68,12 @@ export interface Dependencies {
   // /api/config/* returns 423 Locked and POST /api/config/rollback
   // is also refused. Useful for demos / kiosk installs.
   configReadonly: boolean;
+
+  // In-memory session store for the UI login flow. Never null in
+  // practice — instantiated in WebServer.setup(). Optional in the
+  // interface so unit-test route stubs don't have to provide one when
+  // they're not exercising auth-cookie paths.
+  sessionStore?: SessionStore;
 
   // Mutable server state
   server: FdcServer | null;

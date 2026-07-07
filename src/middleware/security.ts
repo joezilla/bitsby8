@@ -1,19 +1,28 @@
 /**
- * Security middleware: Helmet, CORS, rate limiting.
+ * Security middleware: Helmet, CORS, rate limiting, cookie parsing, auth.
  */
 
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
+import cookieParser from 'cookie-parser';
 import * as os from 'os';
 import { WebServerConfig } from '../types';
-import { createAuthMiddleware } from './auth';
+import { createSessionOrBearerAuth } from './auth';
+import { SessionStore } from '../services/session-store';
+import { SESSION_COOKIE_NAME } from '../routes/auth';
+
+export interface SecurityMiddlewareOptions {
+  getApiKey: () => string | null | undefined;
+  getAdminPasswordHash: () => string | null | undefined;
+  sessionStore: SessionStore;
+}
 
 export function setupSecurityMiddleware(
   app: express.Application,
   config: WebServerConfig,
-  apiKey?: string | null
+  authOpts: SecurityMiddlewareOptions,
 ): void {
   // Helmet security headers.
   // HSTS and upgrade-insecure-requests are disabled: this server is intended
@@ -49,10 +58,13 @@ export function setupSecurityMiddleware(
           callback(new Error('Not allowed by CORS'));
         }
       },
+      // Session cookie needs to flow on cross-origin XHR / fetch. Without
+      // this, `credentials: 'include'` on the client is a no-op.
+      credentials: true,
     })
   );
 
-  // Rate limiting
+  // Rate limiting: general /api/*
   const apiLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 200,
@@ -62,8 +74,37 @@ export function setupSecurityMiddleware(
   });
   app.use('/api/', apiLimiter);
 
-  // API key authentication
-  app.use('/api/', createAuthMiddleware(apiKey));
+  // Aggressive rate limit specifically on POST /api/auth/login. The
+  // general 200/min limit is far too generous for password guessing,
+  // and skip-for-localhost is exactly wrong here — SSH-tunneled brute
+  // force lands on 127.0.0.1. Cap 5/min per IP, no skip.
+  const loginLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      error: 'Too many login attempts. Try again in a minute.',
+      code: 'RATE_LIMITED',
+    },
+  });
+  app.use('/api/auth/login', loginLimiter);
+
+  // Cookie parser — must run before the auth middleware so
+  // `req.cookies.fdcSession` is populated by the time session lookup happens.
+  app.use(cookieParser());
+
+  // Session-or-Bearer auth on /api/*. Bearer-only auth on /mcp/*
+  // is wired separately in web-server.ts:setup.
+  app.use(
+    '/api/',
+    createSessionOrBearerAuth({
+      getApiKey: authOpts.getApiKey,
+      getAdminPasswordHash: authOpts.getAdminPasswordHash,
+      sessionStore: authOpts.sessionStore,
+      cookieName: SESSION_COOKIE_NAME,
+    }),
+  );
 
   // JSON body parser
   app.use(express.json());

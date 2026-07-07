@@ -110,4 +110,51 @@ export function registerHealthRoutes(router: Router, deps: Dependencies): void {
   router.get('/api/status', (_req: Request, res: Response) => {
     res.json(getStatus(deps));
   });
+
+  /**
+   * @openapi
+   * /api/auth/info:
+   *   get:
+   *     tags: [Health]
+   *     summary: Auth probe (unauthenticated)
+   *     description: |
+   *       Whitelisted past the auth middleware so the SPA can discover
+   *       what kind of authentication (if any) the daemon requires
+   *       before making its first authenticated call. Deliberately
+   *       reveals no state beyond the booleans — no key hint, no user
+   *       list, no session.
+   *
+   *       Two distinct booleans because the credentials are
+   *       independent:
+   *       - `loginRequired: true` when an `adminPassword` is set. The
+   *         UI must prompt the operator to log in via
+   *         `POST /api/auth/login`.
+   *       - `apiKeyRequired: true` when an `apiKey` is set. Machine
+   *         clients (MCP over HTTP, curl) must pass
+   *         `Authorization: Bearer <apiKey>`.
+   *
+   *       `authRequired` is retained for one release as a legacy alias
+   *       equal to `loginRequired || apiKeyRequired` so the previous
+   *       AuthGate contract keeps working across an in-place upgrade.
+   *     responses:
+   *       200:
+   *         description: Credential requirements for this daemon.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 loginRequired: { type: boolean }
+   *                 apiKeyRequired: { type: boolean }
+   *                 authRequired: { type: boolean, description: Legacy alias — remove after 2.1. }
+   */
+  router.get('/api/auth/info', (_req: Request, res: Response) => {
+    const loginRequired = !!deps.runtimeConfig?.adminPassword;
+    const apiKeyRequired = !!deps.runtimeConfig?.apiKey;
+    res.json({
+      loginRequired,
+      apiKeyRequired,
+      authRequired: loginRequired || apiKeyRequired,
+    });
+  });
 }

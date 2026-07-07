@@ -2096,6 +2096,39 @@
         }
       }
     },
+    "/api/auth/info": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Auth probe (unauthenticated)",
+        "description": "Whitelisted past the auth middleware so the SPA can discover\nwhat kind of authentication (if any) the daemon requires\nbefore making its first authenticated call. Deliberately\nreveals no state beyond the booleans — no key hint, no user\nlist, no session.\n\nTwo distinct booleans because the credentials are\nindependent:\n- `loginRequired: true` when an `adminPassword` is set. The\n  UI must prompt the operator to log in via\n  `POST /api/auth/login`.\n- `apiKeyRequired: true` when an `apiKey` is set. Machine\n  clients (MCP over HTTP, curl) must pass\n  `Authorization: Bearer <apiKey>`.\n\n`authRequired` is retained for one release as a legacy alias\nequal to `loginRequired || apiKeyRequired` so the previous\nAuthGate contract keeps working across an in-place upgrade.\n",
+        "responses": {
+          "200": {
+            "description": "Credential requirements for this daemon.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "loginRequired": {
+                      "type": "boolean"
+                    },
+                    "apiKeyRequired": {
+                      "type": "boolean"
+                    },
+                    "authRequired": {
+                      "type": "boolean",
+                      "description": "Legacy alias — remove after 2.1."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/drives": {
       "get": {
         "tags": [
@@ -2984,6 +3017,24 @@
         }
       }
     },
+    "/api/config/mcp": {
+      "put": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Toggle MCP-over-HTTP for remote AI clients",
+        "description": "Persists `enableMcpHttp` and flips the runtime guard immediately —\nno daemon restart. Refuses to enable when no API key is set (400).\nDisabling drops any live MCP sessions.\n"
+      }
+    },
+    "/api/config/web": {
+      "put": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Update the Web & API section (includes apiKey and adminPassword)",
+        "description": "Same shape as the other section PUTs, but two fields need\nspecial handling:\n\n- `apiKey` is a machine token; when non-null the value is\n  written verbatim. Change is applied live (no restart) — the\n  auth middleware reads apiKey via a runtime callback.\n- `adminPassword` is bcrypt-hashed here before the write. Only\n  the hash reaches disk; the plaintext never persists. Sending\n  `null` clears the hash; omitting the key leaves it unchanged.\n  Change is applied live (no restart).\n\nFields that still require a daemon restart (webPort, webHost,\nenabling/disabling the web listener) are surfaced via\n`restartRequired: true` in the response. When the patch only\ntouched auth fields, `restartRequired: false`.\n"
+      }
+    },
     "/api/cassettes/details": {
       "get": {
         "tags": [
@@ -3426,6 +3477,61 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Verify the admin password and issue a session cookie",
+        "description": "Body `{ password }`. Compared (bcrypt) against the\n`adminPassword` hash in the runtime config. Success sets\n`fdcSession=<id>; HttpOnly; SameSite=Lax; Path=/;\nMax-Age=2592000` and returns 200. Bad password returns 401.\nWhen no admin password is configured, returns 400 with\n`code: LOGIN_NOT_CONFIGURED`.\n",
+        "responses": {
+          "200": {
+            "description": "Session cookie issued"
+          },
+          "400": {
+            "description": "Login not configured (no adminPassword set)"
+          },
+          "401": {
+            "description": "Invalid password"
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Destroy the current session",
+        "description": "Reads the session ID from the `fdcSession` cookie, drops it\nfrom the in-memory store, and returns a cleared cookie.\nIdempotent: called without a cookie or with a stale one it\nstill returns 200 so a \"logout\" click from a browser whose\nsession already expired doesn't error.\n",
+        "responses": {
+          "200": {
+            "description": "Session cleared"
+          }
+        }
+      }
+    },
+    "/api/auth/change-password": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Rotate the admin password",
+        "description": "Requires the current session (auth middleware handles it).\nBody `{ oldPassword, newPassword }` — the OLD password must\nstill verify against the stored hash even though the caller\nis already authenticated. This is the mitigation against a\nstolen cookie being used to permanently lock the operator\nout. On success, the new hash lands in the override config\n(via writePartialConfig, so backup rotation applies) and\nevery OTHER session is destroyed — the calling browser\nstays logged in.\n",
+        "responses": {
+          "200": {
+            "description": "Password rotated"
+          },
+          "400": {
+            "description": "Body invalid",
+            "or login not configured yet": null
+          },
+          "401": {
+            "description": "Old password incorrect"
           }
         }
       }

@@ -129,7 +129,15 @@ export interface WebSection {
   web?: boolean;
   webPort?: number;
   webHost?: string;
+  // Machine-only token — sent on set, never echoed on GET.
   apiKey?: string | null;
+  // Human login password — plaintext on send, hashed server-side.
+  // Never echoed on GET. Empty string clears the current password.
+  adminPassword?: string | null;
+}
+
+export interface McpSection {
+  enableMcpHttp?: boolean;
 }
 
 export interface TerminalSection {
@@ -177,6 +185,7 @@ export interface GpioSection {
 export interface ConfigDoc
   extends SerialSection,
     WebSection,
+    McpSection,
     TerminalSection,
     LoggingSection,
     DataSection {
@@ -184,12 +193,23 @@ export interface ConfigDoc
 }
 
 export interface ConfigStatus {
+  // Read-only baseline shipped by the package (e.g. /etc/fdcsds/fdcsds.config.json).
+  // Editable by an admin, never by the daemon.
+  packageConfigFilePath: string | null;
+  // Writable runtime overrides file (e.g. /var/lib/fdcsds/fdcsds.overrides.json).
+  // Every UI-driven save lands here, shallow-merged on top of the baseline.
+  overrideConfigFilePath: string | null;
+  // Alias for overrideConfigFilePath — kept one release for old frontends.
   configFilePath: string | null;
   writable: boolean;
   mtimeMs: number | null;
   systemdManaged: boolean;
   startupEpoch: number;
   apiKeySet: boolean;
+  adminPasswordSet: boolean;
+  mcpHttpEnabled: boolean;
+  mcpHttpLive: boolean;
+  mcpHttpSessions: number;
   configReadonly: boolean;
   etag?: string;
 }

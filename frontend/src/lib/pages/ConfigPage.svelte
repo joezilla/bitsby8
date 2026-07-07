@@ -5,6 +5,7 @@
   import Led from '$lib/components/shared/Led.svelte';
   import Card from '$lib/components/shared/Card.svelte';
   import Button from '$lib/components/shared/Button.svelte';
+  import IconButton from '$lib/components/shared/IconButton.svelte';
   import Input from '$lib/components/shared/Input.svelte';
   import Select from '$lib/components/shared/Select.svelte';
   import PageHeader from '$lib/components/shared/PageHeader.svelte';
@@ -39,7 +40,16 @@
     web: true,
     webPort: 3000,
     webHost: 'localhost',
-    apiKey: '' as string | null,
+    // Empty string = leave existing apiKey unchanged. A new value sets
+    // it (typed or Generated). "clear" is a distinct action wired below.
+    apiKey: '' as string,
+    // Same convention as apiKey: empty = leave existing adminPassword
+    // as-is; typed = replace. Password reset flows through the dedicated
+    // Change Password section, not this form.
+    adminPassword: '' as string,
+  });
+  let mcpForm = $state({
+    enableMcpHttp: false,
   });
   let terminalForm = $state({
     terminalPort: '',
@@ -71,6 +81,7 @@
   // reading "unsaved" on cold load).
   let serialBaseline = $state('');
   let webBaseline = $state('');
+  let mcpBaseline = $state('');
   let terminalBaseline = $state('');
   let loggingBaseline = $state('');
   let gpioBaseline = $state('');
@@ -202,7 +213,13 @@
       web: config.web ?? true,
       webPort: config.webPort ?? 3000,
       webHost: config.webHost ?? 'localhost',
-      apiKey: (config as any).apiKey ?? '',
+      // Server never echoes apiKey / adminPassword — inputs stay empty
+      // and the "currently set" hint drives the UX.
+      apiKey: '',
+      adminPassword: '',
+    };
+    mcpForm = {
+      enableMcpHttp: config.enableMcpHttp ?? false,
     };
     terminalForm = {
       terminalPort: config.terminalPort ?? '',
@@ -225,6 +242,7 @@
     // a false-dirty flag on load.
     serialBaseline = JSON.stringify($state.snapshot(serialForm));
     webBaseline = JSON.stringify($state.snapshot(webForm));
+    mcpBaseline = JSON.stringify($state.snapshot(mcpForm));
     terminalBaseline = JSON.stringify($state.snapshot(terminalForm));
     loggingBaseline = JSON.stringify($state.snapshot(loggingForm));
     gpioBaseline = JSON.stringify($state.snapshot(gpioForm));
@@ -234,6 +252,7 @@
 
   const serialDirty = $derived(!!config && JSON.stringify($state.snapshot(serialForm)) !== serialBaseline);
   const webDirty = $derived(!!config && JSON.stringify($state.snapshot(webForm)) !== webBaseline);
+  const mcpDirty = $derived(!!config && JSON.stringify($state.snapshot(mcpForm)) !== mcpBaseline);
   const terminalDirty = $derived(!!config && JSON.stringify($state.snapshot(terminalForm)) !== terminalBaseline);
   const loggingDirty = $derived(!!config && JSON.stringify($state.snapshot(loggingForm)) !== loggingBaseline);
   const gpioDirty = $derived(!!config && JSON.stringify($state.snapshot(gpioForm)) !== gpioBaseline);
@@ -299,18 +318,124 @@
     await refresh();
   }
   async function saveWeb() {
-    const apiKey = trimStrOrNull(webForm.apiKey);
-    if (apiKey && !confirm(
-      'Setting or changing the API key will disconnect the current session on the next restart. ' +
-        'Save anyway?',
-    )) throw new Error('Cancelled');
-    await api.putWebConfig({
+    const patch: Record<string, unknown> = {
       web: webForm.web,
       webPort: webForm.webPort,
       webHost: webForm.webHost.trim(),
-      apiKey,
-    }, configStatus?.etag);
+    };
+    // Empty inputs mean "leave as-is". Only send the auth fields when
+    // the operator typed something.
+    if (webForm.apiKey.trim()) {
+      if (!confirm(
+        'Changing the API key will invalidate the previous key. Existing MCP clients need the new one. Save?',
+      )) throw new Error('Cancelled');
+      patch.apiKey = webForm.apiKey.trim();
+    }
+    if (webForm.adminPassword.length > 0) {
+      if (!confirm(
+        'Setting a new admin password will sign out every other browser. Save?',
+      )) throw new Error('Cancelled');
+      patch.adminPassword = webForm.adminPassword;
+    }
+    await api.putWebConfig(patch as any, configStatus?.etag);
     await refresh();
+    showToast('Saved.', 'success');
+  }
+  async function clearApiKey() {
+    if (!confirm('Clear the API key? MCP over HTTP will stop accepting connections.')) return;
+    await api.putWebConfig({ apiKey: null } as any, configStatus?.etag);
+    await refresh();
+    showToast('API key cleared.', 'success');
+  }
+  async function clearAdminPassword() {
+    if (!confirm('Clear the admin password? The dashboard UI will be open to anyone on the LAN.')) return;
+    // Empty string maps to "clear" server-side (see routes/config.ts).
+    await api.putWebConfig({ adminPassword: '' } as any, configStatus?.etag);
+    await refresh();
+    showToast('Admin password cleared.', 'success');
+  }
+  // Reveal/copy state for the API key input. The eye-icon lets the
+  // operator confirm the value they just pasted or generated; the
+  // copy icon puts it on the clipboard for their password manager /
+  // MCP config file.
+  let apiKeyRevealed = $state(false);
+  async function copyApiKey() {
+    const value = webForm.apiKey;
+    if (!value) {
+      showToast('No key to copy — Generate one first.', 'info');
+      return;
+    }
+    // navigator.clipboard is gated behind secure contexts (HTTPS or
+    // localhost). On plain HTTP over the LAN, fall back to the legacy
+    // execCommand path with a hidden textarea.
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = value;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      showToast('API key copied to clipboard.', 'success');
+    } catch (err) {
+      showToast(`Copy failed: ${(err as Error).message}`, 'error');
+    }
+  }
+  function generateApiKey() {
+    // `crypto.randomUUID()` is only available in secure contexts
+    // (HTTPS or localhost). This app runs on plain HTTP over the LAN,
+    // where it's undefined. `crypto.getRandomValues()` is always
+    // available and gives us more entropy anyway — 32 random bytes
+    // hex-encoded = 64-char opaque token, 256 bits of randomness.
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    webForm.apiKey = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+  }
+  let showChangePassword = $state(false);
+  let cpwOld = $state('');
+  let cpwNew = $state('');
+  let cpwSubmitting = $state(false);
+  async function submitChangePassword() {
+    if (!cpwOld || !cpwNew) {
+      showToast('Both fields required.', 'error');
+      return;
+    }
+    cpwSubmitting = true;
+    try {
+      await api.changePassword(cpwOld, cpwNew);
+      showToast('Password changed. Other browsers signed out.', 'success');
+      cpwOld = '';
+      cpwNew = '';
+      showChangePassword = false;
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      cpwSubmitting = false;
+    }
+  }
+  async function logOut() {
+    if (!confirm('Sign out?')) return;
+    try {
+      await api.logout();
+    } catch { /* ignore — reload anyway */ }
+    window.location.reload();
+  }
+  async function saveMcp() {
+    if (mcpForm.enableMcpHttp && !configStatus?.apiKeySet) {
+      showToast('Set an API key in Web & API before enabling MCP over HTTP.', 'error');
+      throw new Error('API key required');
+    }
+    await api.putMcpConfig({ enableMcpHttp: mcpForm.enableMcpHttp }, configStatus?.etag);
+    await refresh();
+    showToast(
+      mcpForm.enableMcpHttp ? 'MCP over HTTP enabled' : 'MCP over HTTP disabled',
+      'success',
+    );
   }
   async function saveTerminal() {
     await api.putTerminalConfig({
@@ -395,6 +520,7 @@
     status={configStatus}
     onDiscardAll={discardAll}
     onRolledBack={refresh}
+    onRestarted={refresh}
   />
 
   {#if configStatus?.configReadonly}
@@ -503,7 +629,7 @@
     <ConfigSection
       id="web"
       title="Web & API"
-      description="HTTP bind address, port, and optional API-key auth."
+      description="HTTP listener + credentials. API key = machine token (MCP, curl). Admin password = human login for the UI."
       dirty={webDirty}
       onSave={saveWeb}
       onDiscard={resetAllForms}
@@ -525,14 +651,198 @@
           help="Use 0.0.0.0 for LAN access, localhost to stay local-only.">
           <Input id="web-host" bind:value={webForm.webHost} />
         </FormField>
+      </div>
+
+      <!-- API key: machine token, never used to log a human in. -->
+      <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-1);">
+        <LabelStrip>API key (machine token)</LabelStrip>
+        <p
+          class="fdc-label-strip"
+          style="color: var(--fg-3); margin: 4px 0 8px; text-transform: none; letter-spacing: 0;"
+        >
+          Required by MCP-over-HTTP and any curl script. Generate a new one — humans shouldn't
+          type these. The value is echoed once here at set-time and never displayed again.
+        </p>
+        <div style="display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 8px; align-items: end;">
+          <FormField
+            label="Key"
+            hint={configStatus?.apiKeySet ? 'currently set' : 'not set'}
+            hintColor={configStatus?.apiKeySet ? 'green' : 'gray'}
+          >
+            <Input
+              bind:value={webForm.apiKey}
+              placeholder={configStatus?.apiKeySet ? '(hidden — enter to replace)' : '(none)'}
+              type={apiKeyRevealed ? 'text' : 'password'}
+            />
+          </FormField>
+          <IconButton
+            icon={apiKeyRevealed ? 'visibility_off' : 'visibility'}
+            title={apiKeyRevealed ? 'Hide key' : 'Show key'}
+            on={apiKeyRevealed}
+            onclick={() => (apiKeyRevealed = !apiKeyRevealed)}
+          />
+          <IconButton
+            icon="content_copy"
+            title="Copy key to clipboard"
+            onclick={copyApiKey}
+          />
+          <Button variant="ghost" icon="autorenew" onclick={generateApiKey}>Generate</Button>
+          {#if configStatus?.apiKeySet}
+            <Button variant="ghost" icon="delete" onclick={clearApiKey}>Clear</Button>
+          {/if}
+        </div>
+      </div>
+
+      <!-- Admin password: human login for the UI. -->
+      <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-1);">
+        <LabelStrip>Admin password (UI login)</LabelStrip>
+        <p
+          class="fdc-label-strip"
+          style="color: var(--fg-3); margin: 4px 0 8px; text-transform: none; letter-spacing: 0;"
+        >
+          What you type when signing in on a new browser. Stored as a bcrypt hash — never
+          plaintext. Setting a new value here signs out all other browsers.
+        </p>
+        <div style="display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: end;">
+          <FormField
+            label="Password"
+            hint={configStatus?.adminPasswordSet ? 'currently set' : 'not set'}
+            hintColor={configStatus?.adminPasswordSet ? 'green' : 'gray'}
+          >
+            <Input
+              bind:value={webForm.adminPassword}
+              placeholder={configStatus?.adminPasswordSet ? '(hidden — enter to replace)' : '(none)'}
+              type="password"
+            />
+          </FormField>
+          {#if configStatus?.adminPasswordSet}
+            <Button
+              variant="ghost"
+              icon="lock_reset"
+              onclick={() => (showChangePassword = !showChangePassword)}
+            >
+              Change
+            </Button>
+            <Button variant="ghost" icon="logout" onclick={logOut}>Sign out</Button>
+            <Button variant="ghost" icon="delete" onclick={clearAdminPassword}>Clear</Button>
+          {/if}
+        </div>
+
+        {#if showChangePassword && configStatus?.adminPasswordSet}
+          <!-- Dedicated change-password flow requires the old password
+               even though the caller is authenticated — defense against
+               a stolen cookie being used to lock the operator out. -->
+          <div
+            style="
+              margin-top: 12px;
+              padding: 12px;
+              background: var(--surface-variant);
+              border: 1px solid var(--border-1);
+              border-radius: var(--radius-md);
+            "
+          >
+            <LabelStrip>Change password</LabelStrip>
+            <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-top: 8px; align-items: end;">
+              <FormField label="Current password">
+                <Input bind:value={cpwOld} type="password" placeholder="current" disabled={cpwSubmitting} />
+              </FormField>
+              <FormField label="New password">
+                <Input bind:value={cpwNew} type="password" placeholder="new" disabled={cpwSubmitting} />
+              </FormField>
+              <Button variant="filled" onclick={submitChangePassword} disabled={cpwSubmitting}>
+                {cpwSubmitting ? 'Updating…' : 'Update'}
+              </Button>
+            </div>
+          </div>
+        {/if}
+      </div>
+    </ConfigSection>
+
+    <!-- MCP over HTTP (live toggle) -->
+    <ConfigSection
+      id="mcp"
+      title="MCP server (HTTP)"
+      description="Expose FDC+ tools to Claude Code and other AI clients over HTTP at /mcp. Uses the API key from Web & API for auth."
+      dirty={mcpDirty}
+      onSave={saveMcp}
+      onDiscard={resetAllForms}
+    >
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px;">
         <FormField
-          label="API key"
-          hint={configStatus?.apiKeySet ? 'currently set' : 'not set'}
-          hintColor={configStatus?.apiKeySet ? 'green' : 'gray'}
-          help="Blank = no auth. Setting this makes every API call require Authorization: Bearer <key>.">
-          <Input bind:value={webForm.apiKey as string} placeholder="(no key)" type="password" />
+          label="MCP HTTP enabled"
+          hint={configStatus?.mcpHttpLive ? 'live' : 'off'}
+          hintColor={configStatus?.mcpHttpLive ? 'green' : 'gray'}
+          help="Mounts the MCP endpoint at /mcp. Takes effect immediately — no restart.">
+          <label style="display: flex; align-items: center; gap: 8px;">
+            <input
+              type="checkbox"
+              bind:checked={mcpForm.enableMcpHttp}
+              disabled={!configStatus?.apiKeySet}
+            />
+            <span class="fdc-label-strip" style="text-transform: none; letter-spacing: 0;">
+              Serve /mcp for remote AI clients
+            </span>
+          </label>
+        </FormField>
+        <FormField label="Status">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <Led
+              color={configStatus?.mcpHttpLive ? 'green' : 'off'}
+              label={configStatus?.mcpHttpLive
+                ? `Serving (${configStatus?.mcpHttpSessions ?? 0} session${(configStatus?.mcpHttpSessions ?? 0) === 1 ? '' : 's'})`
+                : 'Off'}
+            />
+            {#if configStatus?.mcpHttpLive}
+              <Chip color="green" icon="bolt">Live</Chip>
+            {/if}
+          </div>
         </FormField>
       </div>
+
+      {#if !configStatus?.apiKeySet}
+        <div
+          style="
+            margin-top: 12px;
+            padding: 10px 14px;
+            background: var(--surface-variant);
+            border: 1px solid var(--border-1);
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--fg-2);
+            font: var(--text-body-sm);
+          "
+        >
+          <span class="material-symbols-rounded" style="font-size: 18px;">key_off</span>
+          Set an API key in <strong>Web &amp; API</strong> before enabling MCP over HTTP.
+          Bearer auth is required — this endpoint is never served unauthenticated.
+        </div>
+      {/if}
+
+      {#if configStatus?.mcpHttpLive}
+        <div style="margin-top: 16px; display: flex; flex-direction: column; gap: 6px;">
+          <LabelStrip>Client setup</LabelStrip>
+          <p class="fdc-label-strip" style="color: var(--fg-3); margin: 0; text-transform: none; letter-spacing: 0;">
+            Register this server with Claude Code (paste your API key):
+          </p>
+          <pre
+            style="
+              margin: 0;
+              padding: 10px 12px;
+              background: var(--surface-variant);
+              border: 1px solid var(--border-1);
+              border-radius: var(--radius-sm);
+              color: var(--fg-1);
+              font: var(--text-code-sm);
+              overflow-x: auto;
+              white-space: pre-wrap;
+              word-break: break-all;
+            ">claude mcp add --transport http fdcplus \
+  http://{typeof window !== 'undefined' ? window.location.host : 'HOST:PORT'}/mcp \
+  --header "Authorization: Bearer &lt;api-key&gt;"</pre>
+        </div>
+      {/if}
     </ConfigSection>
 
     <!-- Terminal -->
@@ -767,12 +1077,26 @@
           </span>
         </summary>
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 12px; font: var(--text-body-sm); color: var(--fg-2);">
-          <div><strong style="color: var(--fg-1);">Config file:</strong><br />{configStatus?.configFilePath ?? '(none loaded)'}</div>
+          <div>
+            <strong style="color: var(--fg-1);">Baseline (read-only):</strong><br />
+            {configStatus?.packageConfigFilePath ?? '(none loaded)'}
+            <div style="color: var(--fg-3); font-size: 0.85em; margin-top: 2px;">
+              Admin-managed, package conffile. Daemon never writes this.
+            </div>
+          </div>
+          <div>
+            <strong style="color: var(--fg-1);">Runtime overrides:</strong><br />
+            {configStatus?.overrideConfigFilePath ?? configStatus?.configFilePath ?? '(no path configured)'}
+            <div style="color: var(--fg-3); font-size: 0.85em; margin-top: 2px;">
+              Every UI save writes here — {configStatus?.writable ? 'writable' : 'not writable'}{configStatus?.mtimeMs ? ` · mtime ${new Date(configStatus.mtimeMs).toISOString()}` : ' · not yet created'}.
+            </div>
+          </div>
           <div><strong style="color: var(--fg-1);">Data directory:</strong><br />{config?.dataDir ?? '(cwd)'}</div>
-          <div><strong style="color: var(--fg-1);">Writable:</strong> {configStatus?.writable ? 'yes' : 'no'}</div>
           <div><strong style="color: var(--fg-1);">systemd-managed:</strong> {configStatus?.systemdManaged ? 'yes' : 'no'}</div>
           <div><strong style="color: var(--fg-1);">Startup epoch:</strong> {configStatus?.startupEpoch ?? '—'}</div>
           <div><strong style="color: var(--fg-1);">API key set:</strong> {configStatus?.apiKeySet ? 'yes' : 'no'}</div>
+          <div><strong style="color: var(--fg-1);">Admin password set:</strong> {configStatus?.adminPasswordSet ? 'yes' : 'no'}</div>
+          <div><strong style="color: var(--fg-1);">MCP over HTTP:</strong> {configStatus?.mcpHttpLive ? `live (${configStatus?.mcpHttpSessions ?? 0} session${(configStatus?.mcpHttpSessions ?? 0) === 1 ? '' : 's'})` : 'off'}</div>
           <div><strong style="color: var(--fg-1);">Read-only:</strong> {configStatus?.configReadonly ? 'yes' : 'no'}</div>
           <div><strong style="color: var(--fg-1);">Build:</strong> {$serverStatus?.system.build ?? '(dev)'}</div>
         </div>

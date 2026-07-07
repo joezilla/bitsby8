@@ -2,6 +2,7 @@
   import Toast from '$lib/components/shared/Toast.svelte';
   import TopBar from '$lib/components/shell/TopBar.svelte';
   import Sidebar from '$lib/components/shell/Sidebar.svelte';
+  import AuthGate from '$lib/components/shell/AuthGate.svelte';
   import TerminalPage from '$lib/pages/TerminalPage.svelte';
   import DisksPage from '$lib/pages/DisksPage.svelte';
   import CassettesPage from '$lib/pages/CassettesPage.svelte';
@@ -30,6 +31,7 @@
   }
 </script>
 
+<AuthGate>
 <div
   class="fdc-root"
   style="
@@ -100,4 +102,5 @@
 </div>
 
 <ChatPanel open={chatOpen} onclose={() => (chatOpen = false)} />
+</AuthGate>
 <Toast />

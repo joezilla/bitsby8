@@ -25,13 +25,16 @@ import {
   ConfigSchema,
   SerialSchema,
   WebSchema,
+  McpSchema,
   TerminalSchema,
   LoggingSchema,
   DataSchema,
   GpioSchema,
 } from '../config';
+import { setMcpHttpEnabled, isMcpHttpEnabled, activeMcpSessionCount } from '../mcp-http';
 import { writePartialConfig, rollbackConfig, ConfigWriteError } from '../services/config-persistence';
 import { isSystemdManaged, scheduleRestart } from '../services/restart-manager';
+import { hashPassword } from '../services/password';
 
 /**
  * Concurrency-guard token format used in `ETag` / `If-Match` headers.
@@ -57,7 +60,10 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
    */
   router.get('/api/config', (_req: Request, res: Response) => {
     const rc = deps.runtimeConfig || {};
-    const { apiKey: _hidden, ...safe } = rc as any;
+    // Strip secrets before echoing to the client. apiKey is a machine
+    // credential; adminPassword is a bcrypt hash — neither belongs in
+    // an API response. The UI reads their presence via /api/config/status.
+    const { apiKey: _hiddenKey, adminPassword: _hiddenPw, ...safe } = rc as any;
     res.json({
       // Serial
       port: safe.port ?? '',
@@ -72,6 +78,9 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
       web: safe.web,
       webPort: safe.webPort,
       webHost: safe.webHost,
+
+      // MCP over HTTP (opt-in; requires apiKey to be set)
+      enableMcpHttp: safe.enableMcpHttp,
 
       // Terminal
       terminalPort: safe.terminalPort,
@@ -137,6 +146,7 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
           sections: {
             serial: toJSONSchema(SerialSchema),
             web: toJSONSchema(WebSchema),
+            mcp: toJSONSchema(McpSchema),
             terminal: toJSONSchema(TerminalSchema),
             logging: toJSONSchema(LoggingSchema),
             data: toJSONSchema(DataSchema),
@@ -165,18 +175,35 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
    *       successful restart (poll `startupEpoch`).
    */
   router.get('/api/config/status', async (_req: Request, res: Response) => {
-    const p = deps.configFilePath;
+    // The override file is the one that mutates on save — writability
+    // and mtime both track it. The baseline is admin-managed and never
+    // written by the daemon, so it's reported for display only.
+    const overridePath = deps.overrideConfigFilePath;
+    const packagePath = deps.packageConfigFilePath;
     let writable = false;
     let mtimeMs: number | null = null;
-    if (p) {
+    if (overridePath) {
       try {
-        await fs.access(p, (await import('fs')).constants.W_OK);
+        await fs.access(overridePath, (await import('fs')).constants.W_OK);
         writable = true;
-      } catch {
-        writable = false;
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        // Missing file is fine — the directory just needs to be writable
+        // so the first save can create the override.
+        if (code === 'ENOENT') {
+          try {
+            const path = await import('path');
+            await fs.access(path.dirname(overridePath), (await import('fs')).constants.W_OK);
+            writable = true;
+          } catch {
+            writable = false;
+          }
+        } else {
+          writable = false;
+        }
       }
       try {
-        mtimeMs = (await fs.stat(p)).mtimeMs;
+        mtimeMs = (await fs.stat(overridePath)).mtimeMs;
       } catch {
         mtimeMs = null;
       }
@@ -184,12 +211,20 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
     const etag = makeConfigEtag(deps.startupEpoch, mtimeMs);
     res.set('ETag', etag);
     res.json({
-      configFilePath: p,
+      packageConfigFilePath: packagePath,
+      overrideConfigFilePath: overridePath,
+      // `configFilePath` kept as an alias for the override path for one
+      // release — old frontends looking for it stay functional.
+      configFilePath: overridePath,
       writable,
       mtimeMs,
       systemdManaged: isSystemdManaged(),
       startupEpoch: deps.startupEpoch,
       apiKeySet: !!deps.runtimeConfig?.apiKey,
+      adminPasswordSet: !!deps.runtimeConfig?.adminPassword,
+      mcpHttpEnabled: !!deps.runtimeConfig?.enableMcpHttp,
+      mcpHttpLive: isMcpHttpEnabled(),
+      mcpHttpSessions: activeMcpSessionCount(),
       configReadonly: deps.configReadonly,
       etag,
     });
@@ -252,37 +287,49 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
    *       200: { description: Live-reload result }
    */
   router.post('/api/config/reload', async (_req: Request, res: Response): Promise<void> => {
-    if (!deps.configFilePath) {
-      res.status(409).json({ error: 'No config file loaded — nothing to reload.' });
+    const overridePath = deps.overrideConfigFilePath;
+    if (!overridePath) {
+      res.status(409).json({ error: 'No override file path configured — nothing to reload.' });
       return;
     }
     try {
-      const raw = await fs.readFile(deps.configFilePath, 'utf-8');
-      const parsed = JSON.parse(raw);
+      // Compute the effective (baseline + current override on disk) so
+      // runtime-toggleable knobs pick up an override that's been re-saved
+      // as well as any admin edit to the baseline since startup.
+      let overrideOnDisk: Record<string, unknown> = {};
+      try {
+        const raw = await fs.readFile(overridePath, 'utf-8');
+        overrideOnDisk = JSON.parse(raw);
+      } catch (err) {
+        // ENOENT is fine — no override yet, effective == baseline.
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      }
+      const baseline = (deps.baselineConfig ?? {}) as Record<string, unknown>;
+      const effective = { ...baseline, ...overrideOnDisk };
       const applied: string[] = [];
       if (deps.runtimeConfig) {
-        if (typeof parsed.verbose === 'boolean' && parsed.verbose !== deps.runtimeConfig.verbose) {
-          deps.runtimeConfig.verbose = parsed.verbose;
+        if (typeof effective.verbose === 'boolean' && effective.verbose !== deps.runtimeConfig.verbose) {
+          deps.runtimeConfig.verbose = effective.verbose;
           if (deps.server) deps.server.toggleVerbose();
-          deps.terminalManager.setVerbose(parsed.verbose);
+          deps.terminalManager.setVerbose(effective.verbose);
           applied.push('verbose');
         }
-        if (typeof parsed.debug === 'boolean' && parsed.debug !== deps.runtimeConfig.debug) {
-          deps.runtimeConfig.debug = parsed.debug;
+        if (typeof effective.debug === 'boolean' && effective.debug !== deps.runtimeConfig.debug) {
+          deps.runtimeConfig.debug = effective.debug;
           applied.push('debug');
         }
         if (
-          (parsed.logFile === null || typeof parsed.logFile === 'string') &&
-          parsed.logFile !== deps.runtimeConfig.logFile
+          (effective.logFile === null || typeof effective.logFile === 'string') &&
+          effective.logFile !== deps.runtimeConfig.logFile
         ) {
-          deps.runtimeConfig.logFile = parsed.logFile;
+          deps.runtimeConfig.logFile = effective.logFile as string | null;
           applied.push('logFile');
         }
       }
       res.json({ success: true, applied });
     } catch (err) {
       log.error(
-        { err, route: '/api/config/reload', configFile: deps.configFilePath },
+        { err, route: '/api/config/reload', configFile: overridePath },
         `Config reload failed: ${(err as Error)?.message ?? String(err)}`,
       );
       res.status(500).json({ error: safeErrorMessage(err) });
@@ -320,12 +367,15 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
       res.status(423).json({ error: 'Config is read-only (--config-readonly).', code: 'CONFIG_READONLY' });
       return;
     }
-    if (!deps.configFilePath) {
-      res.status(409).json({ error: 'No config file was loaded — nothing to roll back.' });
+    if (!deps.overrideConfigFilePath) {
+      res.status(409).json({ error: 'No override file path configured — nothing to roll back.' });
       return;
     }
     try {
-      const { config, mtimeMs } = await rollbackConfig(deps.configFilePath);
+      const { config, mtimeMs } = await rollbackConfig(
+        deps.overrideConfigFilePath,
+        deps.baselineConfig,
+      );
       res.set('ETag', makeConfigEtag(deps.startupEpoch, mtimeMs));
       res.json({ success: true, config, mtimeMs, restartRequired: true });
     } catch (err) {
@@ -337,7 +387,7 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
           : 500;
         if (status >= 500) {
           log.error(
-            { err, route: '/api/config/rollback', code: err.code, configFile: deps.configFilePath, issues: err.issues },
+            { err, route: '/api/config/rollback', code: err.code, configFile: deps.overrideConfigFilePath, issues: err.issues },
             `Config rollback failed (${err.code})`,
           );
         }
@@ -345,7 +395,7 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
         return;
       }
       log.error(
-        { err, route: '/api/config/rollback', configFile: deps.configFilePath },
+        { err, route: '/api/config/rollback', configFile: deps.overrideConfigFilePath },
         `Unhandled error on rollback: ${(err as Error)?.message ?? String(err)}`,
       );
       res.status(500).json({ error: safeErrorMessage(err) });
@@ -357,14 +407,238 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
   // -----------------------------------------------------------------------
 
   registerSectionPut(router, deps, '/api/config/serial', SerialSchema);
-  registerSectionPut(router, deps, '/api/config/web', WebSchema);
+  registerWebConfigPut(router, deps);
   registerSectionPut(router, deps, '/api/config/terminal', TerminalSchema);
   registerSectionPut(router, deps, '/api/config/logging', LoggingSchema);
   registerSectionPut(router, deps, '/api/config/data', DataSchema);
 
+  // MCP HTTP: dedicated handler because it takes effect live (no restart)
+  // and refuses to enable when no api key is set.
+  registerMcpConfigPut(router, deps);
+
   // GPIO comes in as a full { gpioLeds: {...} } shape — the section
   // schema is the inner object, so wrap it here.
   registerSectionPut(router, deps, '/api/config/gpio', z.object({ gpioLeds: GpioSchema }));
+}
+
+/**
+ * @openapi
+ * /api/config/mcp:
+ *   put:
+ *     tags: [Config]
+ *     summary: Toggle MCP-over-HTTP for remote AI clients
+ *     description: |
+ *       Persists `enableMcpHttp` and flips the runtime guard immediately —
+ *       no daemon restart. Refuses to enable when no API key is set (400).
+ *       Disabling drops any live MCP sessions.
+ */
+function registerMcpConfigPut(router: Router, deps: Dependencies): void {
+  router.put('/api/config/mcp', async (req: Request, res: Response): Promise<void> => {
+    if (deps.configReadonly) {
+      res.status(423).json({
+        error: 'Config is read-only (--config-readonly).',
+        code: 'CONFIG_READONLY',
+      });
+      return;
+    }
+    const parseResult = McpSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      res.status(400).json({
+        error: 'Invalid config payload',
+        issues: parseResult.error.issues.map(i => ({ path: i.path, message: i.message })),
+      });
+      return;
+    }
+    const wantEnabled = parseResult.data.enableMcpHttp;
+    if (wantEnabled && !deps.runtimeConfig?.apiKey) {
+      res.status(400).json({
+        error: 'Set an API key in Web & API before enabling MCP over HTTP.',
+        code: 'MCP_REQUIRES_API_KEY',
+      });
+      return;
+    }
+    if (!deps.overrideConfigFilePath) {
+      res.status(409).json({
+        error:
+          'No override file path configured; the daemon has nowhere to persist runtime changes.',
+      });
+      return;
+    }
+    const ifMatch = req.header('if-match');
+    if (ifMatch) {
+      let currentMtime: number | null = null;
+      try {
+        currentMtime = (await fs.stat(deps.overrideConfigFilePath)).mtimeMs;
+      } catch { /* ENOENT / other → treat as mtime 0 */ }
+      const currentEtag = makeConfigEtag(deps.startupEpoch, currentMtime);
+      if (ifMatch !== currentEtag) {
+        res.status(409).json({
+          error: 'Config file changed since you last loaded it. Reload and try again.',
+          code: 'STALE_ETAG',
+          expected: currentEtag,
+          got: ifMatch,
+        });
+        return;
+      }
+    }
+    try {
+      const { config, mtimeMs } = await writePartialConfig(
+        deps.overrideConfigFilePath,
+        parseResult.data as any,
+        deps.baselineConfig,
+      );
+      if (deps.runtimeConfig) {
+        deps.runtimeConfig.enableMcpHttp = wantEnabled ?? false;
+      }
+      setMcpHttpEnabled(!!deps.runtimeConfig?.apiKey && !!wantEnabled);
+      res.set('ETag', makeConfigEtag(deps.startupEpoch, mtimeMs));
+      // restartRequired: false — this section is live-applied.
+      res.json({ success: true, config, mtimeMs, restartRequired: false });
+    } catch (err) {
+      if (err instanceof ConfigWriteError) {
+        const status = err.code === 'NOT_WRITABLE' ? 403 : err.code === 'VALIDATION_FAILED' ? 400 : 500;
+        if (status >= 500) {
+          log.error(
+            { err, route: '/api/config/mcp', code: err.code, configFile: deps.overrideConfigFilePath, issues: err.issues },
+            `MCP config save failed (${err.code})`,
+          );
+        }
+        res.status(status).json({ error: err.message, code: err.code, issues: err.issues });
+        return;
+      }
+      log.error(
+        { err, route: '/api/config/mcp', configFile: deps.overrideConfigFilePath },
+        `Unhandled error on /api/config/mcp: ${(err as Error)?.message ?? String(err)}`,
+      );
+      res.status(500).json({ error: safeErrorMessage(err) });
+    }
+  });
+}
+
+/**
+ * @openapi
+ * /api/config/web:
+ *   put:
+ *     tags: [Config]
+ *     summary: Update the Web & API section (includes apiKey and adminPassword)
+ *     description: |
+ *       Same shape as the other section PUTs, but two fields need
+ *       special handling:
+ *
+ *       - `apiKey` is a machine token; when non-null the value is
+ *         written verbatim. Change is applied live (no restart) — the
+ *         auth middleware reads apiKey via a runtime callback.
+ *       - `adminPassword` is bcrypt-hashed here before the write. Only
+ *         the hash reaches disk; the plaintext never persists. Sending
+ *         `null` clears the hash; omitting the key leaves it unchanged.
+ *         Change is applied live (no restart).
+ *
+ *       Fields that still require a daemon restart (webPort, webHost,
+ *       enabling/disabling the web listener) are surfaced via
+ *       `restartRequired: true` in the response. When the patch only
+ *       touched auth fields, `restartRequired: false`.
+ */
+function registerWebConfigPut(router: Router, deps: Dependencies): void {
+  const AUTH_ONLY_KEYS = new Set(['apiKey', 'adminPassword']);
+
+  router.put('/api/config/web', async (req: Request, res: Response): Promise<void> => {
+    if (deps.configReadonly) {
+      res.status(423).json({
+        error: 'Config is read-only (--config-readonly).',
+        code: 'CONFIG_READONLY',
+      });
+      return;
+    }
+    const parseResult = WebSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      res.status(400).json({
+        error: 'Invalid config payload',
+        issues: parseResult.error.issues.map(i => ({ path: i.path, message: i.message })),
+      });
+      return;
+    }
+    const patch: Record<string, unknown> = { ...parseResult.data };
+
+    try {
+      if (!deps.overrideConfigFilePath) {
+        res.status(409).json({
+          error:
+            'No override file path configured; the daemon has nowhere to persist runtime changes.',
+        });
+        return;
+      }
+
+      // Pre-hash a non-null, non-empty adminPassword. Empty string is
+      // treated as "clear the password" (equivalent to null) — the
+      // Config page's optional-string input can't easily send `null`,
+      // so we accept the falsy string to keep the frontend simple.
+      if (typeof patch.adminPassword === 'string' && patch.adminPassword.length > 0) {
+        patch.adminPassword = await hashPassword(patch.adminPassword);
+      } else if (patch.adminPassword === '') {
+        patch.adminPassword = null;
+      }
+
+      const ifMatch = req.header('if-match');
+      if (ifMatch) {
+        let currentMtime: number | null = null;
+        try {
+          currentMtime = (await fs.stat(deps.overrideConfigFilePath)).mtimeMs;
+        } catch {
+          /* ENOENT — override doesn't exist yet, treat as mtime 0 */
+        }
+        const currentEtag = makeConfigEtag(deps.startupEpoch, currentMtime);
+        if (ifMatch !== currentEtag) {
+          res.status(409).json({
+            error: 'Config file changed since you last loaded it. Reload and try again.',
+            code: 'STALE_ETAG',
+            expected: currentEtag,
+            got: ifMatch,
+          });
+          return;
+        }
+      }
+
+      const { config, mtimeMs } = await writePartialConfig(
+        deps.overrideConfigFilePath,
+        patch as any,
+        deps.baselineConfig,
+      );
+
+      // Live-apply the auth fields so a caller doesn't need to hit
+      // Restart to make the new key / password take effect.
+      if (deps.runtimeConfig) {
+        if ('apiKey' in patch) deps.runtimeConfig.apiKey = patch.apiKey as string | null;
+        if ('adminPassword' in patch) {
+          deps.runtimeConfig.adminPassword = patch.adminPassword as string | null;
+        }
+      }
+
+      // If only auth fields changed, no restart needed. Any other web
+      // field still requires one (webPort / webHost / web-enable).
+      const touchedKeys = Object.keys(patch);
+      const restartRequired = touchedKeys.some(k => !AUTH_ONLY_KEYS.has(k));
+
+      res.set('ETag', makeConfigEtag(deps.startupEpoch, mtimeMs));
+      res.json({ success: true, config, mtimeMs, restartRequired });
+    } catch (err) {
+      if (err instanceof ConfigWriteError) {
+        const status = err.code === 'NOT_WRITABLE' ? 403 : err.code === 'VALIDATION_FAILED' ? 400 : 500;
+        if (status >= 500) {
+          log.error(
+            { err, route: '/api/config/web', code: err.code, configFile: deps.overrideConfigFilePath, issues: err.issues },
+            `Web config save failed (${err.code})`,
+          );
+        }
+        res.status(status).json({ error: err.message, code: err.code, issues: err.issues });
+        return;
+      }
+      log.error(
+        { err, route: '/api/config/web', configFile: deps.overrideConfigFilePath },
+        `Unhandled error on /api/config/web: ${(err as Error)?.message ?? String(err)}`,
+      );
+      res.status(500).json({ error: safeErrorMessage(err) });
+    }
+  });
 }
 
 /**
@@ -397,24 +671,23 @@ function registerSectionPut(
     }
 
     try {
-      if (!deps.configFilePath) {
+      if (!deps.overrideConfigFilePath) {
         res.status(409).json({
           error:
-            'No config file was loaded at startup; the daemon has nothing to write to. ' +
-            'Start with --config <path> or drop a config file into one of the default locations.',
+            'No override file path configured; the daemon has nowhere to persist runtime changes.',
         });
         return;
       }
       // Optional concurrency guard: if the caller sent an If-Match
-      // ETag, reject the write when the file has moved on since they
-      // last read it (someone else saved / the daemon restarted).
+      // ETag, reject the write when the override has moved on since
+      // they last read it (someone else saved / the daemon restarted).
       const ifMatch = req.header('if-match');
       if (ifMatch) {
         let currentMtime: number | null = null;
         try {
-          currentMtime = (await fs.stat(deps.configFilePath)).mtimeMs;
+          currentMtime = (await fs.stat(deps.overrideConfigFilePath)).mtimeMs;
         } catch {
-          /* fall through — treat missing file as mismatch */
+          /* ENOENT — override doesn't exist yet, treat as mtime 0 */
         }
         const currentEtag = makeConfigEtag(deps.startupEpoch, currentMtime);
         if (ifMatch !== currentEtag) {
@@ -428,8 +701,9 @@ function registerSectionPut(
         }
       }
       const { config, mtimeMs } = await writePartialConfig(
-        deps.configFilePath,
+        deps.overrideConfigFilePath,
         parseResult.data as any,
+        deps.baselineConfig,
       );
       res.set('ETag', makeConfigEtag(deps.startupEpoch, mtimeMs));
       res.json({ success: true, config, mtimeMs, restartRequired: true });
@@ -441,7 +715,7 @@ function registerSectionPut(
         // spam the journal on every bad request.
         if (status >= 500) {
           log.error(
-            { err, route: routePath, code: err.code, configFile: deps.configFilePath, issues: err.issues },
+            { err, route: routePath, code: err.code, configFile: deps.overrideConfigFilePath, issues: err.issues },
             `Config save failed (${err.code}) on ${routePath}`,
           );
         }
@@ -451,7 +725,7 @@ function registerSectionPut(
       // Unknown error — safe message goes to the client, full stack + type
       // go to the log so we can actually diagnose it after the fact.
       log.error(
-        { err, route: routePath, configFile: deps.configFilePath },
+        { err, route: routePath, configFile: deps.overrideConfigFilePath },
         `Unhandled error on ${routePath}: ${(err as Error)?.message ?? String(err)}`,
       );
       res.status(500).json({ error: safeErrorMessage(err) });
