@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { api } from '$lib/services/api';
+  import { api, setStoredApiKey } from '$lib/services/api';
   import { serverStatus, terminalStatus } from '$lib/services/socket';
   import Led from '$lib/components/shared/Led.svelte';
   import Card from '$lib/components/shared/Card.svelte';
@@ -319,6 +319,10 @@
       webHost: webForm.webHost.trim(),
       apiKey,
     }, configStatus?.etag);
+    // Persist the key locally so subsequent requests carry the Bearer
+    // token — without this the daemon returns 401 to every /api/* call
+    // after the next restart. Clear when the operator unsets the key.
+    setStoredApiKey(apiKey);
     await refresh();
   }
   async function saveMcp() {
@@ -416,6 +420,7 @@
     status={configStatus}
     onDiscardAll={discardAll}
     onRolledBack={refresh}
+    onRestarted={refresh}
   />
 
   {#if configStatus?.configReadonly}

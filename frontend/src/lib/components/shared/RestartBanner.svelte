@@ -17,9 +17,11 @@
     onDiscardAll?: () => void;
     /** Called after a successful rollback so the page can refetch. */
     onRolledBack?: () => Promise<void> | void;
+    /** Called after a restart round-trip completes so the page can refetch. */
+    onRestarted?: () => Promise<void> | void;
   }
 
-  let { status, onDiscardAll, onRolledBack }: Props = $props();
+  let { status, onDiscardAll, onRolledBack, onRestarted }: Props = $props();
 
   let restarting = $state(false);
   let rollingBack = $state(false);
@@ -98,6 +100,9 @@
         showToast('Daemon back online.', 'success');
         restarting = false;
         pollingEpoch = null;
+        // Re-fetch config so the page reflects freshly-loaded values
+        // (e.g. `apiKeySet: true` after the operator saved a new key).
+        if (onRestarted) await onRestarted();
         return;
       }
     } catch {

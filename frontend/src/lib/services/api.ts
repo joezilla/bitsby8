@@ -18,16 +18,59 @@ import type {
   GpioSection,
 } from '$lib/types/api';
 
+// -----------------------------------------------------------------------
+// API key storage
+// -----------------------------------------------------------------------
+// When the daemon's runtime config has `apiKey` set, every /api/* call
+// needs `Authorization: Bearer <key>` or the auth middleware returns
+// 401. We stash the key in localStorage the moment the user saves it
+// through the UI (`saveWeb` → `setStoredApiKey`) so the browser can
+// continue to reach the backend across restarts / reloads. If the key
+// stops working (401) the caller clears it; the user then has to
+// re-enter it in the Web & API section.
+
+const API_KEY_STORAGE_KEY = 'fdc.apiKey';
+
+export function getStoredApiKey(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage.getItem(API_KEY_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredApiKey(key: string | null): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (key) window.localStorage.setItem(API_KEY_STORAGE_KEY, key);
+    else window.localStorage.removeItem(API_KEY_STORAGE_KEY);
+  } catch {
+    /* localStorage disabled — nothing we can do */
+  }
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   // Spread options first, then set headers last — otherwise a caller
   // that passes `headers: { 'If-Match': ... }` silently drops the
   // default Content-Type: application/json, Express's express.json()
   // middleware refuses to parse the body, and every section PUT
   // ships an empty {} to disk.
+  const apiKey = getStoredApiKey();
   const res = await fetch(url, {
     ...options,
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+      ...options?.headers,
+    },
   });
+  if (res.status === 401 || res.status === 403) {
+    // Stored key is missing or stale — clear it so the user isn't
+    // stuck with a broken token silently attached to every request.
+    // The Config page shows "not set" and prompts them to re-enter.
+    setStoredApiKey(null);
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(body.error || res.statusText);
