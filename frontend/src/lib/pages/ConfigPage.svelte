@@ -354,10 +354,14 @@
     showToast('Admin password cleared.', 'success');
   }
   function generateApiKey() {
-    // crypto.randomUUID is available on all modern browsers we target.
-    // API keys are opaque tokens — the exact format doesn't matter as
-    // long as it's high-entropy. UUID v4 gives 122 bits of randomness.
-    webForm.apiKey = crypto.randomUUID().replace(/-/g, '');
+    // `crypto.randomUUID()` is only available in secure contexts
+    // (HTTPS or localhost). This app runs on plain HTTP over the LAN,
+    // where it's undefined. `crypto.getRandomValues()` is always
+    // available and gives us more entropy anyway — 32 random bytes
+    // hex-encoded = 64-char opaque token, 256 bits of randomness.
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    webForm.apiKey = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
   }
   let showChangePassword = $state(false);
   let cpwOld = $state('');
