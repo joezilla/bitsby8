@@ -25,7 +25,7 @@
   import Card from '$lib/components/shared/Card.svelte';
   import Button from '$lib/components/shared/Button.svelte';
   import Input from '$lib/components/shared/Input.svelte';
-  import { api } from '$lib/services/api';
+  import { api, setLoginRequired } from '$lib/services/api';
 
   interface Props {
     children?: import('svelte').Snippet;
@@ -33,8 +33,13 @@
 
   let { children }: Props = $props();
 
-  let gateState = $state<'probing' | 'unlocked' | 'locked'>('probing');
-  let showOpenLanWarning = $state(false);
+  // 'probing'     — waiting on /api/auth/info.
+  // 'unlocked'    — render children (with optional info banner).
+  // 'locked'      — daemon requires login and we don't have a valid session.
+  // 'unreachable' — apiKeyRequired && !loginRequired: browser can't
+  //                 authenticate at all. The UI is functionally locked
+  //                 until an admin password is set out-of-band.
+  let gateState = $state<'probing' | 'unlocked' | 'locked' | 'unreachable'>('probing');
   let passwordInput = $state('');
   let submitting = $state(false);
   let error = $state<string | null>(null);
@@ -42,12 +47,20 @@
   onMount(async () => {
     try {
       const info = await api.getAuthInfo();
-      if (!info.loginRequired) {
-        // No password login required. Reveal the app; if only an API
-        // key is configured, warn the operator that the UI is still
-        // wide open on the LAN.
-        showOpenLanWarning = info.apiKeyRequired;
+      // Tell the api client whether a 401 reload is even worth
+      // attempting — see api.ts:request().
+      setLoginRequired(info.loginRequired);
+
+      if (!info.loginRequired && !info.apiKeyRequired) {
+        // Truly open: no credentials configured. Dev flow.
         gateState = 'unlocked';
+        return;
+      }
+      if (!info.loginRequired && info.apiKeyRequired) {
+        // Machine token only: browsers can't authenticate. Instead of
+        // rendering the app (which then infinite-loops on 401s), block
+        // with a static explanation and point the operator at the fix.
+        gateState = 'unreachable';
         return;
       }
       // loginRequired: check whether the browser already has a valid
@@ -161,25 +174,69 @@
       </Card>
     </div>
   </div>
-{:else}
-  {#if showOpenLanWarning}
-    <!-- Persistent banner: apiKey configured but no adminPassword. The
-         UI is wide open to anyone on the LAN. We deliberately don't
-         make this dismissible — the pressure is the point. -->
-    <div
-      style="
-        padding: 10px 16px;
-        background: color-mix(in oklab, var(--warning) 20%, var(--surface-raised));
-        border-bottom: 1px solid color-mix(in oklab, var(--warning) 40%, var(--border-1));
-        color: var(--fg-1);
-        font: var(--text-body-sm);
-        text-align: center;
-      "
-    >
-      <strong>Admin password not set.</strong> Anyone on the LAN can reach this dashboard.
-      Set one in <em>Web &amp; API</em>. The API key alone doesn't restrict UI access — it's
-      only for machine clients (MCP, curl).
+{:else if gateState === 'unreachable'}
+  <div
+    style="
+      width: 100%;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: var(--bg);
+    "
+  >
+    <div style="width: 100%; max-width: 520px;">
+      <Card>
+        <div style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+          <div>
+            <div style="font: var(--text-title-md); color: var(--fg-1);">
+              FDC+ Serial Drive Server
+            </div>
+            <p
+              class="fdc-label-strip"
+              style="color: var(--fg-3); margin: 6px 0 0; text-transform: none; letter-spacing: 0;"
+            >
+              This dashboard is not accessible from a browser yet.
+            </p>
+          </div>
+          <div style="color: var(--fg-2); font: var(--text-body-sm); line-height: 1.5;">
+            <p style="margin: 0 0 12px;">
+              The daemon has an <strong>API key</strong> configured — that protects the
+              machine endpoints (MCP over HTTP, curl scripts) — but there is no
+              <strong>admin password</strong>, so a browser has no way to log in.
+            </p>
+            <p style="margin: 0 0 12px;">
+              To use the web UI, set an admin password by editing
+              <code>/var/lib/fdcsds/fdcsds.overrides.json</code> and adding
+              <code>"adminPassword": "your-password"</code>, then restart with
+              <code>sudo systemctl restart fdcsds</code>. The daemon hashes it on first
+              read.
+            </p>
+            <p style="margin: 0; color: var(--fg-3);">
+              You can also set it over the API using your existing key:
+            </p>
+            <pre
+              style="
+                margin: 6px 0 0;
+                padding: 10px 12px;
+                background: var(--surface-variant);
+                border: 1px solid var(--border-1);
+                border-radius: var(--radius-sm);
+                color: var(--fg-1);
+                font: var(--text-code-sm);
+                overflow-x: auto;
+                white-space: pre-wrap;
+                word-break: break-all;
+              ">{`curl -X PUT http://HOST:PORT/api/config/web \\
+  -H "Authorization: Bearer <api-key>" \\
+  -H "Content-Type: application/json" \\
+  -d '{"adminPassword": "your-password"}'`}</pre>
+          </div>
+        </div>
+      </Card>
     </div>
-  {/if}
+  </div>
+{:else}
   {@render children?.()}
 {/if}

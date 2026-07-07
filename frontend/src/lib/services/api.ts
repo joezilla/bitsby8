@@ -46,6 +46,18 @@ if (typeof window !== 'undefined') {
   }
 }
 
+/**
+ * AuthGate populates this after its boot probe so `request()` knows
+ * whether a 401 reload would achieve anything. If the daemon isn't
+ * accepting logins (loginRequired: false), reloading is pointless and
+ * causes a tight loop — every rehydrated page instantly refires the
+ * same failing API calls.
+ */
+let cachedLoginRequired: boolean | null = null;
+export function setLoginRequired(value: boolean): void {
+  cachedLoginRequired = value;
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   // credentials: 'include' — required so the session cookie flows on
   // same-origin XHR / fetch, including CORS-preflighted verbs. Without
@@ -66,13 +78,15 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     },
   });
   if (res.status === 401 || res.status === 403) {
-    // Session expired or credentials rotated — force a full reload so
-    // AuthGate re-renders and prompts. The auth-info probe itself must
-    // NOT trigger the reload since AuthGate calls it first at boot;
-    // the login endpoint is also excluded so a wrong-password attempt
-    // doesn't infinite-loop.
+    // Only trigger the reload-to-AuthGate flow when the daemon
+    // actually accepts logins. Without a login endpoint there's
+    // nothing a reload can recover from — every reload just refires
+    // the same failing requests and hits the /api/* rate limiter.
+    // Also skip on the probe/login endpoints themselves so an
+    // inline wrong-password error doesn't infinite-loop.
     if (
       typeof window !== 'undefined' &&
+      cachedLoginRequired === true &&
       !url.includes('/api/auth/info') &&
       !url.includes('/api/auth/login')
     ) {

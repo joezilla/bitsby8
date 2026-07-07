@@ -128,9 +128,10 @@ export class WebServer {
     const rc = this.deps.runtimeConfig;
     if (rc?.apiKey && !rc?.adminPassword) {
       log.warn(
-        'Admin password not set — dashboard UI is open to anyone on the LAN. ' +
-          'Set an admin password in Web & API to restrict UI access. The API key ' +
-          'is only for machine clients (MCP, curl).',
+        'Admin password not set — browsers cannot log in to the dashboard UI. ' +
+          'Machine clients (MCP, curl) can still authenticate with the API key. ' +
+          'To enable UI access, set adminPassword via PUT /api/config/web or by ' +
+          'editing /var/lib/fdcsds/fdcsds.overrides.json directly.',
       );
     }
 
