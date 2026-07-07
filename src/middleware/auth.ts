@@ -37,10 +37,18 @@ const AUTH_WHITELIST = new Set([
  * Login must obviously bypass because it's how you get authenticated
  * in the first place; logout is public so a stale cookie can always
  * clear itself.
+ *
+ * We use `req.originalUrl` (not `req.path`) because when the middleware
+ * is mounted via `app.use('/api/', ...)`, Express strips the mount
+ * prefix from `req.path` — the middleware sees `/auth/info` instead of
+ * `/api/auth/info`, and the whitelist lookup silently misses.
  */
 function isWhitelisted(req: Request): boolean {
-  if (req.path.startsWith('/api/docs')) return true;
-  return AUTH_WHITELIST.has(req.path);
+  // Strip query string before matching so `/api/auth/info?ts=1` still
+  // matches `/api/auth/info` in the whitelist set.
+  const url = req.originalUrl.split('?')[0];
+  if (url.startsWith('/api/docs')) return true;
+  return AUTH_WHITELIST.has(url);
 }
 
 /**
