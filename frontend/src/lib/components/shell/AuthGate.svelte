@@ -158,7 +158,7 @@
           {/if}
 
           <div style="display: flex; justify-content: flex-end;">
-            <Button variant="filled" disabled={submitting}>
+            <Button type="submit" variant="filled" disabled={submitting}>
               {submitting ? 'Signing in…' : 'Sign in'}
             </Button>
           </div>
