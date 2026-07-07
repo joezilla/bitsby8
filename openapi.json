@@ -2096,6 +2096,32 @@
         }
       }
     },
+    "/api/auth/info": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Auth probe (unauthenticated)",
+        "description": "Whitelisted past the auth middleware so the SPA can discover\nwhether it needs to prompt the operator for the API key\nbefore the first authenticated call. Deliberately reveals no\nstate beyond the boolean — no key hint, no user, no session.\n",
+        "responses": {
+          "200": {
+            "description": "Whether an API key is currently required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "authRequired": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/drives": {
       "get": {
         "tags": [

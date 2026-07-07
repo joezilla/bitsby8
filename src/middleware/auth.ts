@@ -19,6 +19,15 @@ export function createAuthMiddleware(apiKey: string | undefined | null) {
       return;
     }
 
+    // Skip auth for the auth-info probe. This is how the SPA discovers
+    // whether it needs to prompt the operator for the API key on cold
+    // start (no stored key yet) — the probe itself must be reachable
+    // without one, or the login gate can't render.
+    if (req.path === '/api/auth/info') {
+      next();
+      return;
+    }
+
     // Check Authorization header
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {

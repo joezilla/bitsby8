@@ -110,4 +110,30 @@ export function registerHealthRoutes(router: Router, deps: Dependencies): void {
   router.get('/api/status', (_req: Request, res: Response) => {
     res.json(getStatus(deps));
   });
+
+  /**
+   * @openapi
+   * /api/auth/info:
+   *   get:
+   *     tags: [Health]
+   *     summary: Auth probe (unauthenticated)
+   *     description: |
+   *       Whitelisted past the auth middleware so the SPA can discover
+   *       whether it needs to prompt the operator for the API key
+   *       before the first authenticated call. Deliberately reveals no
+   *       state beyond the boolean — no key hint, no user, no session.
+   *     responses:
+   *       200:
+   *         description: Whether an API key is currently required.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 authRequired:
+   *                   type: boolean
+   */
+  router.get('/api/auth/info', (_req: Request, res: Response) => {
+    res.json({ authRequired: !!deps.runtimeConfig?.apiKey });
+  });
 }

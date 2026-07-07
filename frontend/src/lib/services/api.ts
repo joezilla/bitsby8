@@ -66,10 +66,18 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     },
   });
   if (res.status === 401 || res.status === 403) {
-    // Stored key is missing or stale — clear it so the user isn't
-    // stuck with a broken token silently attached to every request.
-    // The Config page shows "not set" and prompts them to re-enter.
+    // Stored key is missing or stale — clear it and force a reload so
+    // AuthGate re-renders and prompts for a fresh key. Without the
+    // reload the SPA stays mounted but every future request fails
+    // silently, which is a worse UX than an obvious "please log in".
+    // Skip the reload for the verify probe itself so AuthGate can
+    // still surface a specific error inline.
     setStoredApiKey(null);
+    if (typeof window !== 'undefined' && !url.includes('/api/auth/info')) {
+      // Defer the reload one tick so the caller's `throw` below still
+      // fires — otherwise React/Svelte error boundaries never see it.
+      setTimeout(() => window.location.reload(), 0);
+    }
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
@@ -78,8 +86,30 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+/**
+ * Verify an entered API key by calling an authenticated endpoint with
+ * it in the Bearer header directly — bypassing the localStorage lookup
+ * in `request()` (which auto-clears the stored key on 401 and would
+ * wipe a good key while we're still probing a candidate one). Returns
+ * true when the daemon accepts the key, false otherwise.
+ */
+export async function verifyApiKey(candidate: string): Promise<boolean> {
+  try {
+    const res = await fetch('/api/config/status', {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${candidate}`,
+      },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 // Health & Status
 export const api = {
+  getAuthInfo: () => request<{ authRequired: boolean }>('/api/auth/info'),
   getStatus: () => request<ServerStatus>('/api/status'),
 
   // Serial
