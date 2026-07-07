@@ -23,14 +23,28 @@ override_dh_auto_build:
 	# (--shamefully-hoist alone does NOT achieve this; it only hoists
 	# transitives to top level within pnpm's still-symlinked layout,
 	# leaving package directories empty post-copy.)
+	#
+	# Remove any existing node_modules FIRST. A prior `make build` (or a
+	# -nc rebuild) leaves pnpm's default *symlinked* layout in place, and
+	# a subsequent hoisted install over a lockfile-satisfied tree is a
+	# no-op — pnpm won't re-lay-out the directory just because
+	# node-linker changed. The stale symlinks then ship in the .deb and
+	# dangle on the target (Cannot find module 'cookie-parser'). Starting
+	# clean guarantees a real hoisted tree every build.
+	rm -rf node_modules
 	pnpm install --frozen-lockfile --config.node-linker=hoisted
-	# Verify the install actually produced populated package directories
-	# before we waste cycles building. Catches future regressions of the
-	# "empty serialport/ dir" class of bug immediately.
-	@test -f node_modules/serialport/package.json || \
-		(echo "ERROR: node_modules/serialport/ is empty after install — node-linker=hoisted not applied" && exit 1)
-	@test -f node_modules/@serialport/bindings-cpp/package.json || \
-		(echo "ERROR: node_modules/@serialport/bindings-cpp/ missing after install" && exit 1)
+	# Verify the install produced REAL, populated package directories for
+	# every production dependency — not symlinks into .pnpm/ (which
+	# `test -f` would follow and falsely pass) and not empty dirs. This
+	# is the "ships broken, crash-loops on the Pi" class of bug; make it
+	# a hard build failure instead of a runtime surprise.
+	@node -e "const d=require('./package.json').dependencies||{};process.stdout.write(Object.keys(d).join('\n'))" \
+		| while IFS= read -r pkg; do \
+			if [ -L "node_modules/$$pkg" ] || [ ! -f "node_modules/$$pkg/package.json" ]; then \
+				echo "ERROR: node_modules/$$pkg is missing, empty, or a symlink after install — node-linker=hoisted did not produce a flat tree"; \
+				exit 1; \
+			fi; \
+		done
 	# Compile backend TypeScript and (re)generate openapi.json at repo root.
 	pnpm run build
 	# Build the Svelte frontend SPA → frontend/dist/.

@@ -205,6 +205,10 @@
 
   function resetAllForms() {
     if (!config) return;
+    // A rotated/cleared key would leave a stale plaintext cached; drop it
+    // and re-collapse the reveal so the next reveal/copy re-fetches.
+    revealedKey = null;
+    apiKeyRevealed = false;
     serialForm = {
       port: config.port ?? '',
       baud: config.baud ?? 230400,
@@ -357,10 +361,51 @@
   // Reveal/copy state for the API key input. The eye-icon lets the
   // operator confirm the value they just pasted or generated; the
   // copy icon puts it on the clipboard for their password manager /
-  // MCP config file.
+  // MCP config file. Because the key is stored plaintext (unlike the
+  // bcrypt-hashed admin password), it can be fetched back from the
+  // daemon at any time — the operator is never locked out of a key
+  // they already set. `revealedKey` caches that fetched value; it's
+  // invalidated on every refresh (see resetAllForms).
   let apiKeyRevealed = $state(false);
+  let revealedKey = $state<string | null>(null);
+  let revealLoading = $state(false);
+
+  /**
+   * Best-effort fetch of the currently-stored key. Returns the key (or
+   * null) and caches it in `revealedKey`. Surfaces a toast on failure.
+   */
+  async function fetchStoredKey(): Promise<string | null> {
+    if (revealedKey !== null) return revealedKey;
+    try {
+      revealLoading = true;
+      revealedKey = (await api.getApiKey()).apiKey;
+      return revealedKey;
+    } catch (err) {
+      showToast(`Couldn't load the key: ${(err as Error).message}`, 'error');
+      return null;
+    } finally {
+      revealLoading = false;
+    }
+  }
+
+  // Toggle the eye. When revealing an already-set key that the operator
+  // hasn't typed over, pull the plaintext from the daemon so it can be
+  // displayed (read-only) in the field.
+  async function toggleApiKeyReveal() {
+    const next = !apiKeyRevealed;
+    if (next && !webForm.apiKey && configStatus?.apiKeySet) {
+      await fetchStoredKey();
+    }
+    apiKeyRevealed = next;
+  }
+
   async function copyApiKey() {
-    const value = webForm.apiKey;
+    // A freshly typed / generated value takes precedence; otherwise copy
+    // out the stored key by fetching it on demand.
+    let value = webForm.apiKey;
+    if (!value && configStatus?.apiKeySet) {
+      value = (await fetchStoredKey()) ?? '';
+    }
     if (!value) {
       showToast('No key to copy — Generate one first.', 'info');
       return;
@@ -661,7 +706,7 @@
           style="color: var(--fg-3); margin: 4px 0 8px; text-transform: none; letter-spacing: 0;"
         >
           Required by MCP-over-HTTP and any curl script. Generate a new one — humans shouldn't
-          type these. The value is echoed once here at set-time and never displayed again.
+          type these. Use the eye or copy icon to retrieve the current key at any time.
         </p>
         <div style="display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 8px; align-items: end;">
           <FormField
@@ -669,17 +714,28 @@
             hint={configStatus?.apiKeySet ? 'currently set' : 'not set'}
             hintColor={configStatus?.apiKeySet ? 'green' : 'gray'}
           >
-            <Input
-              bind:value={webForm.apiKey}
-              placeholder={configStatus?.apiKeySet ? '(hidden — enter to replace)' : '(none)'}
-              type={apiKeyRevealed ? 'text' : 'password'}
-            />
+            {#if apiKeyRevealed && configStatus?.apiKeySet && !webForm.apiKey}
+              <!-- Revealing the stored key: show it read-only so the field
+                   stays "empty = no change" for dirty tracking / save. -->
+              <Input
+                value={revealedKey ?? ''}
+                placeholder={revealLoading ? 'Loading…' : '(unavailable)'}
+                type="text"
+                readonly
+              />
+            {:else}
+              <Input
+                bind:value={webForm.apiKey}
+                placeholder={configStatus?.apiKeySet ? '(hidden — enter to replace)' : '(none)'}
+                type={apiKeyRevealed ? 'text' : 'password'}
+              />
+            {/if}
           </FormField>
           <IconButton
             icon={apiKeyRevealed ? 'visibility_off' : 'visibility'}
             title={apiKeyRevealed ? 'Hide key' : 'Show key'}
             on={apiKeyRevealed}
-            onclick={() => (apiKeyRevealed = !apiKeyRevealed)}
+            onclick={toggleApiKeyReveal}
           />
           <IconButton
             icon="content_copy"

@@ -14,6 +14,12 @@ import { enableDiskServing, disableDiskServing, broadcastStatus } from './servic
 import { listDiskImagesWithDetails, listCassettesWithDetails } from './services/file-listing';
 import { startRawReplay, startXmodemSend, cancelActiveTransfer } from './services/transfer';
 import { safeResolvePath } from './utils/safe-path';
+import {
+  DISK_IMAGE_EXTENSIONS,
+  MAX_DISK_IMAGE_SIZE,
+  isAllowedDiskImageExtension,
+  detectForbiddenMagic,
+} from './utils/disk-image-validation';
 import { TerminalSerialManager } from './terminal-serial';
 import { BaudRate, MAX_DRIVES } from './protocol';
 import { CpmFilesystem } from './cpm-filesystem';
@@ -459,6 +465,72 @@ export function createMcpServer(deps: Dependencies): McpServer {
               format,
               tracks,
               size,
+            }, null, 2),
+          }],
+        };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  // ===========================================================================
+  // Tool 11b: upload_disk_image
+  // ===========================================================================
+
+  server.tool(
+    'upload_disk_image',
+    'Import a disk image from base64-encoded bytes into the server\'s disks directory. Use this to install a pre-built .dsk/.img/.ima image (max 10 MB); for a blank image use create_disk_image instead.',
+    {
+      filename: z.string().describe('Target filename including extension (.dsk, .img, or .ima)'),
+      data: z.string().describe('Base64-encoded contents of the disk image file'),
+    },
+    async ({ filename, data }) => {
+      try {
+        // Same filename guard as create_disk_image: no traversal / separators.
+        if (!filename || filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
+          throw new Error('Invalid filename');
+        }
+        if (!isAllowedDiskImageExtension(filename)) {
+          throw new Error(`Invalid extension. Allowed: ${DISK_IMAGE_EXTENSIONS.join(', ')}`);
+        }
+
+        const filePath = path.join(deps.config.disksDir, filename);
+        if (existsSync(filePath)) {
+          throw new Error(`Disk image already exists: ${filename}. Delete it first or choose another name.`);
+        }
+
+        // Node's base64 decoder silently drops invalid characters, which
+        // would let a typo'd payload write a corrupt image. Validate the
+        // charset first, then decode.
+        const stripped = data.replace(/\s/g, '');
+        if (stripped.length === 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(stripped)) {
+          throw new Error('Invalid base64 data');
+        }
+        const buffer = Buffer.from(stripped, 'base64');
+        if (buffer.length === 0) {
+          throw new Error('Decoded disk image is empty');
+        }
+        if (buffer.length > MAX_DISK_IMAGE_SIZE) {
+          throw new Error(`Disk image too large: ${buffer.length} bytes (max ${MAX_DISK_IMAGE_SIZE}).`);
+        }
+
+        // Reject executables/archives disguised as disk images.
+        const forbiddenLabel = detectForbiddenMagic(buffer.subarray(0, 8));
+        if (forbiddenLabel) {
+          throw new Error(`Rejected: file appears to be a ${forbiddenLabel} file`);
+        }
+
+        await fs.mkdir(deps.config.disksDir, { recursive: true });
+        await fs.writeFile(filePath, buffer);
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              filename,
+              size: buffer.length,
             }, null, 2),
           }],
         };

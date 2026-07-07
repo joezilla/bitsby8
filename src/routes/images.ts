@@ -7,6 +7,11 @@ import { existsSync } from 'fs';
 import { Dependencies } from '../types';
 import { safeResolvePath, safeErrorMessage } from '../utils/safe-path';
 import { listDiskImages, listDiskImagesWithDetails } from '../services/file-listing';
+import {
+  MAX_DISK_IMAGE_SIZE,
+  isAllowedDiskImageExtension,
+  detectForbiddenMagic,
+} from '../utils/disk-image-validation';
 import { MAX_DRIVES } from '../protocol';
 import { CpmFilesystem, PARAMS_8INCH, PARAMS_MINIDISK, type CpmDiskParams } from '../cpm-filesystem';
 
@@ -121,15 +126,14 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
     storage: storage,
     fileFilter: (_req, file, cb) => {
       // Only accept .dsk, .img, .ima files
-      const ext = path.extname(file.originalname).toLowerCase();
-      if (ext === '.dsk' || ext === '.img' || ext === '.ima') {
+      if (isAllowedDiskImageExtension(file.originalname)) {
         cb(null, true);
       } else {
         cb(new Error('Only .dsk, .img, and .ima files are allowed'));
       }
     },
     limits: {
-      fileSize: 10 * 1024 * 1024, // 10MB max file size
+      fileSize: MAX_DISK_IMAGE_SIZE,
     },
   });
 
@@ -202,19 +206,11 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
         const magicBuf = Buffer.alloc(8);
         await fh.read(magicBuf, 0, 8, 0);
         await fh.close();
-        const forbidden: Array<{ sig: number[]; label: string }> = [
-          { sig: [0x50, 0x4b, 0x03, 0x04], label: 'ZIP' },
-          { sig: [0x7f, 0x45, 0x4c, 0x46], label: 'ELF' },
-          { sig: [0x4d, 0x5a], label: 'PE/DOS executable' },
-          { sig: [0xff, 0xd8, 0xff], label: 'JPEG' },
-          { sig: [0x89, 0x50, 0x4e, 0x47], label: 'PNG' },
-        ];
-        for (const { sig, label } of forbidden) {
-          if (magicBuf.slice(0, sig.length).equals(Buffer.from(sig))) {
-            await fs.unlink(uploadedPath);
-            res.status(400).json({ error: `Rejected: file appears to be a ${label} file` });
-            return;
-          }
+        const forbiddenLabel = detectForbiddenMagic(magicBuf);
+        if (forbiddenLabel) {
+          await fs.unlink(uploadedPath);
+          res.status(400).json({ error: `Rejected: file appears to be a ${forbiddenLabel} file` });
+          return;
         }
 
         res.json({
