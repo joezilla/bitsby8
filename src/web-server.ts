@@ -19,6 +19,7 @@ import { Database } from './database';
 import { WebServerConfig, PreferredTerminalSettings, Dependencies } from './types';
 import { buildAllowedOrigins, setupSecurityMiddleware } from './middleware/security';
 import { setupStaticMiddleware } from './middleware/static';
+import { MAX_DISK_IMAGE_SIZE } from './utils/disk-image-validation';
 import { setupWebSocket } from './websocket/handlers';
 import { broadcastStatus } from './services/disk-serving';
 import { startReleaseChecker } from './services/release-check';
@@ -177,6 +178,13 @@ export class WebServer {
       '/mcp',
       createBearerOnlyAuth(() => this.deps.runtimeConfig?.apiKey ?? null),
     );
+    // MCP tool bodies carry base64 file payloads (write_cpm_file), which
+    // blow past express.json's 100 KB default. Allow up to the
+    // base64-expanded disk-image ceiling (~1.34× the raw size) plus slack
+    // for the JSON-RPC envelope, so any file that fits a target disk can
+    // be written over MCP-HTTP, not just over the REST upload endpoint.
+    const mcpBodyLimit = Math.ceil(MAX_DISK_IMAGE_SIZE * 1.4) + 64 * 1024;
+    this.app.use('/mcp', express.json({ limit: mcpBodyLimit }));
     registerMcpRoutes(this.app as any, this.deps);
     const apiKey = this.deps.runtimeConfig?.apiKey ?? null;
     setMcpHttpEnabled(!!apiKey && !!this.deps.runtimeConfig?.enableMcpHttp);
