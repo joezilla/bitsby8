@@ -106,8 +106,20 @@ export function setupSecurityMiddleware(
     }),
   );
 
-  // JSON body parser
-  app.use(express.json());
+  // JSON body parser (100 KB default). /mcp is deliberately excluded:
+  // write_cpm_file ships file contents as base64 inside the JSON body,
+  // so a CP/M file near the disk-size ceiling needs several MB. That
+  // route gets its own, much larger limit in web-server.ts. Keeping the
+  // tight default everywhere else preserves the small-body guard on the
+  // general API surface.
+  const generalJson = express.json();
+  app.use((req, res, next) => {
+    if (req.path === '/mcp' || req.path.startsWith('/mcp/')) {
+      next();
+      return;
+    }
+    generalJson(req, res, next);
+  });
 }
 
 export function buildAllowedOrigins(config: WebServerConfig): string[] {
