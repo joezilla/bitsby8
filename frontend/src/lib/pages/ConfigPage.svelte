@@ -5,6 +5,7 @@
   import Led from '$lib/components/shared/Led.svelte';
   import Card from '$lib/components/shared/Card.svelte';
   import Button from '$lib/components/shared/Button.svelte';
+  import IconButton from '$lib/components/shared/IconButton.svelte';
   import Input from '$lib/components/shared/Input.svelte';
   import Select from '$lib/components/shared/Select.svelte';
   import PageHeader from '$lib/components/shared/PageHeader.svelte';
@@ -353,6 +354,38 @@
     await refresh();
     showToast('Admin password cleared.', 'success');
   }
+  // Reveal/copy state for the API key input. The eye-icon lets the
+  // operator confirm the value they just pasted or generated; the
+  // copy icon puts it on the clipboard for their password manager /
+  // MCP config file.
+  let apiKeyRevealed = $state(false);
+  async function copyApiKey() {
+    const value = webForm.apiKey;
+    if (!value) {
+      showToast('No key to copy — Generate one first.', 'info');
+      return;
+    }
+    // navigator.clipboard is gated behind secure contexts (HTTPS or
+    // localhost). On plain HTTP over the LAN, fall back to the legacy
+    // execCommand path with a hidden textarea.
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = value;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      showToast('API key copied to clipboard.', 'success');
+    } catch (err) {
+      showToast(`Copy failed: ${(err as Error).message}`, 'error');
+    }
+  }
   function generateApiKey() {
     // `crypto.randomUUID()` is only available in secure contexts
     // (HTTPS or localhost). This app runs on plain HTTP over the LAN,
@@ -630,7 +663,7 @@
           Required by MCP-over-HTTP and any curl script. Generate a new one — humans shouldn't
           type these. The value is echoed once here at set-time and never displayed again.
         </p>
-        <div style="display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: end;">
+        <div style="display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 8px; align-items: end;">
           <FormField
             label="Key"
             hint={configStatus?.apiKeySet ? 'currently set' : 'not set'}
@@ -639,9 +672,20 @@
             <Input
               bind:value={webForm.apiKey}
               placeholder={configStatus?.apiKeySet ? '(hidden — enter to replace)' : '(none)'}
-              type="password"
+              type={apiKeyRevealed ? 'text' : 'password'}
             />
           </FormField>
+          <IconButton
+            icon={apiKeyRevealed ? 'visibility_off' : 'visibility'}
+            title={apiKeyRevealed ? 'Hide key' : 'Show key'}
+            on={apiKeyRevealed}
+            onclick={() => (apiKeyRevealed = !apiKeyRevealed)}
+          />
+          <IconButton
+            icon="content_copy"
+            title="Copy key to clipboard"
+            onclick={copyApiKey}
+          />
           <Button variant="ghost" icon="autorenew" onclick={generateApiKey}>Generate</Button>
           {#if configStatus?.apiKeySet}
             <Button variant="ghost" icon="delete" onclick={clearApiKey}>Clear</Button>
