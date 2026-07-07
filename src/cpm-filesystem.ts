@@ -102,6 +102,50 @@ export const PARAMS_MINIDISK: CpmDiskParams = {
   boottrk: 2,
 };
 
+// 8 MB hard-disk parameters. 4K blocks and 16-bit block pointers; values
+// mirror altair_tools' 8megAltairSIMH definition.
+export const PARAMS_8MB: CpmDiskParams = {
+  seclen: 128,
+  tracks: 2048,
+  sectrk: 32,
+  blocksize: 4096,
+  maxdir: 1024,
+  boottrk: 6,
+};
+
+/** The disk-format identifiers accepted by create/format operations. */
+export type DiskFormat = '8inch' | 'minidisk' | '8mb';
+
+/**
+ * Map a format identifier to its CpmDiskParams block. Single source of
+ * truth for the create / reformat paths (HTTP and MCP) so their geometry
+ * stays consistent. Returns null for an unknown format.
+ */
+export function paramsForFormat(format: string): CpmDiskParams | null {
+  switch (format) {
+    case '8inch':
+      return PARAMS_8INCH;
+    case 'minidisk':
+      return PARAMS_MINIDISK;
+    case '8mb':
+      return PARAMS_8MB;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Infer the disk format from a raw image byte-size, so a reformat that
+ * omits an explicit format keeps the image's existing geometry. Returns
+ * null when the size doesn't match a known format.
+ */
+export function inferFormatFromSize(sizeBytes: number): DiskFormat | null {
+  if (sizeBytes >= 74528 && sizeBytes <= 74624) return 'minidisk';
+  if (sizeBytes >= 337568 && sizeBytes <= 337664) return '8inch';
+  if (sizeBytes >= 8000000) return '8mb';
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // MITS 8" sector skew tables.
 //
