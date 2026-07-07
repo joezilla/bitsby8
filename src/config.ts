@@ -34,7 +34,14 @@ export const WebSchema = z.object({
   web: z.boolean().optional(),
   webPort: z.number().int().min(1).max(65535).optional(),
   webHost: z.string().optional(),
+  // Machine-only token. Curl scripts and MCP-over-HTTP clients pass
+  // this in Authorization: Bearer. Stored as-is (opaque string).
   apiKey: z.string().nullable().optional(),
+  // Human login credential for the UI. Stored as a bcrypt hash string
+  // (never plaintext). PUT /api/config/web pre-hashes the field before
+  // it hits this schema, so anything written to the override file at
+  // rest is already a bcrypt digest.
+  adminPassword: z.string().nullable().optional(),
 });
 
 export const McpSchema = z.object({

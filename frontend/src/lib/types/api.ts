@@ -129,7 +129,11 @@ export interface WebSection {
   web?: boolean;
   webPort?: number;
   webHost?: string;
+  // Machine-only token — sent on set, never echoed on GET.
   apiKey?: string | null;
+  // Human login password — plaintext on send, hashed server-side.
+  // Never echoed on GET. Empty string clears the current password.
+  adminPassword?: string | null;
 }
 
 export interface McpSection {
@@ -202,6 +206,7 @@ export interface ConfigStatus {
   systemdManaged: boolean;
   startupEpoch: number;
   apiKeySet: boolean;
+  adminPasswordSet: boolean;
   mcpHttpEnabled: boolean;
   mcpHttpLive: boolean;
   mcpHttpSessions: number;

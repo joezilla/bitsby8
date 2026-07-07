@@ -36,7 +36,12 @@ import { registerTerminalRoutes } from './routes/terminal';
 import { registerScriptRoutes } from './routes/scripts';
 import { registerReplayRoutes } from './routes/replay';
 import { registerMcpRoutes, setMcpHttpEnabled } from './mcp-http';
-import { createAuthMiddleware } from './middleware/auth';
+import { createBearerOnlyAuth } from './middleware/auth';
+import { registerAuthRoutes } from './routes/auth';
+import { SessionStore } from './services/session-store';
+import { createLogger } from './logger';
+
+const log = createLogger('web-server');
 
 // Re-export types for backward compatibility
 export { WebServerConfig, PreferredTerminalSettings } from './types';
@@ -88,6 +93,11 @@ export class WebServer {
       database = new Database(dbPath);
     }
 
+    // In-memory session store for UI logins. Sessions die on daemon
+    // restart — operators re-login on the next page load, which
+    // AuthGate handles automatically via the 401-then-reload flow.
+    const sessionStore = new SessionStore();
+
     // Build shared dependencies
     this.deps = {
       config,
@@ -103,6 +113,7 @@ export class WebServer {
       baselineConfig: options?.baselineConfig ?? null,
       startupEpoch: options?.startupEpoch ?? Date.now(),
       configReadonly: options?.configReadonly ?? false,
+      sessionStore,
       server: options?.server || null,
       diskServingEnabled: options?.server !== null && options?.server !== undefined,
       serverTask: null,
@@ -111,6 +122,17 @@ export class WebServer {
       audioPlayer: null,
       currentAudioProcess: null,
     };
+
+    // Surface the "apiKey set but no adminPassword" state at startup
+    // — this is the LAN-open regression the migration plan warns about.
+    const rc = this.deps.runtimeConfig;
+    if (rc?.apiKey && !rc?.adminPassword) {
+      log.warn(
+        'Admin password not set — dashboard UI is open to anyone on the LAN. ' +
+          'Set an admin password in Web & API to restrict UI access. The API key ' +
+          'is only for machine clients (MCP, curl).',
+      );
+    }
 
     // Propagate verbose setting to terminal serial manager
     if (this.deps.runtimeConfig?.verbose) {
@@ -121,13 +143,19 @@ export class WebServer {
   }
 
   private setup(): void {
-    // Middleware
-    setupSecurityMiddleware(this.app, this.deps.config, this.deps.runtimeConfig?.apiKey);
+    // Middleware. Auth uses live callbacks into runtimeConfig so key
+    // and password rotations take effect without a daemon restart.
+    setupSecurityMiddleware(this.app, this.deps.config, {
+      getApiKey: () => this.deps.runtimeConfig?.apiKey ?? null,
+      getAdminPasswordHash: () => this.deps.runtimeConfig?.adminPassword ?? null,
+      sessionStore: this.deps.sessionStore!,
+    });
     setupStaticMiddleware(this.app);
 
     // REST API routes
     const router = this.app;
     registerHealthRoutes(router, this.deps);
+    registerAuthRoutes(router, this.deps);
     registerConfigRoutes(router, this.deps);
     registerSerialRoutes(router, this.deps);
     registerDiskServingRoutes(router, this.deps);
@@ -139,14 +167,17 @@ export class WebServer {
     registerScriptRoutes(router, this.deps);
     registerReplayRoutes(router, this.deps);
 
-    // MCP over HTTP (opt-in via config.enableMcpHttp). Bearer auth is
-    // reused from the main API — MCP shares the same trust boundary.
-    // The endpoint is always mounted; a runtime guard in mcp-http.ts
-    // returns 503 when disabled, so operators can flip it without a
-    // daemon restart. Refuse to activate without an api key.
-    const apiKey = this.deps.runtimeConfig?.apiKey ?? null;
-    this.app.use('/mcp', createAuthMiddleware(apiKey));
+    // MCP over HTTP (opt-in via config.enableMcpHttp). Bearer-ONLY
+    // auth — session cookies must NOT authenticate here, or a browser
+    // on the same origin could POST to /mcp with the operator's UI
+    // cookie attached (CSRF). Machines never have cookies, so this is
+    // strictly correct behavior.
+    this.app.use(
+      '/mcp',
+      createBearerOnlyAuth(() => this.deps.runtimeConfig?.apiKey ?? null),
+    );
     registerMcpRoutes(this.app as any, this.deps);
+    const apiKey = this.deps.runtimeConfig?.apiKey ?? null;
     setMcpHttpEnabled(!!apiKey && !!this.deps.runtimeConfig?.enableMcpHttp);
 
     // WebSocket handlers

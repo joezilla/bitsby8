@@ -34,6 +34,7 @@ import {
 import { setMcpHttpEnabled, isMcpHttpEnabled, activeMcpSessionCount } from '../mcp-http';
 import { writePartialConfig, rollbackConfig, ConfigWriteError } from '../services/config-persistence';
 import { isSystemdManaged, scheduleRestart } from '../services/restart-manager';
+import { hashPassword } from '../services/password';
 
 /**
  * Concurrency-guard token format used in `ETag` / `If-Match` headers.
@@ -59,7 +60,10 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
    */
   router.get('/api/config', (_req: Request, res: Response) => {
     const rc = deps.runtimeConfig || {};
-    const { apiKey: _hidden, ...safe } = rc as any;
+    // Strip secrets before echoing to the client. apiKey is a machine
+    // credential; adminPassword is a bcrypt hash — neither belongs in
+    // an API response. The UI reads their presence via /api/config/status.
+    const { apiKey: _hiddenKey, adminPassword: _hiddenPw, ...safe } = rc as any;
     res.json({
       // Serial
       port: safe.port ?? '',
@@ -217,6 +221,7 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
       systemdManaged: isSystemdManaged(),
       startupEpoch: deps.startupEpoch,
       apiKeySet: !!deps.runtimeConfig?.apiKey,
+      adminPasswordSet: !!deps.runtimeConfig?.adminPassword,
       mcpHttpEnabled: !!deps.runtimeConfig?.enableMcpHttp,
       mcpHttpLive: isMcpHttpEnabled(),
       mcpHttpSessions: activeMcpSessionCount(),
@@ -402,7 +407,7 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
   // -----------------------------------------------------------------------
 
   registerSectionPut(router, deps, '/api/config/serial', SerialSchema);
-  registerSectionPut(router, deps, '/api/config/web', WebSchema);
+  registerWebConfigPut(router, deps);
   registerSectionPut(router, deps, '/api/config/terminal', TerminalSchema);
   registerSectionPut(router, deps, '/api/config/logging', LoggingSchema);
   registerSectionPut(router, deps, '/api/config/data', DataSchema);
@@ -504,6 +509,132 @@ function registerMcpConfigPut(router: Router, deps: Dependencies): void {
       log.error(
         { err, route: '/api/config/mcp', configFile: deps.overrideConfigFilePath },
         `Unhandled error on /api/config/mcp: ${(err as Error)?.message ?? String(err)}`,
+      );
+      res.status(500).json({ error: safeErrorMessage(err) });
+    }
+  });
+}
+
+/**
+ * @openapi
+ * /api/config/web:
+ *   put:
+ *     tags: [Config]
+ *     summary: Update the Web & API section (includes apiKey and adminPassword)
+ *     description: |
+ *       Same shape as the other section PUTs, but two fields need
+ *       special handling:
+ *
+ *       - `apiKey` is a machine token; when non-null the value is
+ *         written verbatim. Change is applied live (no restart) — the
+ *         auth middleware reads apiKey via a runtime callback.
+ *       - `adminPassword` is bcrypt-hashed here before the write. Only
+ *         the hash reaches disk; the plaintext never persists. Sending
+ *         `null` clears the hash; omitting the key leaves it unchanged.
+ *         Change is applied live (no restart).
+ *
+ *       Fields that still require a daemon restart (webPort, webHost,
+ *       enabling/disabling the web listener) are surfaced via
+ *       `restartRequired: true` in the response. When the patch only
+ *       touched auth fields, `restartRequired: false`.
+ */
+function registerWebConfigPut(router: Router, deps: Dependencies): void {
+  const AUTH_ONLY_KEYS = new Set(['apiKey', 'adminPassword']);
+
+  router.put('/api/config/web', async (req: Request, res: Response): Promise<void> => {
+    if (deps.configReadonly) {
+      res.status(423).json({
+        error: 'Config is read-only (--config-readonly).',
+        code: 'CONFIG_READONLY',
+      });
+      return;
+    }
+    const parseResult = WebSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      res.status(400).json({
+        error: 'Invalid config payload',
+        issues: parseResult.error.issues.map(i => ({ path: i.path, message: i.message })),
+      });
+      return;
+    }
+    const patch: Record<string, unknown> = { ...parseResult.data };
+
+    try {
+      if (!deps.overrideConfigFilePath) {
+        res.status(409).json({
+          error:
+            'No override file path configured; the daemon has nowhere to persist runtime changes.',
+        });
+        return;
+      }
+
+      // Pre-hash a non-null, non-empty adminPassword. Empty string is
+      // treated as "clear the password" (equivalent to null) — the
+      // Config page's optional-string input can't easily send `null`,
+      // so we accept the falsy string to keep the frontend simple.
+      if (typeof patch.adminPassword === 'string' && patch.adminPassword.length > 0) {
+        patch.adminPassword = await hashPassword(patch.adminPassword);
+      } else if (patch.adminPassword === '') {
+        patch.adminPassword = null;
+      }
+
+      const ifMatch = req.header('if-match');
+      if (ifMatch) {
+        let currentMtime: number | null = null;
+        try {
+          currentMtime = (await fs.stat(deps.overrideConfigFilePath)).mtimeMs;
+        } catch {
+          /* ENOENT — override doesn't exist yet, treat as mtime 0 */
+        }
+        const currentEtag = makeConfigEtag(deps.startupEpoch, currentMtime);
+        if (ifMatch !== currentEtag) {
+          res.status(409).json({
+            error: 'Config file changed since you last loaded it. Reload and try again.',
+            code: 'STALE_ETAG',
+            expected: currentEtag,
+            got: ifMatch,
+          });
+          return;
+        }
+      }
+
+      const { config, mtimeMs } = await writePartialConfig(
+        deps.overrideConfigFilePath,
+        patch as any,
+        deps.baselineConfig,
+      );
+
+      // Live-apply the auth fields so a caller doesn't need to hit
+      // Restart to make the new key / password take effect.
+      if (deps.runtimeConfig) {
+        if ('apiKey' in patch) deps.runtimeConfig.apiKey = patch.apiKey as string | null;
+        if ('adminPassword' in patch) {
+          deps.runtimeConfig.adminPassword = patch.adminPassword as string | null;
+        }
+      }
+
+      // If only auth fields changed, no restart needed. Any other web
+      // field still requires one (webPort / webHost / web-enable).
+      const touchedKeys = Object.keys(patch);
+      const restartRequired = touchedKeys.some(k => !AUTH_ONLY_KEYS.has(k));
+
+      res.set('ETag', makeConfigEtag(deps.startupEpoch, mtimeMs));
+      res.json({ success: true, config, mtimeMs, restartRequired });
+    } catch (err) {
+      if (err instanceof ConfigWriteError) {
+        const status = err.code === 'NOT_WRITABLE' ? 403 : err.code === 'VALIDATION_FAILED' ? 400 : 500;
+        if (status >= 500) {
+          log.error(
+            { err, route: '/api/config/web', code: err.code, configFile: deps.overrideConfigFilePath, issues: err.issues },
+            `Web config save failed (${err.code})`,
+          );
+        }
+        res.status(status).json({ error: err.message, code: err.code, issues: err.issues });
+        return;
+      }
+      log.error(
+        { err, route: '/api/config/web', configFile: deps.overrideConfigFilePath },
+        `Unhandled error on /api/config/web: ${(err as Error)?.message ?? String(err)}`,
       );
       res.status(500).json({ error: safeErrorMessage(err) });
     }

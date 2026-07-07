@@ -11,6 +11,7 @@ import { FdcServer } from './server';
 import { Database } from './database';
 import { ReplayEngine } from './replay-engine';
 import { XmodemSender } from './xmodem-sender';
+import { SessionStore } from './services/session-store';
 
 export interface WebServerConfig {
   port: number;
@@ -67,6 +68,12 @@ export interface Dependencies {
   // /api/config/* returns 423 Locked and POST /api/config/rollback
   // is also refused. Useful for demos / kiosk installs.
   configReadonly: boolean;
+
+  // In-memory session store for the UI login flow. Never null in
+  // practice — instantiated in WebServer.setup(). Optional in the
+  // interface so unit-test route stubs don't have to provide one when
+  // they're not exercising auth-cookie paths.
+  sessionStore?: SessionStore;
 
   // Mutable server state
   server: FdcServer | null;

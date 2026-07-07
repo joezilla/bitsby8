@@ -19,63 +19,63 @@ import type {
 } from '$lib/types/api';
 
 // -----------------------------------------------------------------------
-// API key storage
+// Auth model
 // -----------------------------------------------------------------------
-// When the daemon's runtime config has `apiKey` set, every /api/* call
-// needs `Authorization: Bearer <key>` or the auth middleware returns
-// 401. We stash the key in localStorage the moment the user saves it
-// through the UI (`saveWeb` → `setStoredApiKey`) so the browser can
-// continue to reach the backend across restarts / reloads. If the key
-// stops working (401) the caller clears it; the user then has to
-// re-enter it in the Web & API section.
+// UI auth is session-cookie-based: POST /api/auth/login sets an
+// HttpOnly SameSite=Lax `fdcSession` cookie, and the browser attaches
+// it to every subsequent request. No client-side storage; no Bearer
+// header on API calls from the UI.
+//
+// API keys never enter the browser — they're for machine clients
+// (MCP HTTP, curl scripts). ConfigPage shows apiKey as write-only:
+// generate, copy once at set-time, then the field displays "currently
+// set" and the plaintext is never echoed back.
+//
+// If a request returns 401/403 mid-session (session expired, daemon
+// rotated credentials), we hard-reload — AuthGate re-renders and the
+// operator logs in again. Cleaner than leaving the SPA mounted with
+// every future call failing silently.
 
-const API_KEY_STORAGE_KEY = 'fdc.apiKey';
-
-export function getStoredApiKey(): string | null {
-  if (typeof window === 'undefined') return null;
+// Legacy cleanup: earlier builds stashed an API key here. Remove any
+// lingering value so a stale token doesn't confuse debug sessions.
+if (typeof window !== 'undefined') {
   try {
-    return window.localStorage.getItem(API_KEY_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-export function setStoredApiKey(key: string | null): void {
-  if (typeof window === 'undefined') return;
-  try {
-    if (key) window.localStorage.setItem(API_KEY_STORAGE_KEY, key);
-    else window.localStorage.removeItem(API_KEY_STORAGE_KEY);
+    window.localStorage.removeItem('fdc.apiKey');
   } catch {
     /* localStorage disabled — nothing we can do */
   }
 }
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
+  // credentials: 'include' — required so the session cookie flows on
+  // same-origin XHR / fetch, including CORS-preflighted verbs. Without
+  // this, PUT/DELETE from an origin that differs from Host header
+  // silently sheds cookies and every save 401s.
+  //
   // Spread options first, then set headers last — otherwise a caller
   // that passes `headers: { 'If-Match': ... }` silently drops the
   // default Content-Type: application/json, Express's express.json()
   // middleware refuses to parse the body, and every section PUT
   // ships an empty {} to disk.
-  const apiKey = getStoredApiKey();
   const res = await fetch(url, {
+    credentials: 'include',
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
       ...options?.headers,
     },
   });
   if (res.status === 401 || res.status === 403) {
-    // Stored key is missing or stale — clear it and force a reload so
-    // AuthGate re-renders and prompts for a fresh key. Without the
-    // reload the SPA stays mounted but every future request fails
-    // silently, which is a worse UX than an obvious "please log in".
-    // Skip the reload for the verify probe itself so AuthGate can
-    // still surface a specific error inline.
-    setStoredApiKey(null);
-    if (typeof window !== 'undefined' && !url.includes('/api/auth/info')) {
-      // Defer the reload one tick so the caller's `throw` below still
-      // fires — otherwise React/Svelte error boundaries never see it.
+    // Session expired or credentials rotated — force a full reload so
+    // AuthGate re-renders and prompts. The auth-info probe itself must
+    // NOT trigger the reload since AuthGate calls it first at boot;
+    // the login endpoint is also excluded so a wrong-password attempt
+    // doesn't infinite-loop.
+    if (
+      typeof window !== 'undefined' &&
+      !url.includes('/api/auth/info') &&
+      !url.includes('/api/auth/login')
+    ) {
       setTimeout(() => window.location.reload(), 0);
     }
   }
@@ -86,30 +86,26 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
-/**
- * Verify an entered API key by calling an authenticated endpoint with
- * it in the Bearer header directly — bypassing the localStorage lookup
- * in `request()` (which auto-clears the stored key on 401 and would
- * wipe a good key while we're still probing a candidate one). Returns
- * true when the daemon accepts the key, false otherwise.
- */
-export async function verifyApiKey(candidate: string): Promise<boolean> {
-  try {
-    const res = await fetch('/api/config/status', {
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${candidate}`,
-      },
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
 // Health & Status
 export const api = {
-  getAuthInfo: () => request<{ authRequired: boolean }>('/api/auth/info'),
+  // Auth
+  getAuthInfo: () =>
+    request<{ loginRequired: boolean; apiKeyRequired: boolean; authRequired: boolean }>(
+      '/api/auth/info',
+    ),
+  login: (password: string) =>
+    request<{ success: true }>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    }),
+  logout: () =>
+    request<{ success: true }>('/api/auth/logout', { method: 'POST' }),
+  changePassword: (oldPassword: string, newPassword: string) =>
+    request<{ success: true }>('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ oldPassword, newPassword }),
+    }),
+
   getStatus: () => request<ServerStatus>('/api/status'),
 
   // Serial
