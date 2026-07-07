@@ -22,7 +22,7 @@ import {
 } from './utils/disk-image-validation';
 import { TerminalSerialManager } from './terminal-serial';
 import { BaudRate, MAX_DRIVES } from './protocol';
-import { CpmFilesystem } from './cpm-filesystem';
+import { CpmFilesystem, paramsForFormat, inferFormatFromSize } from './cpm-filesystem';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
@@ -626,6 +626,63 @@ export function createMcpServer(deps: Dependencies): McpServer {
           content: [{
             type: 'text',
             text: JSON.stringify({ success: true, deleted: filename }, null, 2),
+          }],
+        };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  // ===========================================================================
+  // Tool 13b: format_disk_image
+  // ===========================================================================
+
+  server.tool(
+    'format_disk_image',
+    'Erase a disk image and lay down a fresh, empty CP/M filesystem. Destroys ALL data on the image. Fails if the image is mounted on any drive. Omit `format` to keep the image\'s current geometry.',
+    {
+      filename: z.string().describe('Disk image filename to format (e.g. cpm22.dsk)'),
+      format: z.enum(['8inch', 'minidisk', '8mb']).optional()
+        .describe('Target format. Omit to infer from the current image size (keeps existing geometry).'),
+    },
+    async ({ filename, format }) => {
+      try {
+        if (!filename || filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
+          throw new Error('Invalid filename');
+        }
+
+        // Refuse if mounted anywhere — same guard as delete_disk_image
+        // and the HTTP reformat route.
+        const mountedDrive = isDiskMounted(deps, filename);
+        if (mountedDrive !== false) {
+          throw new Error(`Cannot format: disk image is mounted on drive ${mountedDrive}. Unmount it first.`);
+        }
+
+        const filePath = safeResolvePath(deps.config.disksDir, filename);
+        if (!filePath) {
+          throw new Error(`Disk image not found: ${filename}`);
+        }
+
+        // Explicit format wins; otherwise infer from current size so a
+        // reformat preserves the image's existing geometry.
+        let fmt = format as string | undefined;
+        if (!fmt) {
+          const stats = await fs.stat(filePath);
+          fmt = inferFormatFromSize(stats.size) ?? undefined;
+        }
+        const params = fmt ? paramsForFormat(fmt) : null;
+        if (!params) {
+          throw new Error('Could not determine disk format from size — pass format explicitly: 8inch, minidisk, or 8mb.');
+        }
+
+        const image = CpmFilesystem.formatImage(params);
+        await fs.writeFile(filePath, image);
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({ success: true, filename, format: fmt, size: image.length }, null, 2),
           }],
         };
       } catch (error) {

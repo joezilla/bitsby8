@@ -13,32 +13,7 @@ import {
   detectForbiddenMagic,
 } from '../utils/disk-image-validation';
 import { MAX_DRIVES } from '../protocol';
-import { CpmFilesystem, PARAMS_8INCH, PARAMS_MINIDISK, type CpmDiskParams } from '../cpm-filesystem';
-
-// Map a create-image `format` value to the disk-parameter block used
-// by CpmFilesystem.formatImage(). Keeps the enum → params translation
-// in one place so the create and reformat routes stay consistent.
-function paramsForFormat(format: string): CpmDiskParams | null {
-  switch (format) {
-    case '8inch':
-      return PARAMS_8INCH;
-    case 'minidisk':
-      return PARAMS_MINIDISK;
-    case '8mb':
-      // 8 MB hard-disk uses 4K blocks and 16-bit block pointers.
-      // Values mirror altair_tools' 8megAltairSIMH definition.
-      return {
-        seclen: 128,
-        tracks: 2048,
-        sectrk: 32,
-        blocksize: 4096,
-        maxdir: 1024,
-        boottrk: 6,
-      };
-    default:
-      return null;
-  }
-}
+import { CpmFilesystem, paramsForFormat, inferFormatFromSize } from '../cpm-filesystem';
 
 export function registerImageRoutes(router: Router, deps: Dependencies): void {
   /**
@@ -546,9 +521,7 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
       let format: string | undefined = req.body?.format;
       if (!format) {
         const stats = await fs.stat(filePath);
-        if (stats.size >= 74528 && stats.size <= 74624) format = 'minidisk';
-        else if (stats.size >= 337568 && stats.size <= 337664) format = '8inch';
-        else if (stats.size >= 8000000) format = '8mb';
+        format = inferFormatFromSize(stats.size) ?? undefined;
       }
       const params = format ? paramsForFormat(format) : null;
       if (!params) {
