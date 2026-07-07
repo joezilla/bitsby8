@@ -1122,6 +1122,96 @@ export function createMcpServer(deps: Dependencies): McpServer {
   );
 
   // ===========================================================================
+  // Tool 25b: read_script
+  // ===========================================================================
+
+  server.tool(
+    'read_script',
+    'Read a script file from the scripts directory. Returns the text for .txt scripts; other (binary) scripts return metadata only.',
+    {
+      scriptName: z.string().describe('Script filename to read (e.g. boot.txt)'),
+    },
+    async ({ scriptName }) => {
+      try {
+        if (!scriptName || scriptName.includes('/') || scriptName.includes('\\') || scriptName.includes('..')) {
+          throw new Error('Invalid script name');
+        }
+        const filePath = safeResolvePath(deps.config.scriptsDir, scriptName);
+        if (!filePath) {
+          throw new Error(`Script not found: ${scriptName}`);
+        }
+        const stat = await fs.stat(filePath);
+        // Mirror the HTTP GET semantics: text content only for .txt;
+        // binary scripts return metadata (their bytes are meant to be
+        // sent via raw/xmodem replay, not read as text).
+        if (scriptName.endsWith('.txt')) {
+          const content = await fs.readFile(filePath, 'utf-8');
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({ name: scriptName, size: stat.size, binary: false, content }, null, 2),
+            }],
+          };
+        }
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              name: scriptName,
+              size: stat.size,
+              binary: true,
+              note: 'Binary script — content not returned. Send it with start_replay (raw or xmodem).',
+            }, null, 2),
+          }],
+        };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  // ===========================================================================
+  // Tool 25c: write_script
+  // ===========================================================================
+
+  server.tool(
+    'write_script',
+    'Create or overwrite a text script in the scripts directory. Refuses to clobber an existing script unless overwrite is true. Binary scripts must be uploaded over HTTP, not written here.',
+    {
+      scriptName: z.string().describe('Script filename to write (e.g. boot.txt)'),
+      content: z.string().describe('UTF-8 text content of the script'),
+      overwrite: z.boolean().optional().describe('Set true to replace an existing script (default false)'),
+    },
+    async ({ scriptName, content, overwrite }) => {
+      try {
+        if (!scriptName || scriptName.includes('/') || scriptName.includes('\\') || scriptName.includes('..')) {
+          throw new Error('Invalid script name');
+        }
+        await fs.mkdir(deps.config.scriptsDir, { recursive: true });
+        const filePath = path.join(deps.config.scriptsDir, scriptName);
+        const existed = existsSync(filePath);
+        if (existed && !overwrite) {
+          throw new Error(`Script already exists: ${scriptName}. Pass overwrite=true to replace it.`);
+        }
+        await fs.writeFile(filePath, content ?? '', 'utf-8');
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              name: scriptName,
+              bytes: Buffer.byteLength(content ?? '', 'utf-8'),
+              created: !existed,
+            }, null, 2),
+          }],
+        };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  // ===========================================================================
   // Tool 26: start_replay
   // ===========================================================================
 
