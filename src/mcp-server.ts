@@ -1183,10 +1183,10 @@ export function createMcpServer(deps: Dependencies): McpServer {
 
   server.tool(
     'send_to_terminal',
-    'Send text to the Altair 8800 via the terminal serial port. Line endings are converted before sending — default is CR (0x0D) which CP/M requires to execute a command.',
+    'Send text to the Altair 8800 via the terminal serial port. A CR (0x0D) is appended automatically so CP/M executes the command — send "DIR", not "DIR\\n". Use lineEnding="raw" to suppress all conversion.',
     {
-      text: z.string().describe('Text to send to the terminal'),
-      lineEnding: z.enum(['cr', 'lf', 'crlf', 'raw']).optional().describe('Line ending conversion: cr (default, CP/M), lf, crlf, raw (no conversion)'),
+      text: z.string().describe('Text to send (e.g. "DIR"). A line terminator is appended automatically unless lineEnding is "raw".'),
+      lineEnding: z.enum(['cr', 'lf', 'crlf', 'raw']).optional().describe('Line ending mode: cr (default, CP/M), lf, crlf, raw (no conversion, no append)'),
     },
     async ({ text, lineEnding }) => {
       try {
@@ -1194,7 +1194,21 @@ export function createMcpServer(deps: Dependencies): McpServer {
           throw new Error('Terminal serial port is not open');
         }
 
-        const buf = convertLineEndings(Buffer.from(text), (lineEnding ?? 'cr') as LineEnding);
+        const mode = (lineEnding ?? 'cr') as LineEnding;
+        let buf = convertLineEndings(Buffer.from(text), mode);
+
+        // Ensure the buffer ends with the target line terminator so bare commands
+        // like "DIR" are executed by CP/M (convertLineEndings only converts existing
+        // newlines — it does not append one when the text has no trailing newline).
+        if (mode !== 'raw') {
+          const terminator = mode === 'lf'   ? Buffer.from([0x0A])
+                           : mode === 'crlf' ? Buffer.from([0x0D, 0x0A])
+                           :                   Buffer.from([0x0D]);
+          if (!buf.slice(-terminator.length).equals(terminator)) {
+            buf = Buffer.concat([buf, terminator]);
+          }
+        }
+
         await deps.terminalManager.write(buf);
 
         return {
