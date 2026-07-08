@@ -7,6 +7,12 @@
  * `writePartialConfig`, which does atomic tmp+rename + rotation.
  */
 
+// Prevent the CI systemd environment (INVOCATION_ID set) from leaking into tests
+jest.mock('../src/services/restart-manager', () => ({
+  isSystemdManaged: jest.fn(() => false),
+  scheduleRestart: jest.fn(),
+}));
+
 import express from 'express';
 import request from 'supertest';
 import * as fs from 'fs/promises';
