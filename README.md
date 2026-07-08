@@ -48,7 +48,7 @@ A TypeScript implementation of an FDC+ Serial Disk Server. It speaks the FDC+ wi
 - Cross-platform support (Linux + macOS tested; Windows untested)
 - **Svelte 5 + Tailwind 4 web interface** with real-time Socket.IO status updates
 - **VT102 terminal emulator** for a second serial port (with optional CRT phosphor mode)
-- **MCP server** with 32 tools for AI assistant integration — local (stdio) and remote (HTTP with bearer auth); see [AI Assistant Integration](#ai-assistant-integration-mcp)
+- **MCP server** with 38 tools for AI assistant integration — local (stdio) and remote (HTTP with bearer auth); see [AI Assistant Integration](#ai-assistant-integration-mcp)
 - **GPIO LED status indicators** for Raspberry Pi
 - **OpenAPI/Swagger documentation** at `/api/docs` (also committed as [`openapi.json`](openapi.json))
 - SQLite database with WAL mode for persistent state
@@ -128,7 +128,7 @@ frontend/                  # Svelte 5 + Vite + Tailwind 4 SPA
 - **routes/**: 11 Express route modules covering drives, images, cassettes, scripts, terminal, etc.
 - **services/**: Business logic separated from HTTP handling (status, transfers, audio, file listing)
 - **middleware/**: Security (Helmet, CORS, rate limiting), API key auth, and static file serving
-- **mcp-server.ts** / **mcp-http.ts**: MCP server exposing 32 tools for AI assistant integration. `mcp-server.ts` builds the tool registry; `mcp-http.ts` mounts the Streamable HTTP transport on the web server (opt-in). Stdio transport is served from `mcp-server.ts` directly via `--mcp`. See [AI Assistant Integration](#ai-assistant-integration-mcp).
+- **mcp-server.ts** / **mcp-http.ts**: MCP server exposing 38 tools for AI assistant integration. `mcp-server.ts` builds the tool registry; `mcp-http.ts` mounts the Streamable HTTP transport on the web server (opt-in). Stdio transport is served from `mcp-server.ts` directly via `--mcp`. See [AI Assistant Integration](#ai-assistant-integration-mcp).
 - **frontend/**: Modern Svelte 5 SPA with real-time Socket.IO updates, xterm.js terminal, and retro CRT mode
 
 ---
@@ -528,14 +528,14 @@ The web interface uses Socket.IO for real-time updates.
 
 ## AI Assistant Integration (MCP)
 
-The server ships a [Model Context Protocol](https://modelcontextprotocol.io/) server that exposes **32 tools** to MCP-compatible assistants (Claude Desktop, Claude Code, etc.). Two transports are supported and mutually opt-in:
+The server ships a [Model Context Protocol](https://modelcontextprotocol.io/) server that exposes **38 tools** to MCP-compatible assistants (Claude Desktop, Claude Code, etc.). Two transports are supported and mutually opt-in:
 
 | Transport | When to use | Auth | Enable with |
 |---|---|---|---|
 | **stdio** | Assistant runs on the same machine as `fdcsds` | None (parent process trust) | `fdcsds --mcp` (blocks; not the web server) |
 | **HTTP (Streamable)** | Assistant runs elsewhere on the LAN and connects over the network | Bearer token (required — refuses to enable without an API key) | `--mcp-http`, `enableMcpHttp: true` in the config file, or the Config page toggle |
 
-### Tool surface (32 tools, by category)
+### Tool surface (38 tools, by category)
 
 | Category | Capabilities (examples) |
 |---|---|
@@ -543,7 +543,7 @@ The server ships a [Model Context Protocol](https://modelcontextprotocol.io/) se
 | **Drives** | `list_drives`, `mount_disk`, `unmount_disk`, `set_drive_readonly` |
 | **Disk images** | `list_disk_images`, `create_disk_image`, `clone_disk_image`, `delete_disk_image`, `upload_disk_image` |
 | **CP/M filesystem** | `list_cpm_files`, `read_cpm_file`, `write_cpm_file`, `write_cpm_file_from_upload`, `list_uploads`, `delete_cpm_file`, `format_cpm_disk` |
-| **Terminal serial** | `list_terminal_ports`, `open_terminal`, `close_terminal`, `send_to_terminal` |
+| **Terminal serial** | `list_terminal_ports`, `open_terminal`, `close_terminal`, `send_to_terminal`, `read_terminal_output`, `run_terminal_command`, `clear_terminal_buffer` |
 | **Replay / transfer** | `start_replay`, `cancel_replay`, `list_scripts` |
 | **Cassettes** | `list_cassettes`, `play_cassette`, `stop_cassette` |
 | **Configuration** | `configure_serial`, `enable_disk_serving`, `disable_disk_serving` |
