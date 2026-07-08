@@ -61,8 +61,12 @@ export function closeAllMcpSessions(): void {
 }
 
 export function registerMcpRoutes(router: Router, deps: Dependencies): void {
-  const guard = (_req: Request, res: Response, next: () => void): void => {
+  const guard = (req: Request, res: Response, next: () => void): void => {
     if (!mcpEnabled) {
+      log.warn(
+        { method: req.method, path: req.path },
+        'MCP request rejected — transport disabled (set enableMcpHttp + apiKey)',
+      );
       res.status(503).json({ error: 'MCP HTTP transport is disabled.' });
       return;
     }

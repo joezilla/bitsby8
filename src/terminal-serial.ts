@@ -45,6 +45,10 @@ export class TerminalSerialManager {
   private closeCallback: (() => void) | null;
   private drainInProgress: boolean;
   private _verbose: boolean;
+  private mcpRxChunks: Buffer[];
+  private mcpRxSize: number;
+  private readonly MCP_BUFFER_MAX = 16384;
+  private mcpDataListeners: ((data: Buffer) => void)[];
 
   constructor() {
     this.port = null;
@@ -58,6 +62,9 @@ export class TerminalSerialManager {
     this.closeCallback = null;
     this.drainInProgress = false;
     this._verbose = false;
+    this.mcpRxChunks = [];
+    this.mcpRxSize = 0;
+    this.mcpDataListeners = [];
   }
 
   /**
@@ -162,6 +169,14 @@ export class TerminalSerialManager {
         // Blink RX LED
         getGpioLedController().updateTerminalRx();
 
+        // MCP tap: always buffer incoming bytes and notify MCP waiters
+        this.mcpRxChunks.push(data);
+        this.mcpRxSize += data.length;
+        while (this.mcpRxSize > this.MCP_BUFFER_MAX && this.mcpRxChunks.length > 0) {
+          this.mcpRxSize -= this.mcpRxChunks.shift()!.length;
+        }
+        for (const fn of this.mcpDataListeners) fn(data);
+
         if (this.dataInterceptor) {
           this.dataInterceptor(data);
         } else if (this.dataCallback) {
@@ -200,6 +215,7 @@ export class TerminalSerialManager {
           reject(error);
         } else {
           this.port = null;
+          this.clearMcpBuffer();
           // Update GPIO connected status
           getGpioLedController().updateTerminalConnected(false);
           resolve();
@@ -365,6 +381,23 @@ export class TerminalSerialManager {
    */
   clearDataInterceptor(): void {
     this.dataInterceptor = null;
+  }
+
+  readMcpBuffer(): Buffer {
+    return Buffer.concat(this.mcpRxChunks);
+  }
+
+  clearMcpBuffer(): void {
+    this.mcpRxChunks = [];
+    this.mcpRxSize = 0;
+  }
+
+  addMcpDataListener(fn: (data: Buffer) => void): void {
+    this.mcpDataListeners.push(fn);
+  }
+
+  removeMcpDataListener(fn: (data: Buffer) => void): void {
+    this.mcpDataListeners = this.mcpDataListeners.filter(l => l !== fn);
   }
 
   /**

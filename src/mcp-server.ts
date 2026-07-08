@@ -13,6 +13,7 @@ import { getStatus, getDrivesStatus, getTerminalStatus } from './services/status
 import { enableDiskServing, disableDiskServing, broadcastStatus } from './services/disk-serving';
 import { listDiskImagesWithDetails, listCassettesWithDetails } from './services/file-listing';
 import { startRawReplay, startXmodemSend, cancelActiveTransfer } from './services/transfer';
+import { convertLineEndings, LineEnding } from './replay-engine';
 import { safeResolvePath } from './utils/safe-path';
 import {
   DISK_IMAGE_EXTENSIONS,
@@ -1182,24 +1183,26 @@ export function createMcpServer(deps: Dependencies): McpServer {
 
   server.tool(
     'send_to_terminal',
-    'Send text to the Altair 8800 via the terminal serial port',
+    'Send text to the Altair 8800 via the terminal serial port. Line endings are converted before sending — default is CR (0x0D) which CP/M requires to execute a command.',
     {
       text: z.string().describe('Text to send to the terminal'),
+      lineEnding: z.enum(['cr', 'lf', 'crlf', 'raw']).optional().describe('Line ending conversion: cr (default, CP/M), lf, crlf, raw (no conversion)'),
     },
-    async ({ text }) => {
+    async ({ text, lineEnding }) => {
       try {
         if (!deps.terminalManager.isOpen()) {
           throw new Error('Terminal serial port is not open');
         }
 
-        await deps.terminalManager.write(Buffer.from(text));
+        const buf = convertLineEndings(Buffer.from(text), (lineEnding ?? 'cr') as LineEnding);
+        await deps.terminalManager.write(buf);
 
         return {
           content: [{
             type: 'text',
             text: JSON.stringify({
               success: true,
-              bytesSent: Buffer.from(text).length,
+              bytesSent: buf.length,
             }, null, 2),
           }],
         };
@@ -1210,7 +1213,82 @@ export function createMcpServer(deps: Dependencies): McpServer {
   );
 
   // ===========================================================================
-  // Tool 25: list_scripts
+  // Tool 25: clear_terminal_buffer
+  // ===========================================================================
+
+  server.tool(
+    'clear_terminal_buffer',
+    'Clear the MCP terminal receive buffer. Call this before sending a command so read_terminal_output only returns output from that command.',
+    async () => {
+      try {
+        deps.terminalManager.clearMcpBuffer();
+        return { content: [{ type: 'text', text: JSON.stringify({ success: true }) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  // ===========================================================================
+  // Tool 26: read_terminal_output
+  // ===========================================================================
+
+  server.tool(
+    'read_terminal_output',
+    'Read bytes received from the Altair terminal serial port. Optionally waits for output to arrive and settle. Typical agentic flow: clear_terminal_buffer → send_to_terminal → read_terminal_output(waitMs=5000).',
+    {
+      clearFirst: z.boolean().optional().describe('Flush the buffer before waiting (default false)'),
+      waitMs: z.number().min(0).max(30000).optional().describe('Total milliseconds to wait for output (default 0 = return immediately)'),
+      idleMs: z.number().min(50).max(10000).optional().describe('Settle time: return once no new bytes arrive for this many ms (default 500)'),
+    },
+    async ({ clearFirst, waitMs, idleMs }) => {
+      try {
+        if (clearFirst) deps.terminalManager.clearMcpBuffer();
+
+        if (waitMs && waitMs > 0) {
+          const settle = idleMs ?? 500;
+          let tap: ((data: Buffer) => void) | null = null;
+          await new Promise<void>((resolve) => {
+            let idleTimer: ReturnType<typeof setTimeout> | null = null;
+            const hardTimer = setTimeout(() => {
+              if (idleTimer) clearTimeout(idleTimer);
+              resolve();
+            }, waitMs);
+
+            const resetIdle = () => {
+              if (idleTimer) clearTimeout(idleTimer);
+              idleTimer = setTimeout(() => {
+                clearTimeout(hardTimer);
+                resolve();
+              }, settle);
+            };
+
+            tap = () => resetIdle();
+            deps.terminalManager.addMcpDataListener(tap);
+            resetIdle();
+          });
+          if (tap) deps.terminalManager.removeMcpDataListener(tap);
+        }
+
+        const raw = deps.terminalManager.readMcpBuffer();
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              bytes: raw.length,
+              output: raw.toString('latin1'),
+            }, null, 2),
+          }],
+        };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  // ===========================================================================
+  // Tool 27: list_scripts
   // ===========================================================================
 
   server.tool(
