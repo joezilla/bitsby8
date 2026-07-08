@@ -22,6 +22,7 @@ import {
   detectForbiddenMagic,
 } from './utils/disk-image-validation';
 import { TerminalSerialManager } from './terminal-serial';
+import { compileUntil, waitForTerminalOutput } from './mcp-terminal-wait';
 import { BaudRate, MAX_DRIVES } from './protocol';
 import { CpmFilesystem, paramsForFormat, inferFormatFromSize } from './cpm-filesystem';
 import * as path from 'path';
@@ -1183,7 +1184,11 @@ export function createMcpServer(deps: Dependencies): McpServer {
 
   server.tool(
     'send_to_terminal',
-    'Send text to the Altair 8800 via the terminal serial port. A CR (0x0D) is appended automatically so CP/M executes the command — send "DIR", not "DIR\\n". Use lineEnding="raw" to suppress all conversion.',
+    [
+      'Send text to the Altair 8800 via the terminal serial port. A CR (0x0D) is appended automatically so CP/M executes the command — send "DIR", not "DIR\\n". Use lineEnding="raw" to suppress all conversion.',
+      '',
+      'For most workflows prefer `run_terminal_command`, which sends and waits for the next prompt in a single round trip.',
+    ].join('\n'),
     {
       text: z.string().describe('Text to send (e.g. "DIR"). A line terminator is appended automatically unless lineEnding is "raw".'),
       lineEnding: z.enum(['cr', 'lf', 'crlf', 'raw']).optional().describe('Line ending mode: cr (default, CP/M), lf, crlf, raw (no conversion, no append)'),
@@ -1249,49 +1254,110 @@ export function createMcpServer(deps: Dependencies): McpServer {
 
   server.tool(
     'read_terminal_output',
-    'Read bytes received from the Altair terminal serial port. Optionally waits for output to arrive and settle. Typical agentic flow: clear_terminal_buffer → send_to_terminal → read_terminal_output(waitMs=5000).',
+    [
+      'Read bytes received from the Altair terminal serial port. Returns as soon as any of these fires (whichever comes first):',
+      '  • the buffer matches `until` (or the default CP/M/BASIC prompt regex when `awaitPrompt=true`)',
+      '  • no new bytes arrive for `idleMs`',
+      '  • `waitMs` elapses (hard safety cap).',
+      '',
+      'Prefer `awaitPrompt=true` over guessing waitMs — the tool returns the instant `A>`, `Ok`, or `READY` reappears, so simple commands finish in tens of ms instead of a fixed budget.',
+      '',
+      'Typical flow: `send_to_terminal("DIR")` → `read_terminal_output({ clearFirst: false, awaitPrompt: true })`. Or use the compound `run_terminal_command` in a single call.',
+    ].join('\n'),
     {
       clearFirst: z.boolean().optional().describe('Flush the buffer before waiting (default false)'),
-      waitMs: z.number().min(0).max(30000).optional().describe('Total milliseconds to wait for output (default 0 = return immediately)'),
-      idleMs: z.number().min(50).max(10000).optional().describe('Settle time: return once no new bytes arrive for this many ms (default 500)'),
+      waitMs: z.number().min(0).max(30000).optional().describe('Hard safety cap in ms. Default 0 when no matcher is set (returns immediately); 5000 when `awaitPrompt` or `until` is set.'),
+      idleMs: z.number().min(50).max(10000).optional().describe('Return once no new bytes arrive for this many ms. Default 200.'),
+      awaitPrompt: z.boolean().optional().describe('Return as soon as a CP/M `A>`..`P>`, MBASIC `Ok`, or `READY` prompt appears. Preferred over guessing waitMs.'),
+      until: z.string().optional().describe('Explicit regex to match against the accumulated buffer. Overrides `awaitPrompt` when both are set.'),
     },
-    async ({ clearFirst, waitMs, idleMs }) => {
+    async ({ clearFirst, waitMs, idleMs, awaitPrompt, until }) => {
       try {
         if (clearFirst) deps.terminalManager.clearMcpBuffer();
 
-        if (waitMs && waitMs > 0) {
-          const settle = idleMs ?? 500;
-          let tap: ((data: Buffer) => void) | null = null;
-          await new Promise<void>((resolve) => {
-            let idleTimer: ReturnType<typeof setTimeout> | null = null;
-            const hardTimer = setTimeout(() => {
-              if (idleTimer) clearTimeout(idleTimer);
-              resolve();
-            }, waitMs);
+        const untilRe = until ? compileUntil(until) : undefined;
+        const { output, matched, reason } = await waitForTerminalOutput(deps.terminalManager, {
+          waitMs,
+          idleMs,
+          awaitPrompt,
+          until: untilRe,
+        });
 
-            const resetIdle = () => {
-              if (idleTimer) clearTimeout(idleTimer);
-              idleTimer = setTimeout(() => {
-                clearTimeout(hardTimer);
-                resolve();
-              }, settle);
-            };
-
-            tap = () => resetIdle();
-            deps.terminalManager.addMcpDataListener(tap);
-            resetIdle();
-          });
-          if (tap) deps.terminalManager.removeMcpDataListener(tap);
-        }
-
-        const raw = deps.terminalManager.readMcpBuffer();
         return {
           content: [{
             type: 'text',
             text: JSON.stringify({
               success: true,
-              bytes: raw.length,
-              output: raw.toString('latin1'),
+              bytes: output.length,
+              matched,
+              reason,
+              output: output.toString('latin1'),
+            }, null, 2),
+          }],
+        };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  // ===========================================================================
+  // Tool 26b: run_terminal_command
+  // ===========================================================================
+
+  server.tool(
+    'run_terminal_command',
+    [
+      'Compound helper: clear buffer, send `text` to the terminal (CR appended by default), wait for the next prompt, and return the captured output. One round trip instead of three.',
+      '',
+      'Defaults are tuned for interactive CP/M — `awaitPrompt=true`, `waitMs=5000`, `idleMs=200`. Bump `waitMs` for long-running programs (SURVEY, disk-heavy operations); pass `awaitPrompt=false` for fire-and-forget writes.',
+    ].join('\n'),
+    {
+      text: z.string().describe('Command to send (e.g. "DIR"). Line terminator is appended automatically unless lineEnding is "raw".'),
+      lineEnding: z.enum(['cr', 'lf', 'crlf', 'raw']).optional().describe('Line ending mode: cr (default, CP/M), lf, crlf, raw (no conversion, no append)'),
+      waitMs: z.number().min(0).max(30000).optional().describe('Hard safety cap in ms. Default 5000.'),
+      idleMs: z.number().min(50).max(10000).optional().describe('Return once no new bytes arrive for this many ms. Default 200.'),
+      awaitPrompt: z.boolean().optional().describe('Return as soon as a CP/M `A>`..`P>`, MBASIC `Ok`, or `READY` prompt appears. Default true.'),
+      until: z.string().optional().describe('Explicit regex to match against the accumulated buffer. Overrides `awaitPrompt`.'),
+    },
+    async ({ text, lineEnding, waitMs, idleMs, awaitPrompt, until }) => {
+      try {
+        if (!deps.terminalManager.isOpen()) {
+          throw new Error('Terminal serial port is not open');
+        }
+
+        const mode = (lineEnding ?? 'cr') as LineEnding;
+        let buf = convertLineEndings(Buffer.from(text), mode);
+        if (mode !== 'raw') {
+          const terminator = mode === 'lf'   ? Buffer.from([0x0A])
+                           : mode === 'crlf' ? Buffer.from([0x0D, 0x0A])
+                           :                   Buffer.from([0x0D]);
+          if (!buf.slice(-terminator.length).equals(terminator)) {
+            buf = Buffer.concat([buf, terminator]);
+          }
+        }
+
+        deps.terminalManager.clearMcpBuffer();
+        await deps.terminalManager.write(buf);
+
+        const untilRe = until ? compileUntil(until) : undefined;
+        const { output, matched, reason } = await waitForTerminalOutput(deps.terminalManager, {
+          waitMs,
+          idleMs,
+          awaitPrompt: awaitPrompt ?? true,
+          until: untilRe,
+        });
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              bytesSent: buf.length,
+              bytes: output.length,
+              matched,
+              reason,
+              output: output.toString('latin1'),
             }, null, 2),
           }],
         };
