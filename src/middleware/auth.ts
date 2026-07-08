@@ -24,6 +24,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { timingSafeEqual } from 'crypto';
 import { SessionStore } from '../services/session-store';
+import { createLogger } from '../logger';
+
+const log = createLogger('mcp-auth');
 
 const AUTH_WHITELIST = new Set([
   '/api/auth/info',
@@ -88,6 +91,7 @@ export function createBearerOnlyAuth(getApiKey: () => string | null | undefined)
       next();
       return;
     }
+    log.warn({ ip: req.ip, path: req.originalUrl }, 'MCP bearer auth failed — bad or missing token');
     res
       .status(401)
       .json({ error: 'Authentication required. Provide Authorization: Bearer <api-key>' });

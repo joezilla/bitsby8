@@ -187,7 +187,9 @@ export class WebServer {
     this.app.use('/mcp', express.json({ limit: mcpBodyLimit }));
     registerMcpRoutes(this.app as any, this.deps);
     const apiKey = this.deps.runtimeConfig?.apiKey ?? null;
-    setMcpHttpEnabled(!!apiKey && !!this.deps.runtimeConfig?.enableMcpHttp);
+    const mcpEnabled = !!apiKey && !!this.deps.runtimeConfig?.enableMcpHttp;
+    setMcpHttpEnabled(mcpEnabled);
+    log.info({ mcpHttpEnabled: mcpEnabled }, 'MCP HTTP transport state');
 
     // WebSocket handlers
     setupWebSocket(this.io, this.deps);
