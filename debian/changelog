@@ -1,3 +1,14 @@
+fdcsds (2.0.1-4) unstable; urgency=medium
+
+  * MCP: HTTP transport support (SSE + streamable HTTP) alongside existing
+    stdio transport.
+  * Terminal: key-mapping settings modal with persistent configuration.
+  * MCP: send_to_terminal now appends CR when text has no trailing newline.
+  * Marked as `unstable` because this is a release candidate; will be
+    promoted to `stable` for the 2.0.1 final tag.
+
+ -- Joe Toppe <mreppot@gmail.com>  Tue, 08 Jul 2026 00:00:00 +0000
+
 fdcsds (2.0.1-3) unstable; urgency=medium
 
   * Same feature set as rc2 — this rebuild only exists because the rc2
