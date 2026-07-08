@@ -52,6 +52,9 @@ export const TerminalSchema = z.object({
   terminalPort: z.string().optional(),
   terminalBaud: z.number().int().positive().optional(),
   terminalAutoconnect: z.boolean().optional(),
+  terminalBackspaceMode: z.enum(['del', 'bs']).optional(),
+  terminalLocalEcho: z.boolean().optional(),
+  terminalCrMode: z.enum(['cr', 'crlf']).optional(),
 });
 
 export const LoggingSchema = z.object({

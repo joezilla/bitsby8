@@ -144,6 +144,9 @@ export interface TerminalSection {
   terminalPort?: string;
   terminalBaud?: number;
   terminalAutoconnect?: boolean;
+  terminalBackspaceMode?: 'del' | 'bs';
+  terminalLocalEcho?: boolean;
+  terminalCrMode?: 'cr' | 'crlf';
 }
 
 export interface LoggingSection {
