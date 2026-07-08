@@ -34,6 +34,15 @@
   let isConnected = $derived($terminalStatus?.connected ?? false);
   let isFullscreen = $state(false);
 
+  // Key mapping settings (loaded from config, saved via PUT /api/config/terminal)
+  let showSettings = $state(false);
+  let keySettings = $state({
+    backspaceMode: 'del' as 'del' | 'bs',
+    localEcho: false,
+    crMode: 'cr' as 'cr' | 'crlf',
+  });
+  let settingsSaving = $state(false);
+
   // CRT mode — off / amber / green (per new design)
   type CrtMode = 'off' | 'amber' | 'green';
   let crtMode = $state<CrtMode>('off');
@@ -142,9 +151,11 @@
     }
 
     term.onData((data) => {
-      if ($terminalStatus?.connected) {
-        socket.emit('terminal:write', data);
-      }
+      let out = data;
+      if (keySettings.backspaceMode === 'bs' && data === '\x7f') out = '\x08';
+      if (keySettings.crMode === 'crlf' && data === '\r') out = '\r\n';
+      if ($terminalStatus?.connected) socket.emit('terminal:write', out);
+      if (keySettings.localEcho) term?.write(out);
     });
 
     const handleData = (data: number[]) => {
@@ -158,6 +169,11 @@
     resizeObserver.observe(containerEl);
 
     loadPorts();
+    api.getConfig().then((config) => {
+      if (config.terminalBackspaceMode) keySettings.backspaceMode = config.terminalBackspaceMode;
+      if (config.terminalLocalEcho !== undefined) keySettings.localEcho = config.terminalLocalEcho;
+      if (config.terminalCrMode) keySettings.crMode = config.terminalCrMode;
+    }).catch(() => { /* silent — use defaults */ });
 
     const unsub = terminalStatus.subscribe((status) => {
       if (status?.preferred?.port && !selectedPort) {
@@ -216,6 +232,23 @@
 
   function clearTerminal() {
     term?.clear();
+  }
+
+  async function saveSettings() {
+    settingsSaving = true;
+    try {
+      await api.putTerminalConfig({
+        terminalBackspaceMode: keySettings.backspaceMode,
+        terminalLocalEcho: keySettings.localEcho,
+        terminalCrMode: keySettings.crMode,
+      });
+      showSettings = false;
+      showToast('Terminal settings saved', 'success');
+    } catch (e: any) {
+      showToast(e.message || 'Save failed', 'error');
+    } finally {
+      settingsSaving = false;
+    }
   }
 
   function toggleFullscreen() {
@@ -351,6 +384,7 @@
     </div>
 
     <Button variant="ghost" size="sm" icon="cleaning_services" onclick={clearTerminal}>Clear</Button>
+    <IconButton icon="settings" size={18} title="Terminal settings" onclick={() => (showSettings = true)} />
     <IconButton icon={isFullscreen ? 'fullscreen_exit' : 'fullscreen'} size={18} title="Toggle fullscreen" onclick={toggleFullscreen} />
     {#if isConnected}
       <Button variant="filled" size="sm" icon="link_off" onclick={disconnect}>Disconnect</Button>
@@ -455,6 +489,66 @@
     </div>
   </div>
 </div>
+
+{#if showSettings}
+  <div role="dialog" aria-modal="true" style="position: fixed; inset: 0; z-index: 200;">
+    <button
+      type="button"
+      aria-label="Close settings"
+      onclick={() => (showSettings = false)}
+      style="position: absolute; inset: 0; background: rgba(0,0,0,0.5); border: none; cursor: default;"
+    ></button>
+    <div
+      role="document"
+      style="
+        position: absolute;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        background: var(--surface);
+        border: 1px solid var(--border-1);
+        border-radius: var(--radius-lg);
+        padding: 24px;
+        width: 380px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      "
+    >
+      <h3 style="margin: 0; font-size: 15px; font-weight: 600;">Terminal Key Settings</h3>
+
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <span style="font-size: 12px; color: var(--fg-2); font-weight: 500;">Backspace key sends</span>
+        <Select bind:value={keySettings.backspaceMode}>
+          <option value="del">DEL (0x7F) — xterm default</option>
+          <option value="bs">BS / CTRL-H (0x08) — CP/M compatible</option>
+        </Select>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <span style="font-size: 12px; color: var(--fg-2); font-weight: 500;">Enter key sends</span>
+        <Select bind:value={keySettings.crMode}>
+          <option value="cr">CR (0x0D) — standard</option>
+          <option value="crlf">CR+LF (0x0D 0x0A)</option>
+        </Select>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <input type="checkbox" id="localEcho" bind:checked={keySettings.localEcho} />
+        <label for="localEcho" style="font-size: 13px; cursor: pointer;">
+          Local echo
+          <span style="font-size: 11px; color: var(--fg-3);">(only if remote does not echo)</span>
+        </label>
+      </div>
+
+      <div style="display: flex; gap: 8px; justify-content: flex-end;">
+        <Button variant="ghost" size="sm" onclick={() => (showSettings = false)}>Cancel</Button>
+        <Button variant="filled" size="sm" onclick={saveSettings} disabled={settingsSaving}>
+          {settingsSaving ? 'Saving…' : 'Save'}
+        </Button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .fullscreen {
