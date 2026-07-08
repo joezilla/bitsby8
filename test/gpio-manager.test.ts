@@ -30,7 +30,7 @@ jest.mock('onoff', () => {
   return {
     Gpio: mockGpioConstructor,
   };
-}, { virtual: true });
+});
 
 import { GpioLedManager } from '../src/gpio/gpio-manager';
 import * as fs from 'fs';
