@@ -1,3 +1,14 @@
+fdcsds (2.0.1-5) stable; urgency=medium
+
+  * 2.0.1 final release — promotes rc4 to stable.
+  * MCP: prompt-aware terminal reads — read_terminal_output gains
+    awaitPrompt and until so callers return the moment a CP/M or MBASIC
+    prompt reappears instead of guessing waitMs.
+  * MCP: new run_terminal_command compound tool (clear + send + wait for
+    prompt in a single round trip), tuned for interactive CP/M.
+
+ -- Joe Toppe <mreppot@gmail.com>  Wed, 09 Jul 2026 00:00:00 +0000
+
 fdcsds (2.0.1-4) unstable; urgency=medium
 
   * MCP: HTTP transport support (SSE + streamable HTTP) alongside existing

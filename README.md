@@ -4,7 +4,7 @@
 
 A TypeScript Serial Disk Server for the **FDC+ Enhanced Floppy Disk Controller** on the **MITS Altair 8800**. Serves virtual floppies, cassette audio, and a VT102 terminal over serial, with a Svelte 5 web UI for control.
 
-**Version:** 2.0.1-rc4 · **License:** GPL-3.0
+**Version:** 2.0.1 · **License:** GPL-3.0
 
 ![Drives & Library page of the web UI: four drive bays across the top, disk-image library below.](images/ui-disks.png)
 
