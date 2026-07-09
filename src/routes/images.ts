@@ -14,6 +14,7 @@ import {
 } from '../utils/disk-image-validation';
 import { MAX_DRIVES } from '../protocol';
 import { CpmFilesystem, paramsForFormat, inferFormatFromSize } from '../cpm-filesystem';
+import { deleteSnapshotsForDisk, renameSnapshotsForDisk } from '../services/disk-snapshots';
 
 export function registerImageRoutes(router: Router, deps: Dependencies): void {
   /**
@@ -579,6 +580,9 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
       // Also delete notes from database
       await deps.database.deleteDiskNote(filename);
 
+      // Drop any snapshots of this image so they don't orphan.
+      await deleteSnapshotsForDisk(deps, filename);
+
       res.json({ success: true, filename });
     } catch (error) {
       res.status(500).json({ error: safeErrorMessage(error) });
@@ -813,6 +817,9 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
 
       // Migrate the notes record (no-op if no row existed).
       await deps.database.renameDiskNote(filename, newFilename);
+
+      // Keep snapshots attached to the renamed image.
+      await renameSnapshotsForDisk(deps, filename, newFilename);
 
       res.json({ success: true, filename: newFilename });
     } catch (error) {

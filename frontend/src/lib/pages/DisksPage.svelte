@@ -14,7 +14,7 @@
   import Led from '$lib/components/shared/Led.svelte';
   import PageHeader from '$lib/components/shared/PageHeader.svelte';
   import LabelStrip from '$lib/components/shared/LabelStrip.svelte';
-  import type { DiskImageInfo, DriveState, CpmFileInfo } from '$lib/types/api';
+  import type { DiskImageInfo, DriveState, CpmFileInfo, SnapshotInfo } from '$lib/types/api';
 
   let images = $state<DiskImageInfo[]>([]);
   let searchQuery = $state('');
@@ -42,6 +42,18 @@
   let newDiskName = $state('');
   let newDiskFormat = $state('8inch');
   let newDiskExtension = $state('.img');
+
+  // Snapshots
+  let snapshotDisk = $state<DiskImageInfo | null>(null);
+  let snapshots = $state<SnapshotInfo[]>([]);
+  let snapshotsLoading = $state(false);
+  let newSnapshotLabel = $state('');
+  let creatingSnapshot = $state(false);
+  let snapshotBusyId = $state<string | null>(null);
+  // Rollback overwrites the image file, so it's refused while mounted.
+  let snapshotDiskMounted = $derived(
+    snapshotDisk ? isImageMounted(snapshotDisk.name) : false
+  );
 
   let fileInputRef = $state<HTMLInputElement | null>(null);
 
@@ -142,6 +154,85 @@
       await loadImages();
     } catch (err: any) {
       showToast(`Delete failed: ${err.message}`, 'error');
+    }
+  }
+
+  /** True when the named image is mounted on any drive (matches on basename). */
+  function isImageMounted(name: string): boolean {
+    return drives.some(
+      (d) => d.mounted && !!d.filename && d.filename.split(/[\\/]/).pop() === name
+    );
+  }
+
+  function formatTimestamp(sqlTs: string): string {
+    // SQLite CURRENT_TIMESTAMP is UTC "YYYY-MM-DD HH:MM:SS" with no zone.
+    const parsed = new Date(sqlTs.replace(' ', 'T') + 'Z');
+    return isNaN(parsed.getTime()) ? sqlTs : parsed.toLocaleString();
+  }
+
+  async function openSnapshots(image: DiskImageInfo) {
+    snapshotDisk = image;
+    newSnapshotLabel = '';
+    await loadSnapshots();
+  }
+
+  async function loadSnapshots() {
+    if (!snapshotDisk) return;
+    try {
+      snapshotsLoading = true;
+      const result = await api.listSnapshots(snapshotDisk.name);
+      snapshots = result.snapshots;
+    } catch (err: any) {
+      showToast(`Failed to load snapshots: ${err.message}`, 'error');
+    } finally {
+      snapshotsLoading = false;
+    }
+  }
+
+  async function createSnapshotForDisk() {
+    if (!snapshotDisk) return;
+    try {
+      creatingSnapshot = true;
+      await api.createSnapshot(snapshotDisk.name, newSnapshotLabel.trim());
+      showToast(`Snapshot of ${snapshotDisk.name} created`, 'success');
+      newSnapshotLabel = '';
+      await loadSnapshots();
+    } catch (err: any) {
+      showToast(`Snapshot failed: ${err.message}`, 'error');
+    } finally {
+      creatingSnapshot = false;
+    }
+  }
+
+  async function restoreSnapshotForDisk(snap: SnapshotInfo) {
+    if (!snapshotDisk) return;
+    const label = snap.label || formatTimestamp(snap.created_at);
+    if (!confirm(`Roll ${snapshotDisk.name} back to "${label}"? Current contents will be overwritten.`)) return;
+    try {
+      snapshotBusyId = snap.id;
+      await api.restoreSnapshot(snapshotDisk.name, snap.id);
+      showToast(`Rolled ${snapshotDisk.name} back to snapshot`, 'success');
+      await loadImages();
+    } catch (err: any) {
+      showToast(`Rollback failed: ${err.message}`, 'error');
+    } finally {
+      snapshotBusyId = null;
+    }
+  }
+
+  async function deleteSnapshotForDisk(snap: SnapshotInfo) {
+    if (!snapshotDisk) return;
+    const label = snap.label || formatTimestamp(snap.created_at);
+    if (!confirm(`Delete snapshot "${label}"? This cannot be undone.`)) return;
+    try {
+      snapshotBusyId = snap.id;
+      await api.deleteSnapshot(snapshotDisk.name, snap.id);
+      showToast('Snapshot deleted', 'success');
+      await loadSnapshots();
+    } catch (err: any) {
+      showToast(`Delete failed: ${err.message}`, 'error');
+    } finally {
+      snapshotBusyId = null;
     }
   }
 
@@ -741,6 +832,7 @@
                         {/if}
                       </div>
                       <IconButton icon="folder_open" size={16} title="Browse CP/M files (experimental)" onclick={() => openCpmBrowser(img)} />
+                      <IconButton icon="history" size={18} title="Snapshots" onclick={() => openSnapshots(img)} />
                       <IconButton icon="content_copy" size={16} title="Clone image" onclick={() => cloneDisk(img.name)} />
                       <IconButton icon="edit_note" size={18} title="Edit notes" onclick={() => openEditNotes(img)} />
                       <IconButton icon="delete" size={16} title="Delete image" onclick={() => deleteDisk(img.name)} />
@@ -826,6 +918,121 @@
         <Button variant="filled" icon="check" disabled={savingEdit} onclick={saveEdit}>
           {savingEdit ? 'Saving…' : 'Save'}
         </Button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Snapshots modal -->
+{#if snapshotDisk}
+  <div
+    role="dialog"
+    aria-modal="true"
+    aria-label="Disk image snapshots"
+    tabindex="-1"
+    onkeydown={(e: KeyboardEvent) => { if (e.key === 'Escape') snapshotDisk = null; }}
+    style="
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      background: var(--surface-overlay);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    "
+  >
+    <button
+      type="button"
+      onclick={() => (snapshotDisk = null)}
+      aria-label="Close"
+      style="position: absolute; inset: 0; background: transparent; border: none; cursor: default;"
+    ></button>
+    <div
+      role="document"
+      style="
+        position: relative;
+        background: var(--surface-raised);
+        border: 1px solid var(--border-2);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--elev-4);
+        width: 100%;
+        max-width: 560px;
+        max-height: 85vh;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        overflow: hidden;
+      "
+    >
+      <div>
+        <LabelStrip>Snapshots</LabelStrip>
+        <h3 class="fdc-mono" style="font-size: 16px; color: var(--accent); margin: 4px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title={snapshotDisk.name}>
+          {snapshotDisk.name}
+        </h3>
+      </div>
+
+      <!-- Create -->
+      <div style="display: flex; gap: 8px; align-items: flex-end;">
+        <div style="flex: 1; min-width: 0;">
+          <label class="fdc-label-strip" for="snap-label" style="display: block; margin-bottom: 4px;">New snapshot label (optional)</label>
+          <Input id="snap-label" placeholder="e.g. before format" bind:value={newSnapshotLabel} />
+        </div>
+        <Button variant="filled" icon="photo_camera" disabled={creatingSnapshot} onclick={createSnapshotForDisk}>
+          {creatingSnapshot ? 'Saving…' : 'Snapshot'}
+        </Button>
+      </div>
+
+      {#if snapshotDiskMounted}
+        <div class="fdc-label-strip" style="text-transform: none; letter-spacing: 0; color: var(--fg-3); display: flex; align-items: center; gap: 6px;">
+          <Icon name="info" size={14} />
+          Mounted on a drive — rollback is disabled. Unmount to roll back.
+        </div>
+      {/if}
+
+      <!-- List -->
+      <div style="overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
+        {#if snapshotsLoading}
+          <div class="fdc-label-strip" style="text-transform: none; letter-spacing: 0; color: var(--fg-3);">Loading…</div>
+        {:else if snapshots.length === 0}
+          <div class="fdc-label-strip" style="text-transform: none; letter-spacing: 0; color: var(--fg-3);">
+            No snapshots yet. Create one above.
+          </div>
+        {:else}
+          {#each snapshots as snap (snap.id)}
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--border-1); border-radius: var(--radius-md);">
+              <div style="min-width: 0;">
+                <div style="color: var(--fg-1); font: var(--text-body-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  {snap.label || 'Untitled snapshot'}
+                </div>
+                <div class="fdc-mono" style="font-size: 10px; color: var(--fg-3);">
+                  {formatTimestamp(snap.created_at)} · {formatSize(snap.size_bytes)}
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 4px; flex: 0 0 auto;">
+                <IconButton
+                  icon="restore"
+                  size={18}
+                  title={snapshotDiskMounted ? 'Unmount to roll back' : 'Roll back to this snapshot'}
+                  disabled={snapshotDiskMounted || snapshotBusyId === snap.id}
+                  onclick={() => restoreSnapshotForDisk(snap)}
+                />
+                <IconButton
+                  icon="delete"
+                  size={16}
+                  title="Delete snapshot"
+                  disabled={snapshotBusyId === snap.id}
+                  onclick={() => deleteSnapshotForDisk(snap)}
+                />
+              </div>
+            </div>
+          {/each}
+        {/if}
+      </div>
+
+      <div style="display: flex; justify-content: flex-end;">
+        <Button variant="ghost" onclick={() => (snapshotDisk = null)}>Close</Button>
       </div>
     </div>
   </div>

@@ -37,6 +37,10 @@
       "description": "Disk image management"
     },
     {
+      "name": "Snapshots",
+      "description": "Point-in-time disk image snapshots and rollback"
+    },
+    {
       "name": "CP/M",
       "description": "CP/M filesystem browser"
     },
@@ -161,6 +165,31 @@
           },
           "notes": {
             "type": "string"
+          }
+        }
+      },
+      "Snapshot": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "9f8c1a2b3d4e5f60718293a4b5c6d7e8"
+          },
+          "disk_filename": {
+            "type": "string",
+            "example": "cpm63k.dsk"
+          },
+          "label": {
+            "type": "string",
+            "example": "before format"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "example": 337568
+          },
+          "created_at": {
+            "type": "string",
+            "example": "2026-07-09 14:03:11"
           }
         }
       },
@@ -556,6 +585,174 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/images/{filename}/snapshots": {
+      "get": {
+        "tags": [
+          "Snapshots"
+        ],
+        "summary": "List snapshots for a disk image",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Snapshots for the disk, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "snapshots": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Snapshot"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid filename"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Snapshots"
+        ],
+        "summary": "Create a snapshot of a disk image",
+        "description": "Captures a point-in-time full copy of the disk. Allowed while the disk is mounted.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "description": "Optional human-readable label"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Snapshot created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "snapshot": {
+                      "$ref": "#/components/schemas/Snapshot"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Disk image not found"
+          }
+        }
+      }
+    },
+    "/api/images/{filename}/snapshots/{id}/restore": {
+      "post": {
+        "tags": [
+          "Snapshots"
+        ],
+        "summary": "Roll a disk image back to a snapshot",
+        "description": "Overwrites the disk image with the snapshot's contents. Fails if the disk is mounted on any drive.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Disk image rolled back"
+          },
+          "404": {
+            "description": "Disk image or snapshot not found"
+          },
+          "409": {
+            "description": "Disk is mounted on a drive"
+          }
+        }
+      }
+    },
+    "/api/images/{filename}/snapshots/{id}": {
+      "delete": {
+        "tags": [
+          "Snapshots"
+        ],
+        "summary": "Delete a snapshot",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Snapshot deleted"
+          },
+          "404": {
+            "description": "Snapshot not found"
           }
         }
       }

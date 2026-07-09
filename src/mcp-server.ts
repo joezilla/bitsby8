@@ -15,6 +15,14 @@ import { listDiskImagesWithDetails, listCassettesWithDetails } from './services/
 import { startRawReplay, startXmodemSend, cancelActiveTransfer } from './services/transfer';
 import { convertLineEndings, LineEnding } from './replay-engine';
 import { safeResolvePath } from './utils/safe-path';
+import { isDiskMounted } from './utils/drive-status';
+import {
+  createSnapshot,
+  listSnapshots,
+  rollbackSnapshot,
+  deleteSnapshot,
+  deleteSnapshotsForDisk,
+} from './services/disk-snapshots';
 import {
   DISK_IMAGE_EXTENSIONS,
   MAX_DISK_IMAGE_SIZE,
@@ -37,22 +45,6 @@ const TRACK_SIZE = 137 * 32;
 const VALID_BAUD_RATES = Object.values(BaudRate).filter(
   (v): v is number => typeof v === 'number'
 );
-
-/**
- * Check whether a disk image file is currently mounted on any drive.
- * Returns the drive number if mounted, or false if not.
- */
-function isDiskMounted(deps: Dependencies, filename: string): number | false {
-  for (let i = 0; i < MAX_DRIVES; i++) {
-    const driveState = deps.driveManager.getDriveState(i);
-    if (driveState && driveState.mounted && driveState.filename) {
-      if (path.basename(driveState.filename) === filename) {
-        return i;
-      }
-    }
-  }
-  return false;
-}
 
 /**
  * Create and configure the MCP server with all FDC+ tools and resources.
@@ -623,6 +615,9 @@ export function createMcpServer(deps: Dependencies): McpServer {
         // Clean up database notes
         await deps.database.deleteDiskNote(filename);
 
+        // Drop any snapshots of this image so they don't orphan.
+        await deleteSnapshotsForDisk(deps, filename);
+
         return {
           content: [{
             type: 'text',
@@ -685,6 +680,85 @@ export function createMcpServer(deps: Dependencies): McpServer {
             type: 'text',
             text: JSON.stringify({ success: true, filename, format: fmt, size: image.length }, null, 2),
           }],
+        };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  // ===========================================================================
+  // Tools 13c–13f: disk snapshots
+  // ===========================================================================
+
+  server.tool(
+    'snapshot_disk_image',
+    'Create a point-in-time snapshot (full copy) of a disk image. Allowed while the disk is mounted. Snapshots can be listed, rolled back to, and deleted.',
+    {
+      filename: z.string().describe('Disk image filename to snapshot (e.g. cpm22.dsk)'),
+      label: z.string().optional().describe('Optional human-readable label for the snapshot'),
+    },
+    async ({ filename, label }) => {
+      try {
+        const snapshot = await createSnapshot(deps, filename, label ?? '');
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ success: true, snapshot }, null, 2) }],
+        };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'list_disk_snapshots',
+    'List all snapshots for a disk image, newest first',
+    {
+      filename: z.string().describe('Disk image filename'),
+    },
+    async ({ filename }) => {
+      try {
+        const snapshots = await listSnapshots(deps, filename);
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ snapshots }, null, 2) }],
+        };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'rollback_disk_image',
+    'Roll a disk image back to a snapshot, overwriting its current contents. Fails if the disk is mounted on any drive.',
+    {
+      filename: z.string().describe('Disk image filename to roll back'),
+      snapshotId: z.string().describe('Snapshot id (from list_disk_snapshots)'),
+    },
+    async ({ filename, snapshotId }) => {
+      try {
+        await rollbackSnapshot(deps, filename, snapshotId);
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ success: true, filename, snapshotId }, null, 2) }],
+        };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'delete_disk_snapshot',
+    'Delete a single snapshot of a disk image',
+    {
+      filename: z.string().describe('Disk image filename the snapshot belongs to'),
+      snapshotId: z.string().describe('Snapshot id (from list_disk_snapshots)'),
+    },
+    async ({ filename, snapshotId }) => {
+      try {
+        await deleteSnapshot(deps, filename, snapshotId);
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ success: true, snapshotId }, null, 2) }],
         };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };

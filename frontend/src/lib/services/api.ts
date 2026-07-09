@@ -3,6 +3,7 @@
 import type {
   ServerStatus,
   DiskImageInfo,
+  SnapshotInfo,
   CassetteInfo,
   ScriptInfo,
   SerialPortInfo,
@@ -187,6 +188,30 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify({ newFilename }),
       }
+    ),
+
+  // Snapshots
+  listSnapshots: (filename: string) =>
+    request<{ snapshots: SnapshotInfo[] }>(
+      `/api/images/${encodeURIComponent(filename)}/snapshots`,
+    ),
+  createSnapshot: (filename: string, label?: string) =>
+    request<{ success: boolean; snapshot: SnapshotInfo }>(
+      `/api/images/${encodeURIComponent(filename)}/snapshots`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ label: label ?? '' }),
+      },
+    ),
+  restoreSnapshot: (filename: string, id: string) =>
+    request(
+      `/api/images/${encodeURIComponent(filename)}/snapshots/${encodeURIComponent(id)}/restore`,
+      { method: 'POST' },
+    ),
+  deleteSnapshot: (filename: string, id: string) =>
+    request(
+      `/api/images/${encodeURIComponent(filename)}/snapshots/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
     ),
 
   // CP/M

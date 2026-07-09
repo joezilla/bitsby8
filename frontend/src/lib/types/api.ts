@@ -64,6 +64,14 @@ export interface DiskImageInfo {
   notes: string;
 }
 
+export interface SnapshotInfo {
+  id: string;
+  disk_filename: string;
+  label: string;
+  size_bytes: number;
+  created_at: string;
+}
+
 export interface CassetteInfo {
   name: string;
   size: number;

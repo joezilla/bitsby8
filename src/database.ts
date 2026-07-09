@@ -30,6 +30,14 @@ export interface DriveAssignment {
   updated_at: string;
 }
 
+export interface SnapshotRecord {
+  id: string;
+  disk_filename: string;
+  label: string;
+  size_bytes: number;
+  created_at: string;
+}
+
 // Schema migrations, applied in order. Each runs inside a transaction.
 const MIGRATIONS: string[] = [
   // Migration 0: initial schema
@@ -51,6 +59,16 @@ const MIGRATIONS: string[] = [
     readonly INTEGER DEFAULT 0,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );`,
+  // Migration 1: disk snapshots — point-in-time full-file copies keyed by
+  // the disk image filename. The .snap blob lives under {disksDir}/.snapshots.
+  `CREATE TABLE IF NOT EXISTS disk_snapshots (
+    id TEXT PRIMARY KEY,
+    disk_filename TEXT NOT NULL,
+    label TEXT DEFAULT '',
+    size_bytes INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_disk_snapshots_disk ON disk_snapshots(disk_filename);`,
 ];
 
 export class Database {
@@ -250,6 +268,65 @@ export class Database {
   async clearAllDriveAssignments(): Promise<void> {
     this.ensureInitialized();
     this.db!.prepare('DELETE FROM drive_assignments').run();
+  }
+
+  /**
+   * Insert a snapshot metadata row. The caller creates the .snap blob first.
+   */
+  async insertSnapshot(id: string, diskFilename: string, label: string, sizeBytes: number): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare(
+      `INSERT INTO disk_snapshots (id, disk_filename, label, size_bytes, created_at)
+       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`
+    ).run(id, diskFilename, label, sizeBytes);
+  }
+
+  /**
+   * Get a single snapshot by id.
+   */
+  async getSnapshot(id: string): Promise<SnapshotRecord | null> {
+    this.ensureInitialized();
+    const row = this.db!.prepare('SELECT * FROM disk_snapshots WHERE id = ?').get(id) as SnapshotRecord | undefined;
+    return row || null;
+  }
+
+  /**
+   * List all snapshots for a disk image, newest first.
+   */
+  async listSnapshotsForDisk(diskFilename: string): Promise<SnapshotRecord[]> {
+    this.ensureInitialized();
+    return this.db!.prepare(
+      'SELECT * FROM disk_snapshots WHERE disk_filename = ? ORDER BY created_at DESC, id DESC'
+    ).all(diskFilename) as SnapshotRecord[];
+  }
+
+  /**
+   * Delete a single snapshot row. The caller removes the .snap blob separately.
+   */
+  async deleteSnapshotRow(id: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM disk_snapshots WHERE id = ?').run(id);
+  }
+
+  /**
+   * Repoint all snapshots for a disk when the disk image is renamed.
+   */
+  async renameSnapshotsDisk(oldFilename: string, newFilename: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare(
+      'UPDATE disk_snapshots SET disk_filename = ? WHERE disk_filename = ?'
+    ).run(newFilename, oldFilename);
+  }
+
+  /**
+   * Delete all snapshot rows for a disk and return their ids so the caller
+   * can remove the matching .snap blobs.
+   */
+  async deleteSnapshotsForDisk(diskFilename: string): Promise<string[]> {
+    this.ensureInitialized();
+    const rows = this.db!.prepare('SELECT id FROM disk_snapshots WHERE disk_filename = ?').all(diskFilename) as { id: string }[];
+    this.db!.prepare('DELETE FROM disk_snapshots WHERE disk_filename = ?').run(diskFilename);
+    return rows.map((r) => r.id);
   }
 
   /**
