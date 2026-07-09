@@ -8,26 +8,33 @@
 
 import { FdcServer } from '../src/server';
 import { DriveManager } from '../src/drive';
-import { SerialPortManager } from '../src/serial';
+import { IFdcTransport } from '../src/transport';
 import {
   CommandResponseBlock,
   createDefaultConfig,
 } from '../src/protocol';
 
-// Mock all dependencies
+// Mock drive manager
 jest.mock('../src/drive');
-jest.mock('../src/serial');
+
+function makeMockTransport(): jest.Mocked<IFdcTransport> {
+  return {
+    receiveBuffer: jest.fn(),
+    sendBuffer: jest.fn().mockResolvedValue(undefined),
+    isOpen: jest.fn().mockReturnValue(true),
+  };
+}
 
 describe('FdcServer', () => {
   let server: FdcServer;
   let mockDriveManager: jest.Mocked<DriveManager>;
-  let mockSerialManager: jest.Mocked<SerialPortManager>;
+  let mockTransport: jest.Mocked<IFdcTransport>;
   let config: any;
 
   beforeEach(() => {
     // Create mock instances
     mockDriveManager = new DriveManager() as jest.Mocked<DriveManager>;
-    mockSerialManager = new SerialPortManager() as jest.Mocked<SerialPortManager>;
+    mockTransport = makeMockTransport();
 
     // Setup default mock implementations
     mockDriveManager.getDriveState = jest.fn().mockReturnValue({
@@ -43,16 +50,13 @@ describe('FdcServer', () => {
     mockDriveManager.readTrack = jest.fn().mockResolvedValue(Buffer.alloc(4384));
     mockDriveManager.writeTrack = jest.fn().mockResolvedValue(4384);
 
-    mockSerialManager.receiveBuffer = jest.fn();
-    mockSerialManager.sendBuffer = jest.fn().mockResolvedValue(undefined);
-
     config = createDefaultConfig();
     config.verbose = false;
     config.debug = false;
 
     server = new FdcServer(
       mockDriveManager,
-      mockSerialManager,
+      mockTransport,
       config
     );
   });
@@ -73,7 +77,7 @@ describe('FdcServer', () => {
       verboseConfig.verbose = true;
       const verboseServer = new FdcServer(
         mockDriveManager,
-        mockSerialManager,
+        mockTransport,
         verboseConfig
       );
       expect((verboseServer as any).verbose).toBe(true);
@@ -86,7 +90,7 @@ describe('FdcServer', () => {
       debugConfig.debug = true;
       const debugServer = new FdcServer(
         mockDriveManager,
-        mockSerialManager,
+        mockTransport,
         debugConfig
       );
       expect((debugServer as any).debug).toBe(true);
@@ -128,7 +132,7 @@ describe('FdcServer', () => {
   describe('start', () => {
     test('should set running flag to true', () => {
       // Mock receiveBuffer to throw immediately to avoid infinite loop
-      mockSerialManager.receiveBuffer.mockRejectedValue(new Error('Timeout'));
+      mockTransport.receiveBuffer.mockRejectedValue(new Error('Timeout'));
 
       void server.start();
       expect((server as any).running).toBe(true);
@@ -138,7 +142,7 @@ describe('FdcServer', () => {
     });
 
     test('should be stoppable after starting', () => {
-      mockSerialManager.receiveBuffer.mockRejectedValue(new Error('Timeout'));
+      mockTransport.receiveBuffer.mockRejectedValue(new Error('Timeout'));
 
       void server.start();
       expect((server as any).running).toBe(true);
@@ -153,8 +157,8 @@ describe('FdcServer', () => {
       expect((server as any).driveManager).toBe(mockDriveManager);
     });
 
-    test('should use injected serial manager', () => {
-      expect((server as any).serialManager).toBe(mockSerialManager);
+    test('should use injected transport', () => {
+      expect((server as any).transport).toBe(mockTransport);
     });
   });
 
@@ -219,7 +223,7 @@ describe('FdcServer', () => {
 
       const verboseServer = new FdcServer(
         mockDriveManager,
-        mockSerialManager,
+        mockTransport,
         verboseConfig
       );
 
@@ -232,7 +236,7 @@ describe('FdcServer', () => {
 
       const debugServer = new FdcServer(
         mockDriveManager,
-        mockSerialManager,
+        mockTransport,
         debugConfig
       );
 

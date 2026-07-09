@@ -1,22 +1,34 @@
 import { Dependencies } from '../types';
 import { getStatus } from './status';
+import { IFdcTransport } from '../transport';
 
 export async function enableDiskServing(deps: Dependencies): Promise<void> {
   if (deps.diskServingEnabled) {
     return;
   }
 
-  if (!deps.runtimeConfig?.port && !deps.serialManager.getDevice()) {
-    throw new Error('No serial port configured. Please configure a port first.');
+  const hasSerial = !!(deps.runtimeConfig?.port || deps.serialManager.getDevice());
+  const hasWs = deps.wsTransport.isOpen();
+
+  if (!hasSerial && !hasWs) {
+    throw new Error(
+      'No transport available. Configure a serial port or connect a WebSocket FDC client first.'
+    );
   }
 
-  if (!deps.serialManager.isOpen()) {
-    const port = deps.runtimeConfig?.port || deps.serialManager.getDevice();
-    const baud = deps.runtimeConfig?.baud || deps.serialManager.getBaudRate() || 230400;
-    if (!port) {
-      throw new Error('No serial port configured');
+  let transport: IFdcTransport;
+  if (hasSerial) {
+    if (!deps.serialManager.isOpen()) {
+      const port = deps.runtimeConfig?.port || deps.serialManager.getDevice();
+      const baud = deps.runtimeConfig?.baud || deps.serialManager.getBaudRate() || 230400;
+      if (!port) {
+        throw new Error('No serial port configured');
+      }
+      await deps.serialManager.openPort(port, baud as any);
     }
-    await deps.serialManager.openPort(port, baud as any);
+    transport = deps.serialManager;
+  } else {
+    transport = deps.wsTransport;
   }
 
   if (!deps.server) {
@@ -30,7 +42,7 @@ export async function enableDiskServing(deps: Dependencies): Promise<void> {
     const { FdcServer } = await import('../server');
     deps.server = new FdcServer(
       deps.driveManager,
-      deps.serialManager,
+      transport,
       config
     );
   }

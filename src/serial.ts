@@ -7,11 +7,12 @@ import { SerialPort } from 'serialport';
 import { BaudRate, TIMEOUT_BYTE, TIMEOUT_BUFFER } from './protocol';
 import { ByteUtils } from './protocol';
 import { resolvePortPath, validatePortPath, listPortsWithPersistent } from './port-resolver';
+import { IFdcTransport } from './transport';
 
 /**
  * Serial Port Manager for FDC+ communication
  */
-export class SerialPortManager {
+export class SerialPortManager implements IFdcTransport {
   private port: SerialPort | null;
   private device: string | null;
   private resolvedDevice: string | null;

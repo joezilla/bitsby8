@@ -12,6 +12,7 @@ import { Database } from './database';
 import { ReplayEngine } from './replay-engine';
 import { XmodemSender } from './xmodem-sender';
 import { SessionStore } from './services/session-store';
+import { WsTransportManager } from './ws-transport';
 
 export interface WebServerConfig {
   port: number;
@@ -74,6 +75,8 @@ export interface Dependencies {
   // interface so unit-test route stubs don't have to provide one when
   // they're not exercising auth-cookie paths.
   sessionStore?: SessionStore;
+
+  wsTransport: WsTransportManager;
 
   // Mutable server state
   server: FdcServer | null;
