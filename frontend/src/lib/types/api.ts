@@ -138,6 +138,9 @@ export interface SerialSection {
   drive2?: string | null;
   drive3?: string | null;
   readonly?: number[];
+  // Global default for guest writes to a read-only image (per-image policy
+  // overrides it). Restart-required, like the rest of the Serial section.
+  readonlyWritePolicy?: ReadonlyWritePolicy;
 }
 
 export interface WebSection {

@@ -44,6 +44,14 @@
   let newDiskFormat = $state('8inch');
   let newDiskExtension = $state('.img');
 
+  // Disk-wide settings (global default for write-on-read-only). Backed by the
+  // Serial config section — restart-required, an install-time default.
+  let showSettings = $state(false);
+  let settingsPolicy = $state<'error' | 'transient'>('error');
+  let settingsEtag = $state<string | undefined>(undefined);
+  let settingsLoading = $state(false);
+  let settingsSaving = $state(false);
+
   // Snapshots
   let snapshotDisk = $state<DiskImageInfo | null>(null);
   let snapshots = $state<SnapshotInfo[]>([]);
@@ -207,6 +215,33 @@
     // SQLite CURRENT_TIMESTAMP is UTC "YYYY-MM-DD HH:MM:SS" with no zone.
     const parsed = new Date(sqlTs.replace(' ', 'T') + 'Z');
     return isNaN(parsed.getTime()) ? sqlTs : parsed.toLocaleString();
+  }
+
+  async function openSettings() {
+    showSettings = true;
+    settingsLoading = true;
+    try {
+      const [cfg, status] = await Promise.all([api.getConfig(), api.getConfigStatus()]);
+      settingsPolicy = cfg.readonlyWritePolicy === 'transient' ? 'transient' : 'error';
+      settingsEtag = status.etag;
+    } catch (err: any) {
+      showToast(`Failed to load settings: ${err.message}`, 'error');
+    } finally {
+      settingsLoading = false;
+    }
+  }
+
+  async function saveSettings() {
+    settingsSaving = true;
+    try {
+      await api.putSerialConfig({ readonlyWritePolicy: settingsPolicy }, settingsEtag);
+      showToast('Saved. Restart the daemon for the new default to take effect.', 'success');
+      showSettings = false;
+    } catch (err: any) {
+      showToast(`Save failed: ${err.message}`, 'error');
+    } finally {
+      settingsSaving = false;
+    }
   }
 
   async function openSnapshots(image: DiskImageInfo) {
@@ -548,6 +583,7 @@
 </script>
 
 {#snippet headerActions()}
+  <Button variant="ghost" icon="settings" onclick={openSettings}>Settings</Button>
   <Button variant="ghost" icon="refresh" onclick={loadImages}>Refresh</Button>
   <Button variant="ghost" icon="upload" disabled={uploading} onclick={() => fileInputRef?.click()}>
     {uploading ? 'Uploading…' : 'Upload'}
@@ -980,6 +1016,52 @@
         <Button variant="ghost" disabled={savingEdit} onclick={() => (editingNotes = null)}>Cancel</Button>
         <Button variant="filled" icon="check" disabled={savingEdit} onclick={saveEdit}>
           {savingEdit ? 'Saving…' : 'Save'}
+        </Button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Disk settings modal (global defaults) -->
+{#if showSettings}
+  <div
+    role="dialog"
+    aria-modal="true"
+    aria-label="Disk settings"
+    tabindex="-1"
+    onkeydown={(e: KeyboardEvent) => { if (e.key === 'Escape' && !settingsSaving) showSettings = false; }}
+    style="position: fixed; inset: 0; z-index: 50; background: var(--surface-overlay); display: flex; align-items: center; justify-content: center; padding: 16px;"
+  >
+    <button
+      type="button"
+      onclick={() => { if (!settingsSaving) showSettings = false; }}
+      aria-label="Close"
+      style="position: absolute; inset: 0; background: transparent; border: none; cursor: default;"
+    ></button>
+    <div
+      role="document"
+      style="position: relative; background: var(--surface-raised); border: 1px solid var(--border-2); border-radius: var(--radius-lg); box-shadow: var(--elev-4); width: 100%; max-width: 520px; padding: 20px; display: flex; flex-direction: column; gap: 14px;"
+    >
+      <div>
+        <LabelStrip>Disk settings</LabelStrip>
+        <p class="fdc-label-strip" style="color: var(--fg-3); margin: 4px 0 0; text-transform: none; letter-spacing: 0;">
+          Global defaults for all disks. A per-image setting (in each disk's Edit dialog) overrides these.
+        </p>
+      </div>
+      <div>
+        <label class="fdc-label-strip" for="settings-policy" style="display: block; margin-bottom: 4px;">Default: on write to read-only image</label>
+        <Select id="settings-policy" bind:value={settingsPolicy} disabled={settingsLoading || settingsSaving}>
+          <option value="error">Error — refuse writes (write-protect)</option>
+          <option value="transient">Transient — copy-on-write, changes discarded on eject</option>
+        </Select>
+        <div class="fdc-label-strip" style="margin-top: 4px; text-transform: none; letter-spacing: 0; color: var(--fg-3);">
+          Applies to disks with no per-image override. Restart-required — this is an install-time default.
+        </div>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px;">
+        <Button variant="ghost" disabled={settingsSaving} onclick={() => (showSettings = false)}>Cancel</Button>
+        <Button variant="filled" icon="check" disabled={settingsLoading || settingsSaving} onclick={saveSettings}>
+          {settingsSaving ? 'Saving…' : 'Save'}
         </Button>
       </div>
     </div>
