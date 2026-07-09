@@ -699,7 +699,10 @@
            physical serial port. On by default. -->
       <div style="padding: 16px 20px; border-top: 1px solid var(--border-1); display: flex; align-items: center; justify-content: space-between; gap: 12px;">
         <div>
-          <LabelStrip>TCP-based disk serving</LabelStrip>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <LabelStrip>TCP-based disk serving</LabelStrip>
+            <Chip color="green" icon="bolt">Live</Chip>
+          </div>
           <p class="fdc-label-strip" style="color: var(--fg-3); margin: 4px 0 0; text-transform: none; letter-spacing: 0;">
             Accept virtual FDC clients over WebSocket at <code>/fdc-ws</code> — no physical serial
             port needed. Disabling refuses new connections and drops any that are live.
@@ -707,7 +710,8 @@
         </div>
         <div style="display: flex; align-items: center; gap: 12px;">
           <Led
-            color={wsTransportEnabled ? (configStatus?.wsTransportConnected ? 'green' : 'off') : 'off'}
+            color={wsTransportEnabled ? 'green' : 'off'}
+            pulse={wsTransportEnabled && (configStatus?.wsTransportConnected ?? false)}
             label={wsTransportEnabled
               ? (configStatus?.wsTransportConnected ? 'Client connected' : 'Enabled')
               : 'Disabled'}
@@ -876,6 +880,7 @@
       dirty={mcpDirty}
       onSave={saveMcp}
       onDiscard={resetAllForms}
+      liveStatus="live"
     >
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px;">
         <FormField
@@ -895,17 +900,12 @@
           </label>
         </FormField>
         <FormField label="Status">
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <Led
-              color={configStatus?.mcpHttpLive ? 'green' : 'off'}
-              label={configStatus?.mcpHttpLive
-                ? `Serving (${configStatus?.mcpHttpSessions ?? 0} session${(configStatus?.mcpHttpSessions ?? 0) === 1 ? '' : 's'})`
-                : 'Off'}
-            />
-            {#if configStatus?.mcpHttpLive}
-              <Chip color="green" icon="bolt">Live</Chip>
-            {/if}
-          </div>
+          <Led
+            color={configStatus?.mcpHttpLive ? 'green' : 'off'}
+            label={configStatus?.mcpHttpLive
+              ? `Serving (${configStatus?.mcpHttpSessions ?? 0} session${(configStatus?.mcpHttpSessions ?? 0) === 1 ? '' : 's'})`
+              : 'Off'}
+          />
         </FormField>
       </div>
 
