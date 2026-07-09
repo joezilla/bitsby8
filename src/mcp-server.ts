@@ -618,6 +618,9 @@ export function createMcpServer(deps: Dependencies): McpServer {
         // Drop any snapshots of this image so they don't orphan.
         await deleteSnapshotsForDisk(deps, filename);
 
+        // Drop any per-image write policy.
+        await deps.database.deleteDiskPolicy(filename);
+
         return {
           content: [{
             type: 'text',

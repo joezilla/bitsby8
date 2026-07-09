@@ -49,7 +49,7 @@ export enum FdcCommand {
  */
 export interface DriveState {
   fd: number | null; // File descriptor (null if unmounted)
-  filename: string | null;
+  filename: string | null; // Master image path the operator mounted (always the master, even when transient-backed)
   mounted: boolean;
   readonly: boolean;
   hdld: boolean; // Head loaded
@@ -58,6 +58,13 @@ export interface DriveState {
   // Epoch ms until which this drive must be reported not-ready to the FDC+
   // to force its per-track cache (trackBuf) to invalidate after an image swap.
   unavailableUntil: number | null;
+  // Copy-on-write ("transient") backing for read-only images: when true, the
+  // open fd points at `scratchPath` (a throwaway copy) instead of the master,
+  // so guest writes land on scratch and the master stays pristine. `dirty`
+  // flips on the first successful write. See DriveManager transient support.
+  transient: boolean;
+  scratchPath: string | null;
+  dirty: boolean;
 }
 
 /**

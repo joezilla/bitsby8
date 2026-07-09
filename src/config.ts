@@ -28,6 +28,12 @@ export const SerialSchema = z.object({
   drive2: z.string().nullable().optional(),
   drive3: z.string().nullable().optional(),
   readonly: z.array(z.number().int().min(0).max(3)).optional(),
+  // Default behavior when the guest writes to a read-only image:
+  //   'error'     — refuse the write (write-protect; the historical behavior)
+  //   'transient' — back the image with a throwaway copy-on-write scratch so
+  //                 the write succeeds and the master stays pristine
+  // Absent = 'error'. A per-image policy (disk_policies table) overrides this.
+  readonlyWritePolicy: z.enum(['error', 'transient']).optional(),
 });
 
 export const WebSchema = z.object({

@@ -37,6 +37,10 @@ export interface DriveState {
   headLoaded: boolean;
   track: number;
   lastIo: number | null; // epoch ms of most recent successful r/w; null if never
+  // Copy-on-write backing for a read-only image: writes go to a throwaway
+  // scratch (master untouched); `dirty` flips once the guest has written.
+  transient?: boolean;
+  dirty?: boolean;
 }
 
 export interface TerminalStatus {

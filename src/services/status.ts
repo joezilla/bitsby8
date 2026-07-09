@@ -87,6 +87,10 @@ export function getDrivesStatus(deps: Dependencies) {
         headLoaded: state.hdld,
         track: state.track,
         lastIo: state.lastIo,
+        // Copy-on-write backing: `transient` means writes go to a throwaway
+        // scratch (master untouched); `dirty` means the guest has written.
+        transient: state.transient,
+        dirty: state.dirty,
       });
     }
   }

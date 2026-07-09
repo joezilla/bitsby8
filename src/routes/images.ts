@@ -583,6 +583,9 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
       // Drop any snapshots of this image so they don't orphan.
       await deleteSnapshotsForDisk(deps, filename);
 
+      // Drop any per-image write policy.
+      await deps.database.deleteDiskPolicy(filename);
+
       res.json({ success: true, filename });
     } catch (error) {
       res.status(500).json({ error: safeErrorMessage(error) });
@@ -820,6 +823,9 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
 
       // Keep snapshots attached to the renamed image.
       await renameSnapshotsForDisk(deps, filename, newFilename);
+
+      // Keep the per-image write policy attached to the renamed image.
+      await deps.database.renameDiskPolicy(filename, newFilename);
 
       res.json({ success: true, filename: newFilename });
     } catch (error) {

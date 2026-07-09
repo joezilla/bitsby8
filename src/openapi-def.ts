@@ -79,6 +79,14 @@ export const openapiDefinition: Options = {
               nullable: true,
               description: 'Epoch ms of most recent successful read/write; null if no I/O yet.',
             },
+            transient: {
+              type: 'boolean',
+              description: 'Read-only image backed by a copy-on-write scratch; writes go to the scratch and the master stays pristine.',
+            },
+            dirty: {
+              type: 'boolean',
+              description: 'A transient-backed drive that has received at least one write since mount.',
+            },
           },
         },
         SystemInfo: {

@@ -14,7 +14,8 @@ import {
   createDefaultConfig,
   Config,
 } from './protocol';
-import { getDriveManager } from './drive';
+import { getDriveManager, TRANSIENT_DIRNAME } from './drive';
+import type { ReadonlyWritePolicy } from './database';
 import { getSerialPortManager } from './serial';
 import { getTerminalSerialManager } from './terminal-serial';
 import { FdcServer } from './server';
@@ -369,6 +370,14 @@ async function main(): Promise<void> {
     console.log('Debug mode enabled - all serial drive operations will be logged');
   }
 
+  // Sweep any transient (copy-on-write) scratch files left behind by a crash.
+  // They are mount-scoped and never valid across restarts.
+  try {
+    await fs.rm(path.join(dataDir, 'disks', TRANSIENT_DIRNAME), { recursive: true, force: true });
+  } catch (error) {
+    console.error('Failed to sweep leftover transient scratch files:', error);
+  }
+
   // Initialize file-based logging if requested
   if (mergedOptions.logFile) {
     try {
@@ -470,6 +479,23 @@ async function main(): Promise<void> {
     await db.initialize();
     database = db;
     console.log('Database initialized successfully');
+
+    // Teach the drive manager how to resolve the effective read-only-write
+    // policy: per-image (DB) overrides the global default, 'inherit' falls
+    // through. Set before the restore loop so DB-restored read-only mounts
+    // pick up transient backing. Reads runtimeConfig live via mergedOptions.
+    driveManager.setTransientPolicyResolver(async (master) => {
+      const globalPolicy =
+        (mergedOptions as { readonlyWritePolicy?: 'error' | 'transient' }).readonlyWritePolicy ?? 'error';
+      let perImage: ReadonlyWritePolicy = 'inherit';
+      try {
+        perImage = await db.getDiskPolicy(master);
+      } catch {
+        perImage = 'inherit';
+      }
+      const effective = perImage !== 'inherit' ? perImage : globalPolicy;
+      return effective === 'transient';
+    });
 
     // Load saved drive assignments (only if web server will be enabled)
     if (mergedOptions.web) {

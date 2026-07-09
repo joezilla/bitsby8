@@ -5,6 +5,8 @@
 
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
+import * as path from 'path';
+import { randomBytes } from 'crypto';
 import {
   MAX_DRIVES,
   MAX_TRACK_LEN,
@@ -12,6 +14,16 @@ import {
   FdcError,
 } from './protocol';
 import { getGpioLedController } from './gpio';
+
+/**
+ * Resolves whether a read-only image should be backed by a copy-on-write
+ * transient scratch (true) or hard-fail writes (false). Injected at startup;
+ * the default keeps the historical "read-only means writes error" behavior.
+ */
+export type TransientPolicyResolver = (masterFilename: string) => boolean | Promise<boolean>;
+
+/** Subdirectory (under the image's own directory) that holds scratch copies. */
+export const TRANSIENT_DIRNAME = '.transient';
 
 /**
  * Drive Manager - Handles all disk image operations
@@ -27,6 +39,9 @@ export class DriveManager {
   // 8" 1.3 s idle-invalidation); 500 ms cushion for STAT poll jitter.
   private readonly SWAP_INVALIDATE_WINDOW_MS = 2500;
   private debug: boolean = false;
+  // Default: never use transient backing (writes to RO images error). Startup
+  // injects a resolver that consults the global + per-image policy.
+  private transientPolicyResolver: TransientPolicyResolver = () => false;
 
   constructor() {
     this.drives = new Map();
@@ -45,6 +60,9 @@ export class DriveManager {
         track: 0,
         lastIo: null,
         unavailableUntil: null,
+        transient: false,
+        scratchPath: null,
+        dirty: false,
       });
     }
   }
@@ -57,6 +75,52 @@ export class DriveManager {
     if (this.debug) {
       console.log('[DEBUG] DriveManager debug logging enabled');
     }
+  }
+
+  /**
+   * Inject the resolver that decides, per read-only image, whether writes are
+   * redirected to a transient copy-on-write scratch. Called once at startup.
+   */
+  setTransientPolicyResolver(resolver: TransientPolicyResolver): void {
+    this.transientPolicyResolver = resolver;
+  }
+
+  /**
+   * Whether the given read-only master image should be backed by a transient
+   * scratch. Only consulted when the drive is read-only.
+   */
+  private async shouldUseTransient(master: string): Promise<boolean> {
+    try {
+      return await this.transientPolicyResolver(path.basename(master));
+    } catch (error) {
+      console.error('Transient policy resolver failed; treating as error policy:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Create a throwaway copy of `master` for copy-on-write backing and return
+   * its path. Lives under {master dir}/.transient so the non-recursive image
+   * listing never surfaces it.
+   */
+  private async createScratch(drive: number, master: string): Promise<string> {
+    const dir = path.join(path.dirname(master), TRANSIENT_DIRNAME);
+    await fs.mkdir(dir, { recursive: true });
+    const scratch = path.join(dir, `drive${drive}-${randomBytes(6).toString('hex')}.scratch`);
+    await fs.copyFile(master, scratch);
+    return scratch;
+  }
+
+  /**
+   * Delete the drive's scratch file (if any) and clear its transient state.
+   */
+  private async discardScratch(driveState: DriveState): Promise<void> {
+    if (driveState.scratchPath) {
+      await fs.unlink(driveState.scratchPath).catch(() => { /* best-effort */ });
+    }
+    driveState.scratchPath = null;
+    driveState.transient = false;
+    driveState.dirty = false;
   }
 
   /**
@@ -101,12 +165,9 @@ export class DriveManager {
     }
 
     const driveState = this.drives.get(drive)!;
-    const mode = driveState.readonly
-      ? fsSync.constants.O_RDONLY
-      : fsSync.constants.O_RDWR;
 
     if (this.debug) {
-      console.log(`[DEBUG] DriveManager.mountDrive: drive=${drive}, filename=${filename}, readonly=${driveState.readonly}, mode=${mode === fsSync.constants.O_RDONLY ? 'O_RDONLY' : 'O_RDWR'}`);
+      console.log(`[DEBUG] DriveManager.mountDrive: drive=${drive}, filename=${filename}, readonly=${driveState.readonly}`);
     }
 
     const now = Date.now();
@@ -126,6 +187,8 @@ export class DriveManager {
       this.fileHandles.delete(drive);
       driveState.fd = null;
     }
+    // Drop any scratch left by the outgoing mount before we re-decide backing.
+    await this.discardScratch(driveState);
 
     // Open the not-ready window BEFORE opening the new handle: any READ that
     // races through between fs.open and the next STAT must see NOT_READY.
@@ -140,8 +203,18 @@ export class DriveManager {
       // Check if file exists
       await fs.access(filename, fsSync.constants.F_OK);
 
+      // A read-only image whose policy is 'transient' is backed by a writable
+      // scratch copy: the guest can write, but the master stays pristine. We
+      // keep driveState.filename pointing at the master so mounted-checks
+      // (delete/format/rollback guards) still see the master as in use.
+      const useTransient = driveState.readonly && (await this.shouldUseTransient(filename));
+      const openPath = useTransient ? await this.createScratch(drive, filename) : filename;
+      const mode = (useTransient || !driveState.readonly)
+        ? fsSync.constants.O_RDWR
+        : fsSync.constants.O_RDONLY;
+
       // Open file handle
-      const fileHandle = await fs.open(filename, mode);
+      const fileHandle = await fs.open(openPath, mode);
 
       // Update drive state
       driveState.filename = filename;
@@ -149,11 +222,14 @@ export class DriveManager {
       driveState.mounted = true;
       driveState.track = 0;
       driveState.hdld = false;
+      driveState.transient = useTransient;
+      driveState.scratchPath = useTransient ? openPath : null;
+      driveState.dirty = false;
 
       this.fileHandles.set(drive, fileHandle);
 
       // Log successful mount with mode
-      console.log(`Mounted drive ${drive}: ${filename}, mode=${driveState.readonly ? 'RO' : 'RW'}, fd=${fileHandle.fd}`);
+      console.log(`Mounted drive ${drive}: ${filename}, mode=${driveState.readonly ? (useTransient ? 'RO+transient' : 'RO') : 'RW'}, fd=${fileHandle.fd}`);
 
       if (this.debug) {
         console.log(`[DEBUG] DriveManager.mountDrive SUCCESS: drive=${drive}, fd=${fileHandle.fd}, filesize=${(await fileHandle.stat()).size} bytes`);
@@ -170,6 +246,9 @@ export class DriveManager {
       }
       driveState.mounted = false;
       driveState.filename = '--ERROR--';
+      // A scratch created just before a failed open would otherwise leak until
+      // the next startup sweep — drop it now.
+      await this.discardScratch(driveState);
       throw error;
     }
   }
@@ -197,6 +276,10 @@ export class DriveManager {
         throw error;
       }
     }
+
+    // Discard any transient scratch. Callers wanting to keep the changes must
+    // commit or save-as-snapshot BEFORE unmounting.
+    await this.discardScratch(driveState);
 
     // Reset drive state
     driveState.fd = null;
@@ -275,16 +358,24 @@ export class DriveManager {
       this.fileHandles.delete(drive);
     }
 
-    // Reopen with correct mode
-    const mode = readonly
-      ? fsSync.constants.O_RDONLY
-      : fsSync.constants.O_RDWR;
+    // Re-decide transient backing from scratch: toggling to RO under a
+    // 'transient' policy creates a scratch; toggling back to RW drops it and
+    // reopens the master directly.
+    await this.discardScratch(driveState);
+    const useTransient = readonly && (await this.shouldUseTransient(filename));
+    const openPath = useTransient ? await this.createScratch(drive, filename) : filename;
+    const mode = (useTransient || !readonly)
+      ? fsSync.constants.O_RDWR
+      : fsSync.constants.O_RDONLY;
 
     try {
-      const newHandle = await fs.open(filename, mode);
+      const newHandle = await fs.open(openPath, mode);
       driveState.fd = newHandle.fd;
+      driveState.transient = useTransient;
+      driveState.scratchPath = useTransient ? openPath : null;
+      driveState.dirty = false;
       this.fileHandles.set(drive, newHandle);
-      console.log(`Successfully remounted drive ${drive}, fd=${newHandle.fd}, mode=${readonly ? 'RO' : 'RW'}`);
+      console.log(`Successfully remounted drive ${drive}, fd=${newHandle.fd}, mode=${readonly ? (useTransient ? 'RO+transient' : 'RO') : 'RW'}`);
     } catch (error) {
       console.error(`Failed to remount drive ${drive}:`, error);
       // Mark drive as unmounted on remount failure
@@ -424,7 +515,9 @@ export class DriveManager {
       throw new Error(`Drive ${drive} file handle is invalid (fd=${fileHandle.fd})`);
     }
 
-    if (driveState.readonly) {
+    // A transient-backed drive is nominally read-only but writes are allowed —
+    // they land on the scratch copy, not the master.
+    if (driveState.readonly && !driveState.transient) {
       this.fdcErrno = FdcError.WRITE_ERR;
       throw new Error(`Drive ${drive} is read-only`);
     }
@@ -506,6 +599,9 @@ export class DriveManager {
           }
 
           driveState.lastIo = Date.now();
+          if (driveState.transient) {
+            driveState.dirty = true;
+          }
           this.fdcErrno = FdcError.OK;
           return bytesWritten;
 
@@ -578,6 +674,29 @@ export class DriveManager {
   }
 
   /**
+   * Commit a transient drive's scratch back onto its master image, keeping the
+   * drive mounted and transient (dirty resets to false). The master is not
+   * held open while transient, so overwriting it is safe. Callers must ensure
+   * the master isn't mounted read-write on another drive.
+   */
+  async commitTransient(drive: number): Promise<void> {
+    const driveState = this.drives.get(drive);
+    if (!driveState || !driveState.transient || !driveState.scratchPath || !driveState.filename) {
+      throw new Error(`Drive ${drive} is not transient-backed`);
+    }
+    const master = driveState.filename;
+    const tmp = `${master}.commit.tmp`;
+    try {
+      await fs.copyFile(driveState.scratchPath, tmp);
+      await fs.rename(tmp, master);
+    } catch (err) {
+      await fs.unlink(tmp).catch(() => { /* best-effort */ });
+      throw err;
+    }
+    driveState.dirty = false;
+  }
+
+  /**
    * Check if a drive can accept write operations
    * Returns false if drive is not mounted, readonly, or file handle is invalid
    */
@@ -597,7 +716,7 @@ export class DriveManager {
       return false;
     }
 
-    if (driveState.readonly) {
+    if (driveState.readonly && !driveState.transient) {
       return false;
     }
 

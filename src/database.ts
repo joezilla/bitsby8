@@ -38,6 +38,9 @@ export interface SnapshotRecord {
   created_at: string;
 }
 
+/** Per-image behavior when the guest writes to a read-only mount. */
+export type ReadonlyWritePolicy = 'inherit' | 'error' | 'transient';
+
 // Schema migrations, applied in order. Each runs inside a transaction.
 const MIGRATIONS: string[] = [
   // Migration 0: initial schema
@@ -69,6 +72,14 @@ const MIGRATIONS: string[] = [
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
   CREATE INDEX IF NOT EXISTS idx_disk_snapshots_disk ON disk_snapshots(disk_filename);`,
+  // Migration 2: per-image read-only-write policy. Overrides the global
+  // `readonlyWritePolicy` config default; 'inherit' (or an absent row) falls
+  // through to that default.
+  `CREATE TABLE IF NOT EXISTS disk_policies (
+    filename TEXT PRIMARY KEY,
+    on_readonly_write TEXT NOT NULL DEFAULT 'inherit',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );`,
 ];
 
 export class Database {
@@ -327,6 +338,49 @@ export class Database {
     const rows = this.db!.prepare('SELECT id FROM disk_snapshots WHERE disk_filename = ?').all(diskFilename) as { id: string }[];
     this.db!.prepare('DELETE FROM disk_snapshots WHERE disk_filename = ?').run(diskFilename);
     return rows.map((r) => r.id);
+  }
+
+  /**
+   * Get the per-image read-only-write policy. Returns 'inherit' when no row
+   * exists (i.e. fall through to the global default).
+   */
+  async getDiskPolicy(filename: string): Promise<ReadonlyWritePolicy> {
+    this.ensureInitialized();
+    const row = this.db!.prepare('SELECT on_readonly_write FROM disk_policies WHERE filename = ?').get(filename) as { on_readonly_write: ReadonlyWritePolicy } | undefined;
+    return row?.on_readonly_write ?? 'inherit';
+  }
+
+  /**
+   * Set the per-image read-only-write policy. Writing 'inherit' clears the row
+   * so the disk simply follows the global default.
+   */
+  async setDiskPolicy(filename: string, policy: ReadonlyWritePolicy): Promise<void> {
+    this.ensureInitialized();
+    if (policy === 'inherit') {
+      this.db!.prepare('DELETE FROM disk_policies WHERE filename = ?').run(filename);
+      return;
+    }
+    this.db!.prepare(
+      `INSERT INTO disk_policies (filename, on_readonly_write, updated_at)
+       VALUES (?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(filename) DO UPDATE SET
+         on_readonly_write = excluded.on_readonly_write,
+         updated_at = CURRENT_TIMESTAMP`
+    ).run(filename, policy);
+  }
+
+  /** Move a policy row when a disk image is renamed. */
+  async renameDiskPolicy(oldFilename: string, newFilename: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare(
+      'UPDATE disk_policies SET filename = ?, updated_at = CURRENT_TIMESTAMP WHERE filename = ?'
+    ).run(newFilename, oldFilename);
+  }
+
+  /** Delete the policy row for a disk image. */
+  async deleteDiskPolicy(filename: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM disk_policies WHERE filename = ?').run(filename);
   }
 
   /**
