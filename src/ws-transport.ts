@@ -57,6 +57,24 @@ export class WsTransportManager implements IFdcTransport {
     return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
   }
 
+  /**
+   * Drop the active virtual FDC client, if any. Used when the operator
+   * disables the WebSocket (TCP) transport at runtime — an in-flight
+   * client shouldn't keep serving disks after the feature is turned off.
+   */
+  closeConnection(): void {
+    if (this.ws) {
+      try {
+        this.ws.close();
+      } catch {
+        /* already closing/closed — the 'close' handler clears `ws` */
+      }
+      this.ws = null;
+      const waiters = this.dataWaiters.splice(0);
+      waiters.forEach(w => w());
+    }
+  }
+
   async sendBuffer(data: Buffer, timeoutMs: number): Promise<void> {
     if (!this.isOpen()) {
       throw new Error('WebSocket transport not open');

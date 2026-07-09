@@ -3040,6 +3040,15 @@
         "description": "Persists `enableMcpHttp` and flips the runtime guard immediately —\nno daemon restart. Refuses to enable when no API key is set (400).\nDisabling drops any live MCP sessions.\n"
       }
     },
+    "/api/config/disk-serving": {
+      "put": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Toggle TCP-based (WebSocket) disk serving",
+        "description": "Persists `enableWsTransport` and applies it live — no daemon\nrestart. When disabled, the /fdc-ws upgrade endpoint stops\naccepting virtual FDC clients (403) and any client currently\nconnected is dropped. On by default: an absent field is treated\nas enabled.\n"
+      }
+    },
     "/api/config/web": {
       "put": {
         "tags": [

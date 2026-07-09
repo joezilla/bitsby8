@@ -140,6 +140,12 @@ export interface McpSection {
   enableMcpHttp?: boolean;
 }
 
+export interface DiskServingSection {
+  // TCP-based (WebSocket) FDC transport. On by default — absent means
+  // enabled; only an explicit false disables it.
+  enableWsTransport?: boolean;
+}
+
 export interface TerminalSection {
   terminalPort?: string;
   terminalBaud?: number;
@@ -189,6 +195,7 @@ export interface ConfigDoc
   extends SerialSection,
     WebSection,
     McpSection,
+    DiskServingSection,
     TerminalSection,
     LoggingSection,
     DataSection {
@@ -213,6 +220,9 @@ export interface ConfigStatus {
   mcpHttpEnabled: boolean;
   mcpHttpLive: boolean;
   mcpHttpSessions: number;
+  // TCP-based disk serving (WebSocket FDC transport) — on by default.
+  wsTransportEnabled: boolean;
+  wsTransportConnected: boolean;
   configReadonly: boolean;
   etag?: string;
 }

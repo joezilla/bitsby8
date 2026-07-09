@@ -12,6 +12,7 @@ import type {
   SerialSection,
   WebSection,
   McpSection,
+  DiskServingSection,
   TerminalSection,
   LoggingSection,
   DataSection,
@@ -311,6 +312,15 @@ export const api = {
   putMcpConfig: (patch: Partial<McpSection>, ifMatch?: string) =>
     request<{ success: true; config: ConfigDoc; mtimeMs: number; restartRequired: false }>(
       '/api/config/mcp',
+      {
+        method: 'PUT',
+        body: JSON.stringify(patch),
+        headers: ifMatch ? { 'If-Match': ifMatch } : {},
+      },
+    ),
+  putDiskServingConfig: (patch: Partial<DiskServingSection>, ifMatch?: string) =>
+    request<{ success: true; config: ConfigDoc; mtimeMs: number; restartRequired: false }>(
+      '/api/config/disk-serving',
       {
         method: 'PUT',
         body: JSON.stringify(patch),

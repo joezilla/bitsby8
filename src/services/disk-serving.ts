@@ -7,8 +7,12 @@ export async function enableDiskServing(deps: Dependencies): Promise<void> {
     return;
   }
 
-  const hasSerial = !!(deps.runtimeConfig?.port || deps.serialManager.getDevice());
   const hasWs = deps.wsTransport.isOpen();
+  // Prefer a connected WebSocket FDC client over a serial port that is merely
+  // configured but not actually open (e.g. a placeholder `-p /dev/null`). This
+  // lets a virtual FDC client take over disk serving even when a dead serial
+  // port is configured.
+  const hasSerial = !hasWs && !!(deps.runtimeConfig?.port || deps.serialManager.getDevice());
 
   if (!hasSerial && !hasWs) {
     throw new Error(
@@ -69,6 +73,9 @@ export async function disableDiskServing(deps: Dependencies): Promise<void> {
   if (deps.server) {
     deps.server.stop();
     deps.serverTask = null;
+    // Drop the server instance so a subsequent enable re-selects the transport
+    // (e.g. rebinding from a dead serial port to a connected WebSocket client).
+    deps.server = null;
   }
 
   await deps.serialManager.closePort();

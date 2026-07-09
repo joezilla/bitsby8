@@ -222,6 +222,13 @@ export class WebServer {
       const urlPath = rawUrl.split('?')[0];
 
       if (urlPath === '/fdc-ws') {
+        // TCP-based disk serving is on by default; only an explicit
+        // `false` disables it. Refuse the upgrade when turned off.
+        if (this.deps.runtimeConfig?.enableWsTransport === false) {
+          socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+          socket.destroy();
+          return;
+        }
         const apiKey = this.deps.runtimeConfig?.apiKey ?? null;
         if (apiKey && !isFdcWsAuthorized(req, apiKey)) {
           socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');

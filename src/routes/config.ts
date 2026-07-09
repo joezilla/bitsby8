@@ -19,6 +19,7 @@ import { z, ZodType } from 'zod';
 import { Dependencies } from '../types';
 import { safeErrorMessage } from '../utils/safe-path';
 import { createLogger } from '../logger';
+import { getStatus } from '../services/status';
 
 const log = createLogger('routes:config');
 import {
@@ -26,6 +27,7 @@ import {
   SerialSchema,
   WebSchema,
   McpSchema,
+  DiskServingSchema,
   TerminalSchema,
   LoggingSchema,
   DataSchema,
@@ -81,6 +83,10 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
 
       // MCP over HTTP (opt-in; requires apiKey to be set)
       enableMcpHttp: safe.enableMcpHttp,
+
+      // Disk serving: TCP-based (WebSocket) FDC transport. On by
+      // default — absent means enabled, only explicit false disables.
+      enableWsTransport: safe.enableWsTransport ?? true,
 
       // Terminal
       terminalPort: safe.terminalPort,
@@ -147,6 +153,7 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
             serial: toJSONSchema(SerialSchema),
             web: toJSONSchema(WebSchema),
             mcp: toJSONSchema(McpSchema),
+            diskServing: toJSONSchema(DiskServingSchema),
             terminal: toJSONSchema(TerminalSchema),
             logging: toJSONSchema(LoggingSchema),
             data: toJSONSchema(DataSchema),
@@ -225,6 +232,10 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
       mcpHttpEnabled: !!deps.runtimeConfig?.enableMcpHttp,
       mcpHttpLive: isMcpHttpEnabled(),
       mcpHttpSessions: activeMcpSessionCount(),
+      // TCP-based disk serving (WebSocket FDC transport). On by default;
+      // only an explicit false in the config disables it.
+      wsTransportEnabled: deps.runtimeConfig?.enableWsTransport !== false,
+      wsTransportConnected: deps.wsTransport?.isOpen() ?? false,
       configReadonly: deps.configReadonly,
       etag,
     });
@@ -438,6 +449,10 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
   // and refuses to enable when no api key is set.
   registerMcpConfigPut(router, deps);
 
+  // Disk serving (WS/TCP transport): dedicated handler — applied live,
+  // and disabling it drops any active virtual FDC client.
+  registerDiskServingConfigPut(router, deps);
+
   // GPIO comes in as a full { gpioLeds: {...} } shape — the section
   // schema is the inner object, so wrap it here.
   registerSectionPut(router, deps, '/api/config/gpio', z.object({ gpioLeds: GpioSchema }));
@@ -531,6 +546,100 @@ function registerMcpConfigPut(router: Router, deps: Dependencies): void {
       log.error(
         { err, route: '/api/config/mcp', configFile: deps.overrideConfigFilePath },
         `Unhandled error on /api/config/mcp: ${(err as Error)?.message ?? String(err)}`,
+      );
+      res.status(500).json({ error: safeErrorMessage(err) });
+    }
+  });
+}
+
+/**
+ * @openapi
+ * /api/config/disk-serving:
+ *   put:
+ *     tags: [Config]
+ *     summary: Toggle TCP-based (WebSocket) disk serving
+ *     description: |
+ *       Persists `enableWsTransport` and applies it live — no daemon
+ *       restart. When disabled, the /fdc-ws upgrade endpoint stops
+ *       accepting virtual FDC clients (403) and any client currently
+ *       connected is dropped. On by default: an absent field is treated
+ *       as enabled.
+ */
+function registerDiskServingConfigPut(router: Router, deps: Dependencies): void {
+  router.put('/api/config/disk-serving', async (req: Request, res: Response): Promise<void> => {
+    if (deps.configReadonly) {
+      res.status(423).json({
+        error: 'Config is read-only (--config-readonly).',
+        code: 'CONFIG_READONLY',
+      });
+      return;
+    }
+    const parseResult = DiskServingSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      res.status(400).json({
+        error: 'Invalid config payload',
+        issues: parseResult.error.issues.map(i => ({ path: i.path, message: i.message })),
+      });
+      return;
+    }
+    if (!deps.overrideConfigFilePath) {
+      res.status(409).json({
+        error:
+          'No override file path configured; the daemon has nowhere to persist runtime changes.',
+      });
+      return;
+    }
+    const ifMatch = req.header('if-match');
+    if (ifMatch) {
+      let currentMtime: number | null = null;
+      try {
+        currentMtime = (await fs.stat(deps.overrideConfigFilePath)).mtimeMs;
+      } catch { /* ENOENT / other → treat as mtime 0 */ }
+      const currentEtag = makeConfigEtag(deps.startupEpoch, currentMtime);
+      if (ifMatch !== currentEtag) {
+        res.status(409).json({
+          error: 'Config file changed since you last loaded it. Reload and try again.',
+          code: 'STALE_ETAG',
+          expected: currentEtag,
+          got: ifMatch,
+        });
+        return;
+      }
+    }
+    try {
+      const { config, mtimeMs } = await writePartialConfig(
+        deps.overrideConfigFilePath,
+        parseResult.data as any,
+        deps.baselineConfig,
+      );
+      // Live-apply: flip the runtime guard and, when turning the
+      // transport off, drop any virtual FDC client that's connected now.
+      const wantEnabled = parseResult.data.enableWsTransport;
+      if (deps.runtimeConfig && wantEnabled !== undefined) {
+        deps.runtimeConfig.enableWsTransport = wantEnabled;
+        if (!wantEnabled) {
+          deps.wsTransport.closeConnection();
+        }
+      }
+      deps.io.emit('status', getStatus(deps));
+      res.set('ETag', makeConfigEtag(deps.startupEpoch, mtimeMs));
+      // restartRequired: false — this section is live-applied.
+      res.json({ success: true, config, mtimeMs, restartRequired: false });
+    } catch (err) {
+      if (err instanceof ConfigWriteError) {
+        const status = err.code === 'NOT_WRITABLE' ? 403 : err.code === 'VALIDATION_FAILED' ? 400 : 500;
+        if (status >= 500) {
+          log.error(
+            { err, route: '/api/config/disk-serving', code: err.code, configFile: deps.overrideConfigFilePath, issues: err.issues },
+            `Disk-serving config save failed (${err.code})`,
+          );
+        }
+        res.status(status).json({ error: err.message, code: err.code, issues: err.issues });
+        return;
+      }
+      log.error(
+        { err, route: '/api/config/disk-serving', configFile: deps.overrideConfigFilePath },
+        `Unhandled error on /api/config/disk-serving: ${(err as Error)?.message ?? String(err)}`,
       );
       res.status(500).json({ error: safeErrorMessage(err) });
     }

@@ -23,6 +23,10 @@
   let serialPorts = $state<SerialPortInfo[]>([]);
   let diskServingEnabled = $state(false);
   let diskServingInFlight = $state(false);
+  // TCP-based disk serving (WebSocket FDC transport). On by default;
+  // synced from config in resetAllForms(). Applied live — no restart.
+  let wsTransportEnabled = $state(true);
+  let wsTransportInFlight = $state(false);
   let loading = $state(true);
 
   // Section-local editable copies. Refreshed from `config` after each save.
@@ -225,6 +229,8 @@
     mcpForm = {
       enableMcpHttp: config.enableMcpHttp ?? false,
     };
+    // Absent = on: the WS/TCP transport defaults to enabled.
+    wsTransportEnabled = config.enableWsTransport ?? true;
     terminalForm = {
       terminalPort: config.terminalPort ?? '',
       terminalBaud: config.terminalBaud ?? 9600,
@@ -535,6 +541,25 @@
     }
   }
 
+  async function toggleWsTransport() {
+    if (wsTransportInFlight) return;
+    wsTransportInFlight = true;
+    const next = !wsTransportEnabled;
+    try {
+      await api.putDiskServingConfig({ enableWsTransport: next }, configStatus?.etag);
+      wsTransportEnabled = next;
+      await refresh();
+      showToast(
+        `TCP-based disk serving ${next ? 'enabled' : 'disabled'}`,
+        next ? 'success' : 'info',
+      );
+    } catch (err) {
+      showToast(`Failed: ${(err as Error).message}`, 'error');
+    } finally {
+      wsTransportInFlight = false;
+    }
+  }
+
   async function toggleDiskServing() {
     if (diskServingInFlight) return;
     diskServingInFlight = true;
@@ -665,6 +690,35 @@
             disabled={diskServingInFlight}
           >
             {diskServingEnabled ? 'Disable' : 'Enable'}
+          </Button>
+        </div>
+      </div>
+
+      <!-- TCP-based disk serving: gate the /fdc-ws WebSocket transport
+           that lets a virtual Altair FDC client serve disks with no
+           physical serial port. On by default. -->
+      <div style="padding: 16px 20px; border-top: 1px solid var(--border-1); display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+        <div>
+          <LabelStrip>TCP-based disk serving</LabelStrip>
+          <p class="fdc-label-strip" style="color: var(--fg-3); margin: 4px 0 0; text-transform: none; letter-spacing: 0;">
+            Accept virtual FDC clients over WebSocket at <code>/fdc-ws</code> — no physical serial
+            port needed. Disabling refuses new connections and drops any that are live.
+          </p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <Led
+            color={wsTransportEnabled ? (configStatus?.wsTransportConnected ? 'green' : 'off') : 'off'}
+            label={wsTransportEnabled
+              ? (configStatus?.wsTransportConnected ? 'Client connected' : 'Enabled')
+              : 'Disabled'}
+          />
+          <Button
+            variant={wsTransportEnabled ? 'ghost' : 'filled'}
+            icon={wsTransportEnabled ? 'pause' : 'play_arrow'}
+            onclick={toggleWsTransport}
+            disabled={wsTransportInFlight || configStatus?.configReadonly}
+          >
+            {wsTransportEnabled ? 'Disable' : 'Enable'}
           </Button>
         </div>
       </div>
