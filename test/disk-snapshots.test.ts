@@ -18,6 +18,7 @@ import {
   deleteSnapshot,
   deleteSnapshotsForDisk,
   renameSnapshotsForDisk,
+  snapshotFromScratch,
 } from '../src/services/disk-snapshots';
 import type { Dependencies } from '../src/types';
 
@@ -143,6 +144,21 @@ describe('disk snapshots', () => {
       const blob = path.join(h.disksDir, '.snapshots', `${id}.snap`);
       await expect(fs.access(blob)).rejects.toBeTruthy();
     }
+  });
+
+  test('snapshotFromScratch records a snapshot from an arbitrary source file', async () => {
+    const h = await makeHarness(Buffer.from('ORIGINAL'));
+    const scratch = path.join(h.disksDir, 'scratch.bin');
+    await fs.writeFile(scratch, Buffer.from('SCRATCH-STATE'));
+
+    const snap = await snapshotFromScratch(h.deps, DISK, scratch, 'session save');
+    expect(snap.disk_filename).toBe(DISK);
+    expect(snap.label).toBe('session save');
+    expect(snap.size_bytes).toBe('SCRATCH-STATE'.length);
+
+    const blob = await fs.readFile(path.join(h.disksDir, '.snapshots', `${snap.id}.snap`));
+    expect(blob.toString()).toBe('SCRATCH-STATE');
+    expect(await listSnapshots(h.deps, DISK)).toHaveLength(1);
   });
 
   test('renameSnapshotsForDisk repoints snapshots to the new filename (rename cascade)', async () => {

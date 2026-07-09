@@ -65,6 +65,33 @@ function resolveDiskOr404(deps: Dependencies, filename: string): string {
 }
 
 /**
+ * Copy `sourcePath` into the snapshot store and record it as a snapshot of
+ * `diskFilename`. Shared by createSnapshot (source = the master image) and
+ * snapshotFromScratch (source = a transient scratch file).
+ */
+async function persistSnapshot(
+  deps: Dependencies,
+  diskFilename: string,
+  sourcePath: string,
+  label: string,
+): Promise<SnapshotRecord> {
+  await fs.mkdir(snapshotDir(deps), { recursive: true });
+  const id = randomBytes(16).toString('hex');
+  const blobPath = snapshotBlobPath(deps, id);
+
+  await fs.copyFile(sourcePath, blobPath);
+  const { size } = await fs.stat(blobPath);
+
+  await deps.database.insertSnapshot(id, diskFilename, label.trim(), size);
+  const record = await deps.database.getSnapshot(id);
+  if (!record) {
+    // Should be unreachable — the row was just inserted.
+    throw new SnapshotError('Failed to persist snapshot', 500);
+  }
+  return record;
+}
+
+/**
  * Create a snapshot of a disk image. Allowed while the disk is mounted — the
  * drive syncs after every track write, so the copy is consistent enough.
  */
@@ -74,21 +101,24 @@ export async function createSnapshot(
   label = '',
 ): Promise<SnapshotRecord> {
   const sourcePath = resolveDiskOr404(deps, filename);
+  const record = await persistSnapshot(deps, filename, sourcePath, label);
+  log.info({ id: record.id, disk: filename, size: record.size_bytes, label: record.label }, 'Snapshot created');
+  return record;
+}
 
-  await fs.mkdir(snapshotDir(deps), { recursive: true });
-  const id = randomBytes(16).toString('hex');
-  const blobPath = snapshotBlobPath(deps, id);
-
-  await fs.copyFile(sourcePath, blobPath);
-  const { size } = await fs.stat(blobPath);
-
-  await deps.database.insertSnapshot(id, filename, label.trim(), size);
-  const record = await deps.database.getSnapshot(id);
-  if (!record) {
-    // Should be unreachable — the row was just inserted.
-    throw new SnapshotError('Failed to persist snapshot', 500);
-  }
-  log.info({ id, disk: filename, size, label: record.label }, 'Snapshot created');
+/**
+ * Save an arbitrary source file (a transient scratch copy) as a snapshot of
+ * `diskFilename`. Lets an operator keep a transient drive's working state.
+ */
+export async function snapshotFromScratch(
+  deps: Dependencies,
+  diskFilename: string,
+  scratchPath: string,
+  label = '',
+): Promise<SnapshotRecord> {
+  assertSafeFilename(diskFilename);
+  const record = await persistSnapshot(deps, diskFilename, scratchPath, label);
+  log.info({ id: record.id, disk: diskFilename, size: record.size_bytes, label: record.label }, 'Snapshot created from transient scratch');
   return record;
 }
 

@@ -4,6 +4,7 @@ import type {
   ServerStatus,
   DiskImageInfo,
   SnapshotInfo,
+  ReadonlyWritePolicy,
   CassetteInfo,
   ScriptInfo,
   SerialPortInfo,
@@ -212,6 +213,24 @@ export const api = {
     request(
       `/api/images/${encodeURIComponent(filename)}/snapshots/${encodeURIComponent(id)}`,
       { method: 'DELETE' },
+    ),
+
+  // Read-only-write policy (transient copy-on-write)
+  getDiskPolicy: (filename: string) =>
+    request<{ filename: string; onReadonlyWrite: ReadonlyWritePolicy }>(
+      `/api/images/${encodeURIComponent(filename)}/policy`,
+    ),
+  setDiskPolicy: (filename: string, onReadonlyWrite: ReadonlyWritePolicy) =>
+    request(`/api/images/${encodeURIComponent(filename)}/policy`, {
+      method: 'PUT',
+      body: JSON.stringify({ onReadonlyWrite }),
+    }),
+  commitTransient: (driveId: number) =>
+    request(`/api/drives/${driveId}/transient/commit`, { method: 'POST' }),
+  saveTransientSnapshot: (driveId: number, label?: string) =>
+    request<{ success: boolean; snapshot: SnapshotInfo }>(
+      `/api/drives/${driveId}/transient/save-snapshot`,
+      { method: 'POST', body: JSON.stringify({ label: label ?? '' }) },
     ),
 
   // CP/M

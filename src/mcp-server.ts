@@ -769,6 +769,49 @@ export function createMcpServer(deps: Dependencies): McpServer {
     }
   );
 
+  server.tool(
+    'get_disk_write_policy',
+    "Get a disk image's behavior when the guest writes to it while mounted read-only: 'inherit' (follow the global default), 'error' (fail writes), or 'transient' (redirect writes to a throwaway copy-on-write scratch, keeping the master pristine).",
+    {
+      filename: z.string().describe('Disk image filename'),
+    },
+    async ({ filename }) => {
+      try {
+        if (!filename || filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
+          throw new Error('Invalid filename');
+        }
+        const onReadonlyWrite = await deps.database.getDiskPolicy(filename);
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ filename, onReadonlyWrite }, null, 2) }],
+        };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'set_disk_write_policy',
+    "Set a disk image's read-only-write policy. 'transient' backs the read-only image with a copy-on-write scratch so guest writes succeed without changing the master; 'error' fails such writes; 'inherit' follows the global readonlyWritePolicy default.",
+    {
+      filename: z.string().describe('Disk image filename'),
+      onReadonlyWrite: z.enum(['inherit', 'error', 'transient']).describe('Policy to apply'),
+    },
+    async ({ filename, onReadonlyWrite }) => {
+      try {
+        if (!filename || filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
+          throw new Error('Invalid filename');
+        }
+        await deps.database.setDiskPolicy(filename, onReadonlyWrite);
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ success: true, filename, onReadonlyWrite }, null, 2) }],
+        };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
   // ===========================================================================
   // Tool 14: update_disk_notes
   // ===========================================================================

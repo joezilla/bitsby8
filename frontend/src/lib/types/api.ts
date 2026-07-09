@@ -76,6 +76,9 @@ export interface SnapshotInfo {
   created_at: string;
 }
 
+/** Per-image behavior when the guest writes to a read-only mount. */
+export type ReadonlyWritePolicy = 'inherit' | 'error' | 'transient';
+
 export interface CassetteInfo {
   name: string;
   size: number;

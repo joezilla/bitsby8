@@ -14,7 +14,7 @@
   import Led from '$lib/components/shared/Led.svelte';
   import PageHeader from '$lib/components/shared/PageHeader.svelte';
   import LabelStrip from '$lib/components/shared/LabelStrip.svelte';
-  import type { DiskImageInfo, DriveState, CpmFileInfo, SnapshotInfo } from '$lib/types/api';
+  import type { DiskImageInfo, DriveState, CpmFileInfo, SnapshotInfo, ReadonlyWritePolicy } from '$lib/types/api';
 
   let images = $state<DiskImageInfo[]>([]);
   let searchQuery = $state('');
@@ -37,6 +37,7 @@
   let editFilename = $state('');
   let editDescription = $state('');
   let editNotesText = $state('');
+  let editPolicy = $state<ReadonlyWritePolicy>('inherit');
   let savingEdit = $state(false);
   let showCreateDialog = $state(false);
   let newDiskName = $state('');
@@ -118,12 +119,50 @@
     }
   }
 
+  // Ejecting a transient drive that has unsaved writes prompts the operator to
+  // discard / save-as-snapshot / commit before the scratch is thrown away.
+  let transientEjectDrive = $state<DriveState | null>(null);
+  let transientSaveLabel = $state('');
+  let transientBusy = $state(false);
+
   async function unmountDisk(driveId: number) {
+    const d = drives.find((x) => x.id === driveId);
+    if (d && d.transient && d.dirty) {
+      transientEjectDrive = d;
+      transientSaveLabel = '';
+      return; // defer the actual eject to the keep-or-discard dialog
+    }
+    await doUnmount(driveId);
+  }
+
+  async function doUnmount(driveId: number) {
     try {
       await api.unmountDrive(driveId);
       showToast(`Drive ${driveId} unmounted`, 'success');
     } catch (err: any) {
       showToast(`Unmount failed: ${err.message}`, 'error');
+    }
+  }
+
+  async function transientEject(action: 'discard' | 'snapshot' | 'commit') {
+    if (!transientEjectDrive) return;
+    const driveId = transientEjectDrive.id;
+    transientBusy = true;
+    try {
+      if (action === 'snapshot') {
+        await api.saveTransientSnapshot(driveId, transientSaveLabel.trim());
+        showToast('Saved changes as a snapshot', 'success');
+      } else if (action === 'commit') {
+        await api.commitTransient(driveId);
+        showToast('Committed changes to the master image', 'success');
+      }
+      await doUnmount(driveId);
+      transientEjectDrive = null;
+      await loadImages();
+    } catch (err: any) {
+      showToast(`Eject failed: ${err.message}`, 'error');
+    } finally {
+      transientBusy = false;
     }
   }
 
@@ -300,6 +339,7 @@
         showToast(`Renamed ${oldName} → ${resolvedName}`, 'success');
       }
       await api.updateImageNotes(resolvedName, editDescription, editNotesText);
+      await api.setDiskPolicy(resolvedName, editPolicy);
       if (newName === oldName) {
         showToast(`Notes updated for ${resolvedName}`, 'success');
       }
@@ -312,11 +352,18 @@
     }
   }
 
-  function openEditNotes(image: DiskImageInfo) {
+  async function openEditNotes(image: DiskImageInfo) {
     editingNotes = image;
     editFilename = image.name;
     editDescription = image.description ?? '';
     editNotesText = image.notes ?? '';
+    editPolicy = 'inherit';
+    try {
+      const res = await api.getDiskPolicy(image.name);
+      editPolicy = res.onReadonlyWrite;
+    } catch {
+      editPolicy = 'inherit';
+    }
   }
 
   async function createBlankDisk() {
@@ -562,6 +609,11 @@
                     <Chip color="amber">RO</Chip>
                   {:else}
                     <Chip color="green">R/W</Chip>
+                  {/if}
+                  {#if drive.transient}
+                    <Chip color="cyan" icon="content_copy">
+                      {drive.dirty ? 'Transient · changed' : 'Transient'}
+                    </Chip>
                   {/if}
                 </div>
               {:else}
@@ -913,6 +965,17 @@
         <label class="fdc-label-strip" for="edit-notes" style="display: block; margin-bottom: 4px;">Notes</label>
         <TextArea id="edit-notes" rows={4} placeholder="Additional notes…" bind:value={editNotesText} />
       </div>
+      <div>
+        <label class="fdc-label-strip" for="edit-policy" style="display: block; margin-bottom: 4px;">On write to read-only</label>
+        <Select id="edit-policy" bind:value={editPolicy}>
+          <option value="inherit">Inherit (use global default)</option>
+          <option value="error">Error — refuse writes (write-protect)</option>
+          <option value="transient">Transient — copy-on-write, changes discarded on unmount</option>
+        </Select>
+        <div class="fdc-label-strip" style="margin-top: 4px; text-transform: none; letter-spacing: 0; color: var(--fg-3);">
+          "Transient" lets the guest write to a throwaway copy while this image stays pristine.
+        </div>
+      </div>
       <div style="display: flex; justify-content: flex-end; gap: 8px;">
         <Button variant="ghost" disabled={savingEdit} onclick={() => (editingNotes = null)}>Cancel</Button>
         <Button variant="filled" icon="check" disabled={savingEdit} onclick={saveEdit}>
@@ -1033,6 +1096,53 @@
 
       <div style="display: flex; justify-content: flex-end;">
         <Button variant="ghost" onclick={() => (snapshotDisk = null)}>Close</Button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Transient eject: keep-or-discard dialog -->
+{#if transientEjectDrive}
+  <div
+    role="dialog"
+    aria-modal="true"
+    aria-label="Eject transient drive"
+    tabindex="-1"
+    onkeydown={(e: KeyboardEvent) => { if (e.key === 'Escape' && !transientBusy) transientEjectDrive = null; }}
+    style="position: fixed; inset: 0; z-index: 55; background: var(--surface-overlay); display: flex; align-items: center; justify-content: center; padding: 16px;"
+  >
+    <button
+      type="button"
+      onclick={() => { if (!transientBusy) transientEjectDrive = null; }}
+      aria-label="Close"
+      style="position: absolute; inset: 0; background: transparent; border: none; cursor: default;"
+    ></button>
+    <div
+      role="document"
+      style="position: relative; background: var(--surface-raised); border: 1px solid var(--border-2); border-radius: var(--radius-lg); box-shadow: var(--elev-4); width: 100%; max-width: 480px; padding: 20px; display: flex; flex-direction: column; gap: 14px;"
+    >
+      <div>
+        <LabelStrip>Eject transient drive {transientEjectDrive.id}</LabelStrip>
+        <p class="fdc-label-strip" style="color: var(--fg-3); margin: 6px 0 0; text-transform: none; letter-spacing: 0;">
+          <span class="fdc-mono" style="color: var(--accent);">{transientEjectDrive.filename}</span> has
+          unsaved changes on its copy-on-write scratch. Ejecting discards them unless you keep them.
+        </p>
+      </div>
+      <div>
+        <label class="fdc-label-strip" for="transient-save-label" style="display: block; margin-bottom: 4px;">Snapshot label (optional)</label>
+        <Input id="transient-save-label" placeholder="e.g. session save" bind:value={transientSaveLabel} disabled={transientBusy} />
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <Button variant="filled" icon="photo_camera" disabled={transientBusy} onclick={() => transientEject('snapshot')}>
+          Save as snapshot &amp; eject
+        </Button>
+        <Button variant="tonal" icon="save" disabled={transientBusy} onclick={() => transientEject('commit')}>
+          Commit to master &amp; eject
+        </Button>
+        <Button variant="outline" icon="delete_forever" disabled={transientBusy} onclick={() => transientEject('discard')}>
+          Discard changes &amp; eject
+        </Button>
+        <Button variant="ghost" disabled={transientBusy} onclick={() => (transientEjectDrive = null)}>Cancel</Button>
       </div>
     </div>
   </div>

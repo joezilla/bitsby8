@@ -832,4 +832,79 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
       res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
+
+  /**
+   * @openapi
+   * /api/images/{filename}/policy:
+   *   get:
+   *     tags: [Images]
+   *     summary: Get a disk image's read-only-write policy
+   *     description: "Returns onReadonlyWrite: inherit (follow the global default), error (fail writes), or transient (back with copy-on-write scratch)."
+   *     parameters:
+   *       - in: path
+   *         name: filename
+   *         required: true
+   *         schema:
+   *           type: string
+   *     responses:
+   *       200:
+   *         description: Current per-image policy
+   *   put:
+   *     tags: [Images]
+   *     summary: Set a disk image's read-only-write policy
+   *     parameters:
+   *       - in: path
+   *         name: filename
+   *         required: true
+   *         schema:
+   *           type: string
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [onReadonlyWrite]
+   *             properties:
+   *               onReadonlyWrite:
+   *                 type: string
+   *                 enum: [inherit, error, transient]
+   *     responses:
+   *       200:
+   *         description: Policy updated
+   *       400:
+   *         description: Invalid filename or policy value
+   */
+  router.get('/api/images/:filename/policy', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const filename = req.params.filename;
+      if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+        res.status(400).json({ error: 'Invalid filename' });
+        return;
+      }
+      const onReadonlyWrite = await deps.database.getDiskPolicy(filename);
+      res.json({ filename, onReadonlyWrite });
+    } catch (error) {
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+
+  router.put('/api/images/:filename/policy', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const filename = req.params.filename;
+      if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+        res.status(400).json({ error: 'Invalid filename' });
+        return;
+      }
+      const value = req.body?.onReadonlyWrite;
+      if (value !== 'inherit' && value !== 'error' && value !== 'transient') {
+        res.status(400).json({ error: 'Invalid policy. Must be inherit, error, or transient.' });
+        return;
+      }
+      await deps.database.setDiskPolicy(filename, value);
+      res.json({ success: true, filename, onReadonlyWrite: value });
+    } catch (error) {
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
 }

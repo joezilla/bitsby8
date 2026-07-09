@@ -2159,6 +2159,77 @@
         }
       }
     },
+    "/api/images/{filename}/policy": {
+      "get": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Get a disk image's read-only-write policy",
+        "description": "Returns onReadonlyWrite: inherit (follow the global default), error (fail writes), or transient (back with copy-on-write scratch).",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current per-image policy"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Set a disk image's read-only-write policy",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "onReadonlyWrite"
+                ],
+                "properties": {
+                  "onReadonlyWrite": {
+                    "type": "string",
+                    "enum": [
+                      "inherit",
+                      "error",
+                      "transient"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Policy updated"
+          },
+          "400": {
+            "description": "Invalid filename or policy value"
+          }
+        }
+      }
+    },
     "/api/health": {
       "get": {
         "tags": [
@@ -2585,6 +2656,77 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/drives/{id}/transient/commit": {
+      "post": {
+        "tags": [
+          "Drives"
+        ],
+        "summary": "Commit a transient drive's changes to its master image",
+        "description": "Writes the copy-on-write scratch back onto the read-only master image. The drive stays mounted and transient. Fails if the drive is not transient-backed or the master is mounted on another drive.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Changes committed to the master"
+          },
+          "400": {
+            "description": "Invalid drive ID or drive is not transient-backed"
+          },
+          "409": {
+            "description": "Master image is mounted on another drive"
+          }
+        }
+      }
+    },
+    "/api/drives/{id}/transient/save-snapshot": {
+      "post": {
+        "tags": [
+          "Drives"
+        ],
+        "summary": "Save a transient drive's changes as a snapshot",
+        "description": "Captures the current copy-on-write scratch as a snapshot of the master image, without touching the master.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Snapshot saved"
+          },
+          "400": {
+            "description": "Invalid drive ID or drive is not transient-backed"
           }
         }
       }
