@@ -83,6 +83,9 @@ export interface Dependencies {
   // virtual clients are served via the ConnectionManager (per-connection
   // copy-on-write sessions); when false, the legacy single-client path runs.
   multiClientServing: boolean;
+  // Which client writes the base image directly (others splinter): a clientId,
+  // 'serial' (default), or 'none'. Cached from the DB; updated live by PUT.
+  writeMaster: string;
   connectionManager?: import('./services/connection-manager').ConnectionManager;
 
   // Mutable server state

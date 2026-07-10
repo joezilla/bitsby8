@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { Dependencies } from '../types';
 import { safeErrorMessage } from '../utils/safe-path';
-import { getMultiClientServing, setMultiClientServing } from '../services/feature-flags';
+import { getMultiClientServing, setMultiClientServing, getWriteMaster, setWriteMaster } from '../services/feature-flags';
 
 /**
  * Operator-facing runtime settings stored in the DB (not the config file).
@@ -45,7 +45,8 @@ export function registerSettingsRoutes(router: Router, deps: Dependencies): void
   router.get('/api/settings', async (_req: Request, res: Response): Promise<void> => {
     try {
       const multiClientServing = await getMultiClientServing(deps.database);
-      res.json({ multiClientServing });
+      const writeMaster = await getWriteMaster(deps.database);
+      res.json({ multiClientServing, writeMaster });
     } catch (error) {
       res.status(500).json({ error: safeErrorMessage(error) });
     }
@@ -53,15 +54,28 @@ export function registerSettingsRoutes(router: Router, deps: Dependencies): void
 
   router.put('/api/settings', async (req: Request, res: Response): Promise<void> => {
     try {
-      const value = req.body?.multiClientServing;
-      if (typeof value !== 'boolean') {
+      const { multiClientServing, writeMaster } = req.body ?? {};
+      if (multiClientServing !== undefined && typeof multiClientServing !== 'boolean') {
         res.status(400).json({ error: 'multiClientServing must be a boolean' });
         return;
       }
-      await setMultiClientServing(deps.database, value);
-      // Update the live cache so new connections take effect immediately.
-      deps.multiClientServing = value;
-      res.json({ success: true, multiClientServing: value });
+      if (writeMaster !== undefined && typeof writeMaster !== 'string') {
+        res.status(400).json({ error: 'writeMaster must be a string' });
+        return;
+      }
+      if (multiClientServing !== undefined) {
+        await setMultiClientServing(deps.database, multiClientServing);
+        deps.multiClientServing = multiClientServing; // live cache
+      }
+      if (writeMaster !== undefined) {
+        await setWriteMaster(deps.database, writeMaster);
+        deps.writeMaster = writeMaster; // live cache
+      }
+      res.json({
+        success: true,
+        multiClientServing: deps.multiClientServing,
+        writeMaster: deps.writeMaster,
+      });
     } catch (error) {
       res.status(500).json({ error: safeErrorMessage(error) });
     }

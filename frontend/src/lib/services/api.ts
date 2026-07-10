@@ -226,9 +226,9 @@ export const api = {
       body: JSON.stringify({ onReadonlyWrite }),
     }),
   // Runtime feature settings (DB-backed, live)
-  getSettings: () => request<{ multiClientServing: boolean }>('/api/settings'),
-  putSettings: (patch: { multiClientServing?: boolean }) =>
-    request<{ success: boolean; multiClientServing: boolean }>('/api/settings', {
+  getSettings: () => request<{ multiClientServing: boolean; writeMaster: string }>('/api/settings'),
+  putSettings: (patch: { multiClientServing?: boolean; writeMaster?: string }) =>
+    request<{ success: boolean; multiClientServing: boolean; writeMaster: string }>('/api/settings', {
       method: 'PUT',
       body: JSON.stringify(patch),
     }),

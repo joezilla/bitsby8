@@ -602,6 +602,7 @@ async function main(): Promise<void> {
       startupEpoch,
       configReadonly,
       multiClientServing: false,
+      writeMaster: 'serial',
       server: server,
       diskServingEnabled: server !== null,
       serverTask: null,

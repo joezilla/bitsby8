@@ -101,6 +101,7 @@ export function getDrivesStatus(deps: Dependencies) {
 export function getMultiClientStatus(deps: Dependencies) {
   return {
     enabled: deps.multiClientServing ?? false,
+    writeMaster: deps.writeMaster ?? 'serial',
     clients: deps.connectionManager?.list() ?? [],
   };
 }

@@ -18,3 +18,15 @@ export async function getMultiClientServing(db: Database): Promise<boolean> {
 export async function setMultiClientServing(db: Database, enabled: boolean): Promise<void> {
   await db.setSetting(MULTI_CLIENT_SERVING_KEY, enabled ? 'true' : 'false');
 }
+
+/** Which client writes the base image directly (others splinter). A clientId,
+ *  or 'serial' (the physical device, default), or 'none' (all splinter). */
+export const WRITE_MASTER_KEY = 'writeMaster';
+
+export async function getWriteMaster(db: Database): Promise<string> {
+  return (await db.getSetting(WRITE_MASTER_KEY)) ?? 'serial';
+}
+
+export async function setWriteMaster(db: Database, value: string): Promise<void> {
+  await db.setSetting(WRITE_MASTER_KEY, value);
+}

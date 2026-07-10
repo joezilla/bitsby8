@@ -47,6 +47,9 @@ export interface DriveSessionOptions {
   registry: MountRegistry;
   /** Required for persistence; absent → ephemeral even with a clientId. */
   database?: Database;
+  /** When true, this session writes the base image directly (no splinter) —
+   *  the designated "master" client. */
+  writesMaster?: boolean;
 }
 
 export class DriveSession implements IDriveEngine {
@@ -55,15 +58,18 @@ export class DriveSession implements IDriveEngine {
   private readonly registry: MountRegistry;
   private readonly database: Database | null;
   private readonly persistent: boolean;
+  private readonly writesMaster: boolean;
   private drives = new Map<number, SessionDrive>();
 
   constructor(opts: DriveSessionOptions) {
     this.clientId = opts.clientId;
     this.registry = opts.registry;
     this.database = opts.database ?? null;
+    this.writesMaster = !!opts.writesMaster;
     // A splinter persists only when we have both a stable id and a DB to
     // record it in; otherwise it's an ephemeral fork discarded on disconnect.
-    this.persistent = opts.clientId != null && !!opts.database;
+    // The master client never splinters, so persistence doesn't apply to it.
+    this.persistent = !this.writesMaster && opts.clientId != null && !!opts.database;
   }
 
   /**
@@ -109,6 +115,16 @@ export class DriveSession implements IDriveEngine {
   private async openDrive(drive: number, master: string, epoch: number, wasMounted: boolean): Promise<void> {
     const base = path.basename(master);
 
+    // Master client writes the base image directly — open read-write, no fork.
+    if (this.writesMaster) {
+      const handle = await fs.open(master, fsSync.constants.O_RDWR);
+      this.drives.set(drive, {
+        state: this.makeState(handle.fd, master, wasMounted, null, false, false),
+        handle, master, baseEpoch: epoch,
+      });
+      return;
+    }
+
     // Persistent re-attach path.
     if (this.persistent && this.clientId) {
       const existing = await this.database!.getClientSplinter(this.clientId, drive);
@@ -140,17 +156,17 @@ export class DriveSession implements IDriveEngine {
     });
   }
 
-  private makeState(fd: number, master: string, wasMounted: boolean, scratchPath: string | null, dirty: boolean): DriveState {
+  private makeState(fd: number, master: string, wasMounted: boolean, scratchPath: string | null, dirty: boolean, transient = true): DriveState {
     return {
       fd,
       filename: master,     // always the master (mounted-checks see the base)
       mounted: true,
-      readonly: false,      // writes are allowed — they land on a splinter
+      readonly: false,      // writes are allowed (to a splinter, or the base for the master client)
       hdld: false,
       track: 0,
       lastIo: null,
       unavailableUntil: wasMounted ? Date.now() + SWAP_INVALIDATE_WINDOW_MS : null,
-      transient: true,      // this session is copy-on-write over the master
+      transient,            // copy-on-write over the master (false for the master client)
       scratchPath,
       dirty,
     };
@@ -205,7 +221,8 @@ export class DriveSession implements IDriveEngine {
       throw new Error(`Invalid track length: ${length}`);
     }
     // Copy-on-write: fork the splinter on the first write, then redirect I/O.
-    if (!sd.state.scratchPath) {
+    // The master client writes the base directly and never forks.
+    if (!this.writesMaster && !sd.state.scratchPath) {
       await this.forkSplinter(drive, sd);
     }
     const result = await sd.handle.write(buffer, 0, length, track * length);

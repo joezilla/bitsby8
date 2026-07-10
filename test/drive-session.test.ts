@@ -96,6 +96,25 @@ describe('DriveSession copy-on-write', () => {
     await fs.rm(dir, { recursive: true, force: true });
   });
 
+  test('writesMaster session writes the base image directly (no splinter)', async () => {
+    const { dir, master, registry, original } = await setup();
+    const s = new DriveSession({ clientId: 'primary', registry, writesMaster: true });
+    await s.sync();
+
+    expect(s.getDriveState(0)!.transient).toBe(false);
+    const payload = Buffer.alloc(LEN, 0xcd);
+    await s.writeTrack(0, 0, LEN, payload);
+
+    // No splinter; the write landed on the master itself.
+    expect(s.getScratchPath(0)).toBeNull();
+    const masterBytes = await fs.readFile(master);
+    expect(masterBytes.subarray(0, LEN).equals(payload)).toBe(true);
+    expect(masterBytes.subarray(LEN).equals(original.subarray(LEN))).toBe(true);
+
+    await s.dispose();
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
   test('sync drops a drive the operator unmounted', async () => {
     const { dir, registry } = await setup();
     const s = new DriveSession({ clientId: 'a', registry });

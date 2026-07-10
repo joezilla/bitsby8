@@ -54,7 +54,14 @@ export class ConnectionManager {
     transport.acceptConnection(ws);
 
     // A supplied clientId → persistent splinters; anonymous → ephemeral.
-    const session = new DriveSession({ clientId, registry: getMountRegistry(), database: this.deps.database });
+    // The designated master client writes the base image directly.
+    const writesMaster = clientId != null && clientId === this.deps.writeMaster;
+    const session = new DriveSession({
+      clientId,
+      registry: getMountRegistry(),
+      database: this.deps.database,
+      writesMaster,
+    });
     await session.sync();
 
     const config = createDefaultConfig();

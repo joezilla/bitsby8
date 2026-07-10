@@ -36,7 +36,7 @@ import { registerImageRoutes } from './routes/images';
 import { registerSnapshotRoutes } from './routes/snapshots';
 import { registerSettingsRoutes } from './routes/settings';
 import { ConnectionManager } from './services/connection-manager';
-import { getMultiClientServing } from './services/feature-flags';
+import { getMultiClientServing, getWriteMaster } from './services/feature-flags';
 import { registerCpmRoutes } from './routes/cpm';
 import { registerCassetteRoutes } from './routes/cassettes';
 import { registerTerminalRoutes } from './routes/terminal';
@@ -123,6 +123,7 @@ export class WebServer {
       sessionStore,
       wsTransport: getWsTransportManager(),
       multiClientServing: false,
+      writeMaster: 'serial',
       server: options?.server || null,
       diskServingEnabled: options?.server !== null && options?.server !== undefined,
       serverTask: null,
@@ -304,11 +305,13 @@ export class WebServer {
       }
     }
 
-    // Cache the multi-client feature flag (updated live by PUT /api/settings).
+    // Cache the multi-client settings (updated live by PUT /api/settings).
     try {
       this.deps.multiClientServing = await getMultiClientServing(this.deps.database);
+      this.deps.writeMaster = await getWriteMaster(this.deps.database);
     } catch {
       this.deps.multiClientServing = false;
+      this.deps.writeMaster = 'serial';
     }
 
     return new Promise((resolve, reject) => {
