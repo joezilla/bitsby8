@@ -78,8 +78,17 @@ export async function disableDiskServing(deps: Dependencies): Promise<void> {
     deps.server = null;
   }
 
-  // Tear down any per-connection multi-client loops too.
-  await deps.connectionManager?.stopAll();
+  // Tear down any per-connection multi-client loops too — but ONLY in the
+  // legacy single-client model. When multi-client serving is on, each WS
+  // client owns an independent served loop bound to its socket lifetime (see
+  // ConnectionManager.addWsClient). Toggling the shared serial/master
+  // disk-serving state must not orphan a live client — otherwise a client that
+  // does a disable→enable "rebind" ritual right after connecting (as the older
+  // boot harnesses did) would saw off the very session it just established.
+  // A multi-client loop is cleaned up when its socket closes, not here.
+  if (!deps.multiClientServing) {
+    await deps.connectionManager?.stopAll();
+  }
 
   await deps.serialManager.closePort();
   deps.diskServingEnabled = false;
