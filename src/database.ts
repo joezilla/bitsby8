@@ -50,6 +50,20 @@ export interface ClientSplinter {
   updated_at: string;
 }
 
+export interface ClientMount {
+  client_id: string;
+  drive: number;
+  filename: string;
+  readonly: number; // SQLite 0/1
+  updated_at: string;
+}
+
+export interface ClientLabel {
+  client_id: string;
+  name: string;
+  updated_at: string;
+}
+
 // Schema migrations, applied in order. Each runs inside a transaction.
 const MIGRATIONS: string[] = [
   // Migration 0: initial schema
@@ -111,6 +125,24 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (client_id, drive)
   );
   CREATE INDEX IF NOT EXISTS idx_client_splinters_base ON client_splinters(base_filename);`,
+  // Migration 5: per-client drive-bay overrides + friendly names. A
+  // client_mounts row overrides the global mount on one drive for one client;
+  // an absent row means that drive inherits the global mount. client_labels
+  // gives a persistent client a human-readable name.
+  `CREATE TABLE IF NOT EXISTS client_mounts (
+    client_id TEXT NOT NULL,
+    drive INTEGER NOT NULL,
+    filename TEXT NOT NULL,
+    readonly INTEGER NOT NULL DEFAULT 0,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (client_id, drive)
+  );
+  CREATE INDEX IF NOT EXISTS idx_client_mounts_filename ON client_mounts(filename);
+  CREATE TABLE IF NOT EXISTS client_labels (
+    client_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );`,
 ];
 
 export class Database {
@@ -486,6 +518,101 @@ export class Database {
     this.db!.prepare(
       'UPDATE client_splinters SET base_filename = ?, updated_at = CURRENT_TIMESTAMP WHERE base_filename = ?'
     ).run(newBase, oldBase);
+  }
+
+  // --- Per-client drive-bay overrides (client_mounts) ---------------------
+
+  /** Get a client's override for one drive, or null (⇒ inherit global). */
+  async getClientMount(clientId: string, drive: number): Promise<ClientMount | null> {
+    this.ensureInitialized();
+    const row = this.db!.prepare('SELECT * FROM client_mounts WHERE client_id = ? AND drive = ?').get(clientId, drive) as ClientMount | undefined;
+    return row || null;
+  }
+
+  /** Set (or replace) a client's per-drive mount override. */
+  async setClientMount(clientId: string, drive: number, filename: string, readonly: boolean): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare(
+      `INSERT INTO client_mounts (client_id, drive, filename, readonly, updated_at)
+       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(client_id, drive) DO UPDATE SET
+         filename = excluded.filename,
+         readonly = excluded.readonly,
+         updated_at = CURRENT_TIMESTAMP`
+    ).run(clientId, drive, filename, readonly ? 1 : 0);
+  }
+
+  /** Clear a client's override on one drive (⇒ fall back to global). */
+  async deleteClientMount(clientId: string, drive: number): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM client_mounts WHERE client_id = ? AND drive = ?').run(clientId, drive);
+  }
+
+  /** List a single client's overrides, or all of them when clientId omitted. */
+  async listClientMounts(clientId?: string): Promise<ClientMount[]> {
+    this.ensureInitialized();
+    if (clientId === undefined) {
+      return this.db!.prepare('SELECT * FROM client_mounts ORDER BY client_id, drive').all() as ClientMount[];
+    }
+    return this.db!.prepare('SELECT * FROM client_mounts WHERE client_id = ? ORDER BY drive').all(clientId) as ClientMount[];
+  }
+
+  /** Delete every client override that points at a base image (base deleted). */
+  async deleteClientMountsForBase(filename: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM client_mounts WHERE filename = ?').run(filename);
+  }
+
+  /** Repoint client overrides when a base image is renamed. */
+  async renameClientMountsBase(oldFilename: string, newFilename: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare(
+      'UPDATE client_mounts SET filename = ?, updated_at = CURRENT_TIMESTAMP WHERE filename = ?'
+    ).run(newFilename, oldFilename);
+  }
+
+  /** Remove all of a client's overrides (used by "forget client"). */
+  async deleteClientMountsForClient(clientId: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM client_mounts WHERE client_id = ?').run(clientId);
+  }
+
+  // --- Per-client friendly names (client_labels) --------------------------
+
+  async getClientLabel(clientId: string): Promise<ClientLabel | null> {
+    this.ensureInitialized();
+    const row = this.db!.prepare('SELECT * FROM client_labels WHERE client_id = ?').get(clientId) as ClientLabel | undefined;
+    return row || null;
+  }
+
+  async setClientLabel(clientId: string, name: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare(
+      `INSERT INTO client_labels (client_id, name, updated_at)
+       VALUES (?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(client_id) DO UPDATE SET name = excluded.name, updated_at = CURRENT_TIMESTAMP`
+    ).run(clientId, name);
+  }
+
+  async listClientLabels(): Promise<ClientLabel[]> {
+    this.ensureInitialized();
+    return this.db!.prepare('SELECT * FROM client_labels').all() as ClientLabel[];
+  }
+
+  async deleteClientLabel(clientId: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM client_labels WHERE client_id = ?').run(clientId);
+  }
+
+  /** Distinct client ids known to the DB (overrides ∪ splinters ∪ labels). */
+  async listKnownClientIds(): Promise<string[]> {
+    this.ensureInitialized();
+    const rows = this.db!.prepare(
+      `SELECT client_id FROM client_mounts
+       UNION SELECT client_id FROM client_splinters
+       UNION SELECT client_id FROM client_labels`
+    ).all() as { client_id: string }[];
+    return rows.map((r) => r.client_id);
   }
 
   /**
