@@ -17,6 +17,15 @@ import { convertLineEndings, LineEnding } from './replay-engine';
 import { safeResolvePath } from './utils/safe-path';
 import { isDiskMounted } from './utils/drive-status';
 import { getClientMountRegistry } from './client-mount-registry';
+import { getMultiClientSettings, applyMultiClientSettings } from './services/multi-client-settings';
+import {
+  listClients,
+  setClientName,
+  setClientDrive,
+  clearClientDrive,
+  forgetClient,
+} from './services/client-service';
+import { commitTransientDrive, saveTransientSnapshot } from './services/transient-service';
 import {
   createSnapshot,
   listSnapshots,
@@ -816,6 +825,159 @@ export function createMcpServer(deps: Dependencies): McpServer {
         return {
           content: [{ type: 'text', text: JSON.stringify({ success: true, filename, onReadonlyWrite }, null, 2) }],
         };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  // ===========================================================================
+  // Multi-client serving: settings, per-client drive bays, transient keep.
+  // NOTE: mutating tools update the DB + registry; the running daemon's live
+  // sessions re-sync only when this MCP server runs in-process (MCP-over-HTTP).
+  // Over stdio (a separate process) the changes persist but won't live-update a
+  // separately-running daemon until it reloads.
+  // ===========================================================================
+
+  server.tool(
+    'get_multi_client_settings',
+    'Get multi-client disk serving settings: whether multiple virtual clients may connect at once (each with its own copy-on-write disk fork), and which client writes the base image directly (writeMaster: a clientId, "serial", or "none").',
+    {},
+    async () => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(await getMultiClientSettings(deps), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'set_multi_client_settings',
+    'Update multi-client serving settings. Disabling is refused while more than one client is connected. writeMaster names the client that writes the base image directly (others splinter).',
+    {
+      multiClientServing: z.boolean().optional().describe('Enable/disable concurrent multi-client serving'),
+      writeMaster: z.string().optional().describe('clientId, "serial" (default), or "none"'),
+    },
+    async ({ multiClientServing, writeMaster }) => {
+      try {
+        const result = await applyMultiClientSettings(deps, { multiClientServing, writeMaster });
+        return { content: [{ type: 'text', text: JSON.stringify({ success: true, ...result }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'list_clients',
+    'List known + connected virtual clients with their per-drive effective mounts (override vs inherited global), connected/master flags, and dirty splinter state.',
+    {},
+    async () => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(await listClients(deps), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'set_client_name',
+    'Set a friendly name for a persistent client id.',
+    {
+      clientId: z.string().describe('Persistent client id'),
+      name: z.string().describe('Friendly name'),
+    },
+    async ({ clientId, name }) => {
+      try {
+        await setClientName(deps, clientId, name);
+        return { content: [{ type: 'text', text: JSON.stringify({ success: true, clientId, name }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'set_client_drive',
+    "Set a client's per-drive mount override (wins over the global mount for that client). Validates the image exists. Drives are 0-3.",
+    {
+      clientId: z.string().describe('Persistent client id'),
+      drive: z.number().int().describe('Drive number (0-3)'),
+      filename: z.string().describe('Disk image filename to mount for this client'),
+      readonly: z.boolean().optional().describe('Mount read-only (default false)'),
+    },
+    async ({ clientId, drive, filename, readonly }) => {
+      try {
+        await setClientDrive(deps, clientId, drive, filename, !!readonly);
+        return { content: [{ type: 'text', text: JSON.stringify({ success: true, clientId, drive, filename, readonly: !!readonly }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'clear_client_drive',
+    "Clear a client's per-drive override so that drive inherits the global mount again.",
+    {
+      clientId: z.string().describe('Persistent client id'),
+      drive: z.number().int().describe('Drive number (0-3)'),
+    },
+    async ({ clientId, drive }) => {
+      try {
+        await clearClientDrive(deps, clientId, drive);
+        return { content: [{ type: 'text', text: JSON.stringify({ success: true, clientId, drive }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'forget_client',
+    "Forget a client: clear its drive overrides, discard its splinters (files + rows), and remove its name.",
+    {
+      clientId: z.string().describe('Persistent client id'),
+    },
+    async ({ clientId }) => {
+      try {
+        await forgetClient(deps, clientId);
+        return { content: [{ type: 'text', text: JSON.stringify({ success: true, clientId }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'commit_transient',
+    "Commit a transient (copy-on-write) drive's changes back onto its master image. Refused if the same master is mounted on another drive.",
+    {
+      drive: z.number().int().describe('Drive number backed by a transient scratch'),
+    },
+    async ({ drive }) => {
+      try {
+        const result = await commitTransientDrive(deps, drive);
+        return { content: [{ type: 'text', text: JSON.stringify({ success: true, ...result }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'save_transient_snapshot',
+    "Save a transient drive's current copy-on-write scratch as a snapshot of its master image, without touching the master.",
+    {
+      drive: z.number().int().describe('Drive number backed by a transient scratch'),
+      label: z.string().optional().describe('Optional snapshot label'),
+    },
+    async ({ drive, label }) => {
+      try {
+        const snapshot = await saveTransientSnapshot(deps, drive, label ?? '');
+        return { content: [{ type: 'text', text: JSON.stringify({ success: true, snapshot }, null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
       }
