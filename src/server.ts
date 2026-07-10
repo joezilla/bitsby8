@@ -12,7 +12,7 @@ import {
   ByteUtils,
   TIMEOUT_BUFFER,
 } from './protocol';
-import { DriveManager } from './drive';
+import { IDriveEngine } from './drive-engine';
 import { IFdcTransport } from './transport';
 import { getGpioLedController } from './gpio';
 
@@ -20,7 +20,7 @@ import { getGpioLedController } from './gpio';
  * FDC+ Server
  */
 export class FdcServer {
-  private driveManager: DriveManager;
+  private driveManager: IDriveEngine;
   private transport: IFdcTransport;
   private running: boolean;
   private verbose: boolean;
@@ -29,7 +29,7 @@ export class FdcServer {
   private serialUnavailableNotified: boolean;
 
   constructor(
-    driveManager: DriveManager,
+    driveManager: IDriveEngine,
     transport: IFdcTransport,
     config: Config
   ) {

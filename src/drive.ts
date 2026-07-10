@@ -15,6 +15,7 @@ import {
 } from './protocol';
 import { getGpioLedController } from './gpio';
 import { MountRegistry } from './mount-registry';
+import { IDriveEngine } from './drive-engine';
 
 /**
  * Resolves whether a read-only image should be backed by a copy-on-write
@@ -29,7 +30,7 @@ export const TRANSIENT_DIRNAME = '.transient';
 /**
  * Drive Manager - Handles all disk image operations
  */
-export class DriveManager {
+export class DriveManager implements IDriveEngine {
   private drives: Map<number, DriveState>;
   private fileHandles: Map<number, fs.FileHandle>;
   private trackBuffer: Buffer;
