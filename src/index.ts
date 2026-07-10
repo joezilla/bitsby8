@@ -16,6 +16,7 @@ import {
 } from './protocol';
 import { getDriveManager, TRANSIENT_DIRNAME } from './drive';
 import { getMountRegistry } from './mount-registry';
+import { getClientMountRegistry } from './client-mount-registry';
 import type { ReadonlyWritePolicy } from './database';
 import { getSerialPortManager } from './serial';
 import { getTerminalSerialManager } from './terminal-serial';
@@ -499,6 +500,17 @@ async function main(): Promise<void> {
       const effective = perImage !== 'inherit' ? perImage : globalPolicy;
       return effective === 'transient';
     });
+
+    // Load per-client drive-bay overrides into the in-memory registry so
+    // connecting clients resolve their own mounts.
+    try {
+      const clientReg = getClientMountRegistry();
+      for (const m of await db.listClientMounts()) {
+        clientReg.set(m.client_id, m.drive, m.filename, m.readonly === 1);
+      }
+    } catch (error) {
+      console.error('Failed to load per-client mount overrides:', error);
+    }
 
     // Load saved drive assignments (only if web server will be enabled)
     if (mergedOptions.web) {
