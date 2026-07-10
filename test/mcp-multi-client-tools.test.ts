@@ -35,6 +35,9 @@ describe('MCP multi-client tools', () => {
       'forget_client',
       'commit_transient',
       'save_transient_snapshot',
+      'commit_client_splinter',
+      'save_client_splinter_snapshot',
+      'save_client_splinter_as_disk',
     ]) {
       expect(names).toContain(tool);
     }

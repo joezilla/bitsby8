@@ -24,10 +24,25 @@ async function buildApp() {
   await database.initialize();
 
   const synced: string[] = [];
+  // Mutable operator-drive mount table for the commit guard / hot-reload.
+  const mounted: Record<number, { filename: string; readonly: boolean; transient: boolean }> = {};
   const deps: any = {
     config: { disksDir },
     database,
     writeMaster: 'serial',
+    multiClientServing: false,
+    diskServingEnabled: false,
+    server: null,
+    serverTask: null,
+    io: { emit: () => { /* broadcastStatus sink */ } },
+    serialManager: { isOpen: () => false, getDevice: () => null, getBaudRate: () => 0 },
+    driveManager: {
+      getDriveState: (i: number) =>
+        mounted[i]
+          ? { mounted: true, filename: mounted[i].filename, readonly: mounted[i].readonly, transient: mounted[i].transient }
+          : { mounted: false, readonly: false, transient: false, filename: null },
+      reloadDrive: async (_i: number) => true,
+    },
     connectionManager: {
       list: () => [{ id: 'conn1', clientId: 'altair-1', transport: 'websocket', connectedAt: 1000 }],
       syncClient: async (id: string) => { synced.push(id); },
@@ -40,7 +55,16 @@ async function buildApp() {
   const router = express.Router();
   registerClientRoutes(router, deps);
   app.use(router);
-  return { app, deps, dir, disksDir, synced };
+  return { app, deps, dir, disksDir, synced, mounted };
+}
+
+/** Seed a persistent splinter (DB row + on-disk file) for a client/drive. */
+async function seedSplinter(deps: any, disksDir: string, clientId: string, drive: number, base: string): Promise<string> {
+  const p = path.join(disksDir, '.splinter', clientId, `drive${drive}.img`);
+  await fs.mkdir(path.dirname(p), { recursive: true });
+  await fs.writeFile(p, Buffer.alloc(64, 0xab));
+  await deps.database.upsertClientSplinter(clientId, drive, base, p, true);
+  return p;
 }
 
 describe('client routes', () => {
@@ -113,5 +137,69 @@ describe('client routes', () => {
     expect(res.status).toBe(200);
     expect(await database.listClientMounts('altair-1')).toHaveLength(0);
     expect(await database.getClientLabel('altair-1')).toBeNull();
+  });
+
+  test('POST splinter/commit is 404 when the client has no splinter', async () => {
+    const { app } = await buildApp();
+    const res = await request(app).post('/api/clients/altair-1/drives/0/splinter/commit');
+    expect(res.status).toBe(404);
+  });
+
+  test('POST splinter/commit hot-swaps and reports the new fields', async () => {
+    const { app, deps, disksDir } = await buildApp();
+    await fs.writeFile(path.join(disksDir, 'game.dsk'), Buffer.alloc(64, 0x11));
+    await seedSplinter(deps, disksDir, 'altair-1', 0, 'game.dsk');
+    const res = await request(app).post('/api/clients/altair-1/drives/0/splinter/commit');
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ success: true, filename: 'game.dsk', hotSwapped: true });
+    expect(res.body.reloadedDrives).toEqual([]);
+    // Master now holds the splinter bytes.
+    expect(await fs.readFile(path.join(disksDir, 'game.dsk'))).toEqual(Buffer.alloc(64, 0xab));
+  });
+
+  test('POST splinter/commit is 409 when the base is mounted read-write', async () => {
+    const { app, deps, disksDir, mounted } = await buildApp();
+    await seedSplinter(deps, disksDir, 'altair-1', 0, 'game.dsk');
+    mounted[0] = { filename: path.join(disksDir, 'game.dsk'), readonly: false, transient: false };
+    const res = await request(app).post('/api/clients/altair-1/drives/0/splinter/commit');
+    expect(res.status).toBe(409);
+  });
+
+  test('POST splinter/save-snapshot saves a snapshot of the master', async () => {
+    const { app, deps, disksDir } = await buildApp();
+    await seedSplinter(deps, disksDir, 'altair-1', 0, 'game.dsk');
+    const res = await request(app)
+      .post('/api/clients/altair-1/drives/0/splinter/save-snapshot')
+      .send({ label: 'client save' });
+    expect(res.status).toBe(200);
+    expect(res.body.snapshot).toMatchObject({ disk_filename: 'game.dsk', label: 'client save' });
+    expect(await deps.database.listSnapshotsForDisk('game.dsk')).toHaveLength(1);
+  });
+
+  test('POST splinter/save-as-disk writes a new image (with collision suffix)', async () => {
+    const { app, deps, disksDir } = await buildApp();
+    await seedSplinter(deps, disksDir, 'altair-1', 0, 'game.dsk');
+    const first = await request(app)
+      .post('/api/clients/altair-1/drives/0/splinter/save-as-disk')
+      .send({ name: 'game-edited' });
+    expect(first.status).toBe(200);
+    expect(first.body.filename).toBe('game-edited.dsk');
+    const second = await request(app)
+      .post('/api/clients/altair-1/drives/0/splinter/save-as-disk')
+      .send({ name: 'game-edited' });
+    expect(second.body.filename).toBe('game-edited-2.dsk');
+  });
+
+  test('POST splinter/save-as-disk rejects a bad name (400) and missing splinter (404)', async () => {
+    const { app, deps, disksDir } = await buildApp();
+    await seedSplinter(deps, disksDir, 'altair-1', 0, 'game.dsk');
+    const bad = await request(app)
+      .post('/api/clients/altair-1/drives/0/splinter/save-as-disk')
+      .send({ name: '../evil' });
+    expect(bad.status).toBe(400);
+    const none = await request(app)
+      .post('/api/clients/altair-1/drives/1/splinter/save-as-disk')
+      .send({ name: 'ok' });
+    expect(none.status).toBe(404);
   });
 });

@@ -722,6 +722,23 @@ export class DriveManager implements IDriveEngine {
   }
 
   /**
+   * Reload a mounted drive's handle against its current file. Used after the
+   * base image bytes were replaced under it (e.g. a client splinter committed
+   * onto the master): reopens the fd, opens the swap window so the FDC master
+   * discards its cached track, re-decides RO/transient backing (a fresh scratch
+   * is cut from the NEW base), bumps the mount epoch, and refreshes LEDs.
+   * No-op if the drive isn't mounted. Returns true if it reloaded.
+   */
+  async reloadDrive(drive: number): Promise<boolean> {
+    const driveState = this.drives.get(drive);
+    if (!driveState || !driveState.mounted || !driveState.filename) {
+      return false;
+    }
+    await this.mountDrive(drive, driveState.filename);
+    return true;
+  }
+
+  /**
    * Check if a drive can accept write operations
    * Returns false if drive is not mounted, readonly, or file handle is invalid
    */

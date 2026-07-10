@@ -26,6 +26,7 @@ import {
   forgetClient,
 } from './services/client-service';
 import { commitTransientDrive, saveTransientSnapshot } from './services/transient-service';
+import { commitClientSplinter, saveClientSplinterSnapshot, saveClientSplinterAsDisk } from './services/splinter-service';
 import {
   createSnapshot,
   listSnapshots,
@@ -945,6 +946,59 @@ export function createMcpServer(deps: Dependencies): McpServer {
       try {
         await forgetClient(deps, clientId);
         return { content: [{ type: 'text', text: JSON.stringify({ success: true, clientId }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'commit_client_splinter',
+    "Commit a client's private copy-on-write splinter for a drive back onto its shared master image (hot-swap in place: live readers are reloaded onto the new contents, and client splinters re-attach keeping their own writes). Refused only when the base is held read-write by a live master-write path (an operator drive mounted read-write, or the connected master-write client).",
+    {
+      clientId: z.string().describe('Persistent client id'),
+      drive: z.number().int().describe('Drive number backed by a persistent splinter'),
+    },
+    async ({ clientId, drive }) => {
+      try {
+        const result = await commitClientSplinter(deps, clientId, drive);
+        return { content: [{ type: 'text', text: JSON.stringify({ success: true, ...result }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'save_client_splinter_as_disk',
+    "Save a client's copy-on-write splinter for a drive as a brand-new named disk image in the library, without touching the live master. The name is suffixed on collision; the extension defaults to the master's if omitted.",
+    {
+      clientId: z.string().describe('Persistent client id'),
+      drive: z.number().int().describe('Drive number backed by a persistent splinter'),
+      name: z.string().describe('New disk image name (e.g. game-edited or game-edited.dsk)'),
+    },
+    async ({ clientId, drive, name }) => {
+      try {
+        const result = await saveClientSplinterAsDisk(deps, clientId, drive, name);
+        return { content: [{ type: 'text', text: JSON.stringify({ success: true, ...result }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'save_client_splinter_snapshot',
+    "Save a client's current copy-on-write splinter for a drive as a snapshot of its master image, without touching the master or the splinter.",
+    {
+      clientId: z.string().describe('Persistent client id'),
+      drive: z.number().int().describe('Drive number backed by a persistent splinter'),
+      label: z.string().optional().describe('Optional snapshot label'),
+    },
+    async ({ clientId, drive, label }) => {
+      try {
+        const snapshot = await saveClientSplinterSnapshot(deps, clientId, drive, label ?? '');
+        return { content: [{ type: 'text', text: JSON.stringify({ success: true, snapshot }, null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
       }

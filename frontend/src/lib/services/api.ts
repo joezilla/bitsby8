@@ -250,6 +250,21 @@ export const api = {
     request(`/api/clients/${encodeURIComponent(clientId)}/drives/${drive}`, { method: 'DELETE' }),
   forgetClient: (clientId: string) =>
     request(`/api/clients/${encodeURIComponent(clientId)}`, { method: 'DELETE' }),
+  commitClientSplinter: (clientId: string, drive: number) =>
+    request<{ success: boolean; clientId: string; drive: number; filename: string; hotSwapped: boolean; reloadedDrives: number[] }>(
+      `/api/clients/${encodeURIComponent(clientId)}/drives/${drive}/splinter/commit`,
+      { method: 'POST' },
+    ),
+  saveClientSplinterSnapshot: (clientId: string, drive: number, label?: string) =>
+    request<{ success: boolean; snapshot: SnapshotInfo }>(
+      `/api/clients/${encodeURIComponent(clientId)}/drives/${drive}/splinter/save-snapshot`,
+      { method: 'POST', body: JSON.stringify({ label: label ?? '' }) },
+    ),
+  saveClientSplinterAsDisk: (clientId: string, drive: number, name: string) =>
+    request<{ success: boolean; filename: string }>(
+      `/api/clients/${encodeURIComponent(clientId)}/drives/${drive}/splinter/save-as-disk`,
+      { method: 'POST', body: JSON.stringify({ name }) },
+    ),
   commitTransient: (driveId: number) =>
     request(`/api/drives/${driveId}/transient/commit`, { method: 'POST' }),
   saveTransientSnapshot: (driveId: number, label?: string) =>

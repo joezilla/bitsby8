@@ -19,6 +19,13 @@
   let newClientId = $state('');
   let nameEdits = $state<Record<string, string>>({});
 
+  // "Keep splinter changes" modal — commit to master, save as a snapshot, or
+  // publish as a new disk.
+  let splinterModal = $state<{ clientId: string; drive: number; filename: string } | null>(null);
+  let splinterLabel = $state('');
+  let splinterNewName = $state('');
+  let splinterBusy = $state(false);
+
   let multiEnabled = $derived($serverStatus?.multiClient?.enabled ?? false);
   // Reload when the set of connected client ids changes (connect/disconnect).
   let connectedKey = $derived(
@@ -107,6 +114,72 @@
       await load();
     } catch (err: any) {
       showToast(`Clear failed: ${err.message}`, 'error');
+    }
+  }
+
+  function openSplinter(clientId: string, drive: number, filename: string) {
+    splinterModal = { clientId, drive, filename };
+    splinterLabel = '';
+    splinterNewName = '';
+  }
+
+  async function commitSplinter() {
+    if (!splinterModal) return;
+    if (!confirm(
+      `Commit this splinter onto master "${splinterModal.filename}"?\n\n` +
+      `This overwrites the master image AND hot-swaps every attached client currently ` +
+      `reading this disk to the new contents. Any operator read-only/transient view of ` +
+      `this disk is re-cut from the committed base (unsaved transient scratch is lost). ` +
+      `Clients with their own splinter keep their changes.`,
+    )) return;
+    splinterBusy = true;
+    try {
+      const res = await api.commitClientSplinter(splinterModal.clientId, splinterModal.drive);
+      const note = res.reloadedDrives?.length ? ` (reloaded drive${res.reloadedDrives.length > 1 ? 's' : ''} ${res.reloadedDrives.join(', ')})` : '';
+      showToast(`Committed splinter to master${note}`, 'success');
+      splinterModal = null;
+      await load();
+    } catch (err: any) {
+      // 409 = base held read-write by a live master; keep the modal open so the
+      // operator can pick "Save as new disk" instead.
+      showToast(`Commit failed: ${err.message}`, 'error');
+    } finally {
+      splinterBusy = false;
+    }
+  }
+
+  async function snapshotSplinter() {
+    if (!splinterModal) return;
+    splinterBusy = true;
+    try {
+      await api.saveClientSplinterSnapshot(splinterModal.clientId, splinterModal.drive, splinterLabel.trim());
+      showToast('Saved splinter snapshot', 'success');
+      splinterModal = null;
+      await load();
+    } catch (err: any) {
+      showToast(`Snapshot failed: ${err.message}`, 'error');
+    } finally {
+      splinterBusy = false;
+    }
+  }
+
+  async function saveSplinterAsDisk() {
+    if (!splinterModal) return;
+    const name = splinterNewName.trim();
+    if (!name) {
+      showToast('Enter a name for the new disk', 'warning');
+      return;
+    }
+    splinterBusy = true;
+    try {
+      const res = await api.saveClientSplinterAsDisk(splinterModal.clientId, splinterModal.drive, name);
+      showToast(`Saved splinter as ${res.filename}`, 'success');
+      splinterModal = null;
+      await load();
+    } catch (err: any) {
+      showToast(`Save failed: ${err.message}`, 'error');
+    } finally {
+      splinterBusy = false;
     }
   }
 
@@ -205,6 +278,9 @@
                   />
                   <IconButton icon="undo" size={16} title="Inherit global" onclick={() => clearDrive(client.clientId, d.drive)} />
                 {/if}
+                {#if d.dirty}
+                  <IconButton icon="save_as" size={16} title="Keep splinter changes…" onclick={() => openSplinter(client.clientId, d.drive, d.filename ?? '')} />
+                {/if}
               </div>
             </div>
           {/each}
@@ -213,3 +289,64 @@
     </Card>
   {/each}
 </div>
+
+{#if splinterModal}
+  <div
+    role="dialog"
+    aria-modal="true"
+    aria-label="Keep splinter changes"
+    tabindex="-1"
+    onkeydown={(e: KeyboardEvent) => { if (e.key === 'Escape' && !splinterBusy) splinterModal = null; }}
+    style="position: fixed; inset: 0; z-index: 55; background: var(--surface-overlay); display: flex; align-items: center; justify-content: center; padding: 16px;"
+  >
+    <button
+      type="button"
+      onclick={() => { if (!splinterBusy) splinterModal = null; }}
+      aria-label="Close"
+      style="position: absolute; inset: 0; background: transparent; border: none; cursor: default;"
+    ></button>
+    <div
+      role="document"
+      style="position: relative; background: var(--surface-raised); border: 1px solid var(--border-2); border-radius: var(--radius-lg); box-shadow: var(--elev-4); width: 100%; max-width: 480px; padding: 20px; display: flex; flex-direction: column; gap: 14px;"
+    >
+      <div>
+        <LabelStrip>Keep splinter · {splinterModal.clientId} · drive {splinterModal.drive}</LabelStrip>
+        <p class="fdc-label-strip" style="color: var(--fg-3); margin: 6px 0 0; text-transform: none; letter-spacing: 0;">
+          This client's copy-on-write splinter of
+          <span class="fdc-mono" style="color: var(--accent);">{splinterModal.filename}</span>
+          has changes. Save them as a snapshot, publish them as a new disk, or commit them
+          back onto the master image.
+        </p>
+      </div>
+      <div>
+        <label class="fdc-label-strip" for="splinter-save-label" style="display: block; margin-bottom: 4px;">Snapshot label (optional)</label>
+        <Input id="splinter-save-label" placeholder="e.g. client save" bind:value={splinterLabel} disabled={splinterBusy} />
+        <div style="margin-top: 8px;">
+          <Button variant="filled" icon="photo_camera" disabled={splinterBusy} onclick={snapshotSplinter}>
+            Save as snapshot
+          </Button>
+        </div>
+      </div>
+      <div>
+        <label class="fdc-label-strip" for="splinter-new-name" style="display: block; margin-bottom: 4px;">New disk name (non-destructive)</label>
+        <Input id="splinter-new-name" placeholder="e.g. game-edited" bind:value={splinterNewName} disabled={splinterBusy} />
+        <div style="margin-top: 8px;">
+          <Button variant="tonal" icon="save_as" disabled={splinterBusy} onclick={saveSplinterAsDisk}>
+            Save as new disk
+          </Button>
+        </div>
+      </div>
+      <div>
+        <p class="fdc-label-strip" style="color: var(--warning, var(--accent)); margin: 0 0 8px; text-transform: none; letter-spacing: 0;">
+          Committing overwrites the master and hot-swaps every attached client reading this
+          disk to the new contents. Blocked while a live master-write client (or a read-write
+          operator mount) holds the disk.
+        </p>
+        <Button variant="outline" icon="publish" disabled={splinterBusy} onclick={commitSplinter}>
+          Commit to master
+        </Button>
+      </div>
+      <Button variant="ghost" disabled={splinterBusy} onclick={() => (splinterModal = null)}>Cancel</Button>
+    </div>
+  </div>
+{/if}

@@ -70,6 +70,33 @@ describe('DriveSession persistent splinters', () => {
     await fs.rm(dir, { recursive: true, force: true });
   });
 
+  test('splinter survives a commit-driven epoch bump (same base name)', async () => {
+    // Models a hot-swap commit: the base bytes are replaced and the mount epoch
+    // bumps, but the image NAME is unchanged. On re-sync the client must
+    // re-attach its own splinter (keeping its writes), not re-fork from the base.
+    const { dir, master, registry, db } = await setup();
+    const payload = Buffer.alloc(LEN, 0xab);
+
+    const s = new DriveSession({ clientId: 'altair-1', registry, database: db });
+    await s.sync();
+    await s.writeTrack(0, 0, LEN, payload);
+    const splinter = s.getScratchPath(0)!;
+
+    // Commit replaces the base bytes in place and bumps the epoch (same filename).
+    await fs.writeFile(master, Buffer.alloc(LEN * 4, 0x99));
+    registry.set(0, master, false);
+    await s.sync();
+
+    // Same splinter re-attached; the client's own write is intact (not the 0x99 base).
+    expect(s.getScratchPath(0)).toBe(splinter);
+    expect(s.getDriveState(0)!.dirty).toBe(true);
+    expect((await s.readTrack(0, 0, LEN)).equals(payload)).toBe(true);
+    expect(await db.getClientSplinter('altair-1', 0)).not.toBeNull();
+    await s.dispose();
+
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
   test('base swap under a client discards the stale splinter', async () => {
     const { dir, master2, registry, db } = await setup();
     const s1 = new DriveSession({ clientId: 'altair-1', registry, database: db });
