@@ -5,6 +5,7 @@
   import AuthGate from '$lib/components/shell/AuthGate.svelte';
   import TerminalPage from '$lib/pages/TerminalPage.svelte';
   import DisksPage from '$lib/pages/DisksPage.svelte';
+  import ClientsPage from '$lib/pages/ClientsPage.svelte';
   import CassettesPage from '$lib/pages/CassettesPage.svelte';
   import ScriptsPage from '$lib/pages/ScriptsPage.svelte';
   import ConfigPage from '$lib/pages/ConfigPage.svelte';
@@ -15,7 +16,7 @@
   // Initialize theme store (side effect: applies <html data-theme>)
   import '$lib/stores/theme';
 
-  type PageId = 'terminal' | 'disks' | 'cassettes' | 'scripts' | 'config';
+  type PageId = 'terminal' | 'disks' | 'clients' | 'cassettes' | 'scripts' | 'config';
 
   function isNarrowNow(): boolean {
     return typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches;
@@ -90,6 +91,8 @@
         <TerminalPage />
       {:else if currentPage === 'disks'}
         <DisksPage />
+      {:else if currentPage === 'clients'}
+        <ClientsPage />
       {:else if currentPage === 'cassettes'}
         <CassettesPage />
       {:else if currentPage === 'scripts'}

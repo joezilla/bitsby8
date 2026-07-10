@@ -5,6 +5,7 @@ import type {
   DiskImageInfo,
   SnapshotInfo,
   ReadonlyWritePolicy,
+  ClientBay,
   CassetteInfo,
   ScriptInfo,
   SerialPortInfo,
@@ -232,6 +233,23 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(patch),
     }),
+  // Per-client drive bays
+  getClients: () =>
+    request<{ clients: ClientBay[]; anonymous: { id: string; connectedAt: number }[] }>('/api/clients'),
+  setClientName: (clientId: string, name: string) =>
+    request(`/api/clients/${encodeURIComponent(clientId)}/name`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    }),
+  setClientDrive: (clientId: string, drive: number, filename: string, readonly: boolean) =>
+    request(`/api/clients/${encodeURIComponent(clientId)}/drives/${drive}`, {
+      method: 'PUT',
+      body: JSON.stringify({ filename, readonly }),
+    }),
+  clearClientDrive: (clientId: string, drive: number) =>
+    request(`/api/clients/${encodeURIComponent(clientId)}/drives/${drive}`, { method: 'DELETE' }),
+  forgetClient: (clientId: string) =>
+    request(`/api/clients/${encodeURIComponent(clientId)}`, { method: 'DELETE' }),
   commitTransient: (driveId: number) =>
     request(`/api/drives/${driveId}/transient/commit`, { method: 'POST' }),
   saveTransientSnapshot: (driveId: number, label?: string) =>

@@ -27,7 +27,7 @@
     });
   }
 
-  type NavId = 'terminal' | 'disks' | 'cassettes' | 'scripts' | 'config';
+  type NavId = 'terminal' | 'disks' | 'clients' | 'cassettes' | 'scripts' | 'config';
 
   interface Props {
     active: NavId;
@@ -40,13 +40,21 @@
   const mountedCount = $derived(drives.filter((d) => d.mounted).length);
   const driveBadge = $derived(drives.length > 0 ? `${mountedCount}/${drives.length}` : null);
 
-  const navItems: { id: NavId; label: string; icon: string; badge: () => string | null }[] = [
+  // Multi-client "Clients" nav appears only when the feature is enabled.
+  const multiEnabled = $derived($serverStatus?.multiClient?.enabled ?? false);
+  const clientCount = $derived($serverStatus?.multiClient?.clients?.length ?? 0);
+
+  type NavItem = { id: NavId; label: string; icon: string; badge: () => string | null };
+  const navItems: NavItem[] = $derived([
     { id: 'terminal',  label: 'Terminal',  icon: 'monitor',  badge: () => null },
     { id: 'disks',     label: 'Disks',     icon: 'save',     badge: () => driveBadge },
+    ...(multiEnabled
+      ? [{ id: 'clients' as NavId, label: 'Clients', icon: 'devices', badge: () => (clientCount > 0 ? String(clientCount) : null) }]
+      : []),
     { id: 'cassettes', label: 'Cassettes', icon: 'album',    badge: () => null },
     { id: 'scripts',   label: 'Scripts',   icon: 'terminal', badge: () => null },
     { id: 'config',    label: 'Config',    icon: 'tune',     badge: () => null },
-  ];
+  ]);
 
   function go(id: NavId): void {
     onNavigate?.(id);

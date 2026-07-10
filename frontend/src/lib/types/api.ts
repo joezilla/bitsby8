@@ -91,6 +91,24 @@ export interface ConnectedClient {
   connectedAt: number;
 }
 
+export interface ClientDrive {
+  drive: number;
+  filename: string | null;
+  readonly: boolean;
+  source: 'override' | 'global' | 'none';
+  dirty: boolean;
+}
+
+export interface ClientBay {
+  clientId: string;
+  name: string;
+  connected: boolean;
+  connectedAt: number | null;
+  isMaster: boolean;
+  hasSplinters: boolean;
+  drives: ClientDrive[];
+}
+
 export interface CassetteInfo {
   name: string;
   size: number;
