@@ -1,7 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { Dependencies } from '../types';
 import { safeErrorMessage } from '../utils/safe-path';
-import { getMultiClientServing, setMultiClientServing, getWriteMaster, setWriteMaster } from '../services/feature-flags';
+import { getMultiClientSettings, applyMultiClientSettings } from '../services/multi-client-settings';
+import { ServiceError } from '../services/service-error';
 
 /**
  * Operator-facing runtime settings stored in the DB (not the config file).
@@ -44,9 +45,7 @@ export function registerSettingsRoutes(router: Router, deps: Dependencies): void
    */
   router.get('/api/settings', async (_req: Request, res: Response): Promise<void> => {
     try {
-      const multiClientServing = await getMultiClientServing(deps.database);
-      const writeMaster = await getWriteMaster(deps.database);
-      res.json({ multiClientServing, writeMaster });
+      res.json(await getMultiClientSettings(deps));
     } catch (error) {
       res.status(500).json({ error: safeErrorMessage(error) });
     }
@@ -54,42 +53,13 @@ export function registerSettingsRoutes(router: Router, deps: Dependencies): void
 
   router.put('/api/settings', async (req: Request, res: Response): Promise<void> => {
     try {
-      const { multiClientServing, writeMaster } = req.body ?? {};
-      if (multiClientServing !== undefined && typeof multiClientServing !== 'boolean') {
-        res.status(400).json({ error: 'multiClientServing must be a boolean' });
-        return;
-      }
-      if (writeMaster !== undefined && typeof writeMaster !== 'string') {
-        res.status(400).json({ error: 'writeMaster must be a string' });
-        return;
-      }
-      // Guard: refuse to turn multi-client serving OFF while more than one
-      // client is connected — the operator must disconnect extras first.
-      if (multiClientServing === false && deps.multiClientServing) {
-        const connected = deps.connectionManager?.count() ?? 0;
-        if (connected > 1) {
-          res.status(409).json({
-            error: `Cannot disable multi-client serving while ${connected} clients are connected. Disconnect all but one first.`,
-            code: 'CLIENTS_CONNECTED',
-            connected,
-          });
-          return;
-        }
-      }
-      if (multiClientServing !== undefined) {
-        await setMultiClientServing(deps.database, multiClientServing);
-        deps.multiClientServing = multiClientServing; // live cache
-      }
-      if (writeMaster !== undefined) {
-        await setWriteMaster(deps.database, writeMaster);
-        deps.writeMaster = writeMaster; // live cache
-      }
-      res.json({
-        success: true,
-        multiClientServing: deps.multiClientServing,
-        writeMaster: deps.writeMaster,
-      });
+      const result = await applyMultiClientSettings(deps, req.body ?? {});
+      res.json({ success: true, ...result });
     } catch (error) {
+      if (error instanceof ServiceError) {
+        res.status(error.statusCode).json({ error: error.message, ...(error.details ?? {}) });
+        return;
+      }
       res.status(500).json({ error: safeErrorMessage(error) });
     }
   });
