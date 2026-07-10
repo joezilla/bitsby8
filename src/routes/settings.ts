@@ -63,6 +63,19 @@ export function registerSettingsRoutes(router: Router, deps: Dependencies): void
         res.status(400).json({ error: 'writeMaster must be a string' });
         return;
       }
+      // Guard: refuse to turn multi-client serving OFF while more than one
+      // client is connected — the operator must disconnect extras first.
+      if (multiClientServing === false && deps.multiClientServing) {
+        const connected = deps.connectionManager?.count() ?? 0;
+        if (connected > 1) {
+          res.status(409).json({
+            error: `Cannot disable multi-client serving while ${connected} clients are connected. Disconnect all but one first.`,
+            code: 'CLIENTS_CONNECTED',
+            connected,
+          });
+          return;
+        }
+      }
       if (multiClientServing !== undefined) {
         await setMultiClientServing(deps.database, multiClientServing);
         deps.multiClientServing = multiClientServing; // live cache

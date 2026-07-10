@@ -12,6 +12,11 @@ export interface ServerStatus {
     enabled: boolean;
     running: boolean;
   };
+  multiClient?: {
+    enabled: boolean;
+    writeMaster: string;
+    clients: ConnectedClient[];
+  };
   drives: DriveState[];
   system: {
     version: string;                // "2.0.0" — upstream semver
@@ -78,6 +83,13 @@ export interface SnapshotInfo {
 
 /** Per-image behavior when the guest writes to a read-only mount. */
 export type ReadonlyWritePolicy = 'inherit' | 'error' | 'transient';
+
+export interface ConnectedClient {
+  id: string;
+  clientId: string | null;
+  transport: 'websocket';
+  connectedAt: number;
+}
 
 export interface CassetteInfo {
   name: string;

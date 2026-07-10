@@ -54,6 +54,10 @@
   // Advanced: multi-client disk serving feature flag (DB-backed, live).
   let multiClientServing = $state(false);
   let multiClientBusy = $state(false);
+  let settingsWriteMaster = $state('serial');
+  let writeMasterBusy = $state(false);
+  // Live view of connected virtual clients (from the status broadcast).
+  let connectedClients = $derived($serverStatus?.multiClient?.clients ?? []);
 
   // Snapshots
   let snapshotDisk = $state<DiskImageInfo | null>(null);
@@ -232,6 +236,7 @@
       settingsPolicy = cfg.readonlyWritePolicy === 'transient' ? 'transient' : 'error';
       settingsEtag = status.etag;
       multiClientServing = settings.multiClientServing;
+      settingsWriteMaster = settings.writeMaster || 'serial';
     } catch (err: any) {
       showToast(`Failed to load settings: ${err.message}`, 'error');
     } finally {
@@ -247,10 +252,30 @@
       multiClientServing = next;
       showToast(`Multi-client serving ${next ? 'enabled' : 'disabled'}`, 'success');
     } catch (err: any) {
+      // e.g. 409 when disabling with >1 client connected.
       showToast(`Failed to update setting: ${err.message}`, 'error');
     } finally {
       multiClientBusy = false;
     }
+  }
+
+  async function saveWriteMaster() {
+    const value = settingsWriteMaster.trim() || 'serial';
+    writeMasterBusy = true;
+    try {
+      await api.putSettings({ writeMaster: value });
+      settingsWriteMaster = value;
+      showToast(`Write-master set to "${value}"`, 'success');
+    } catch (err: any) {
+      showToast(`Failed to set write-master: ${err.message}`, 'error');
+    } finally {
+      writeMasterBusy = false;
+    }
+  }
+
+  function formatClientTime(ms: number): string {
+    const d = new Date(ms);
+    return isNaN(d.getTime()) ? '—' : d.toLocaleTimeString();
   }
 
   async function saveSettings() {
@@ -1099,6 +1124,47 @@
             </span>
           </span>
         </label>
+
+        {#if multiClientServing}
+          <!-- Write-master: which client writes the base image directly -->
+          <div style="margin-top: 12px;">
+            <label class="fdc-label-strip" for="write-master" style="display: block; margin-bottom: 4px;">Write-master (writes the base image directly)</label>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <Input id="write-master" placeholder="serial" bind:value={settingsWriteMaster} disabled={writeMasterBusy} />
+              <Button variant="tonal" disabled={writeMasterBusy} onclick={saveWriteMaster}>Set</Button>
+            </div>
+            <div class="fdc-label-strip" style="margin-top: 4px; text-transform: none; letter-spacing: 0; color: var(--fg-3);">
+              A client id, or <code>serial</code> (physical device, default), or <code>none</code>.
+              Everyone else writes to their own splinter.
+            </div>
+          </div>
+
+          <!-- Connected clients (live) -->
+          <div style="margin-top: 12px;">
+            <div class="fdc-label-strip" style="margin-bottom: 6px;">Connected clients ({connectedClients.length})</div>
+            {#if connectedClients.length === 0}
+              <div class="fdc-label-strip" style="text-transform: none; letter-spacing: 0; color: var(--fg-3);">
+                No virtual clients connected.
+              </div>
+            {:else}
+              <div style="display: flex; flex-direction: column; gap: 6px;">
+                {#each connectedClients as c (c.id)}
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--border-1); border-radius: var(--radius-sm);">
+                    <div style="min-width: 0;">
+                      <span class="fdc-mono" style="font-size: 12px; color: var(--fg-1);">{c.clientId ?? '(anonymous)'}</span>
+                      {#if (c.clientId ?? 'serial') === settingsWriteMaster}
+                        <Chip color="green" icon="edit">master</Chip>
+                      {/if}
+                      <span class="fdc-label-strip" style="display: block; margin-top: 2px; text-transform: none; letter-spacing: 0; color: var(--fg-3);">
+                        {c.transport} · since {formatClientTime(c.connectedAt)}
+                      </span>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/if}
       </div>
 
       <div style="display: flex; justify-content: flex-end; gap: 8px;">
