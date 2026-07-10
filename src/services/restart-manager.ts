@@ -29,6 +29,15 @@ export function isSystemdManaged(): boolean {
 export const MODULE_STARTUP_EPOCH = Date.now();
 
 /**
+ * Exit code the daemon uses to ask systemd to STOP it (not relaunch).
+ * The unit sets `RestartPreventExitStatus=42`, so exiting with this code
+ * overrides `Restart=always` and leaves the service inactive — the
+ * systemd-native "stop" that needs no systemctl call or extra privilege
+ * (the daemon runs as a hardened, non-root, NoNewPrivileges unit).
+ */
+export const SHUTDOWN_EXIT_CODE = 42;
+
+/**
  * Schedule a graceful process exit so systemd relaunches the daemon.
  * Returns `false` when the process isn't systemd-managed — the caller
  * should surface a copy-paste command in that case rather than pretend
@@ -45,6 +54,25 @@ export function scheduleRestart(delayMs = 500): boolean {
   setTimeout(() => {
     console.log('[restart-manager] exiting so systemd can relaunch the daemon');
     process.exit(0);
+  }, delayMs);
+
+  return true;
+}
+
+/**
+ * Schedule a graceful STOP: exit with {@link SHUTDOWN_EXIT_CODE} so systemd
+ * leaves the daemon down (via `RestartPreventExitStatus`) instead of
+ * relaunching it. Returns `false` when not systemd-managed — the caller
+ * should surface a copy-paste `systemctl stop` command instead of pretending
+ * the daemon stopped (killing an unsupervised process would just leave a
+ * dead daemon the operator can't reach from the UI).
+ */
+export function scheduleShutdown(delayMs = 500): boolean {
+  if (!isSystemdManaged()) return false;
+
+  setTimeout(() => {
+    console.log('[restart-manager] exiting with stop code so systemd leaves the daemon down');
+    process.exit(SHUTDOWN_EXIT_CODE);
   }, delayMs);
 
   return true;

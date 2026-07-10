@@ -35,7 +35,7 @@ import {
 } from '../config';
 import { setMcpHttpEnabled, isMcpHttpEnabled, activeMcpSessionCount } from '../mcp-http';
 import { writePartialConfig, rollbackConfig, ConfigWriteError } from '../services/config-persistence';
-import { isSystemdManaged, scheduleRestart } from '../services/restart-manager';
+import { isSystemdManaged, scheduleRestart, scheduleShutdown } from '../services/restart-manager';
 import { hashPassword } from '../services/password';
 
 /**
@@ -302,6 +302,49 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
       success: true,
       message: 'Restart scheduled. Poll GET /api/config/status until startupEpoch changes.',
       startupEpoch: deps.startupEpoch,
+    });
+  });
+
+  /**
+   * @openapi
+   * /api/config/shutdown:
+   *   post:
+   *     tags: [Config]
+   *     summary: Gracefully stop the daemon (systemd leaves it down)
+   *     description: |
+   *       Requires `?confirm=1`. Exits with a code the unit's
+   *       `RestartPreventExitStatus` treats as "do not relaunch", so the
+   *       service stops instead of restarting. Returns 501 when the process
+   *       isn't systemd-managed (dev / docker); the UI should render a
+   *       copy-paste command in that case. Starting it again is a manual
+   *       `systemctl start` from the host.
+   *     parameters:
+   *       - in: query
+   *         name: confirm
+   *         required: true
+   *         schema: { type: string, enum: ['1'] }
+   *     responses:
+   *       202: { description: Shutdown scheduled — the daemon will stop and not relaunch }
+   *       400: { description: Missing confirm flag }
+   *       501: { description: Not systemd-managed; stop manually }
+   */
+  router.post('/api/config/shutdown', (req: Request, res: Response): void => {
+    if (req.query.confirm !== '1') {
+      res.status(400).json({ error: 'Missing ?confirm=1 — shutdown is destructive.' });
+      return;
+    }
+    const ok = scheduleShutdown();
+    if (!ok) {
+      res.status(501).json({
+        error: 'Not systemd-managed; stop the daemon manually.',
+        manualCommand: 'sudo systemctl stop fdcsds',
+        systemdManaged: false,
+      });
+      return;
+    }
+    res.status(202).json({
+      success: true,
+      message: 'Shutdown scheduled. The daemon will stop and will not relaunch.',
     });
   });
 

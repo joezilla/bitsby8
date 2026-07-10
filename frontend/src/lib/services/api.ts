@@ -442,6 +442,13 @@ export const api = {
       manualCommand?: string;
       systemdManaged?: boolean;
     }>('/api/config/restart?confirm=1', { method: 'POST' }),
+  shutdownDaemon: () =>
+    request<{
+      success?: boolean;
+      message?: string;
+      manualCommand?: string;
+      systemdManaged?: boolean;
+    }>('/api/config/shutdown?confirm=1', { method: 'POST' }),
   reloadConfig: () =>
     request<{ success: boolean; applied: string[] }>('/api/config/reload', { method: 'POST' }),
   rollbackConfig: () =>

@@ -22,6 +22,10 @@ ExecStart=/usr/bin/node /usr/lib/fdcsds/dist/index.js --config /etc/fdcsds/fdcsd
 # flow to work.
 Restart=always
 RestartSec=10s
+# ...except the web UI's "Shutdown" button, which exits with code 42 to
+# ask systemd to leave the daemon down (systemd-native stop, no systemctl
+# call or extra privilege needed under this hardened non-root unit).
+RestartPreventExitStatus=42
 
 # Security hardening
 NoNewPrivileges=true

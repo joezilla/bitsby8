@@ -3390,6 +3390,39 @@
         }
       }
     },
+    "/api/config/shutdown": {
+      "post": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Gracefully stop the daemon (systemd leaves it down)",
+        "description": "Requires `?confirm=1`. Exits with a code the unit's\n`RestartPreventExitStatus` treats as \"do not relaunch\", so the\nservice stops instead of restarting. Returns 501 when the process\nisn't systemd-managed (dev / docker); the UI should render a\ncopy-paste command in that case. Starting it again is a manual\n`systemctl start` from the host.\n",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "confirm",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Shutdown scheduled — the daemon will stop and not relaunch"
+          },
+          "400": {
+            "description": "Missing confirm flag"
+          },
+          "501": {
+            "description": "Not systemd-managed; stop manually"
+          }
+        }
+      }
+    },
     "/api/config/reload": {
       "post": {
         "tags": [
