@@ -22,6 +22,7 @@ import * as path from 'path';
 import { randomBytes } from 'crypto';
 import { MAX_DRIVES, MAX_TRACK_LEN, DriveState, FdcError } from './protocol';
 import { MountRegistry } from './mount-registry';
+import { ClientMountRegistry } from './client-mount-registry';
 import { TRANSIENT_DIRNAME } from './drive';
 import { IDriveEngine } from './drive-engine';
 import { Database } from './database';
@@ -37,7 +38,8 @@ interface SessionDrive {
   state: DriveState;      // the mutable object handed to the command loop
   handle: fs.FileHandle;  // open handle (master RO, or splinter RW once forked)
   master: string;         // master image path this drive forked from
-  baseEpoch: number;      // MountRegistry epoch this was opened against
+  baseVersion: string;    // resolved mount version this was opened against
+                          // ('g<epoch>' global or 'c<epoch>' client override)
 }
 
 export interface DriveSessionOptions {
@@ -45,6 +47,9 @@ export interface DriveSessionOptions {
    *  null → an anonymous session whose splinters are ephemeral. */
   clientId: string | null;
   registry: MountRegistry;
+  /** Per-client drive-bay overrides. When set (and the client has an override
+   *  for a drive) it wins over the global mount; else the drive inherits global. */
+  clientMounts?: ClientMountRegistry;
   /** Required for persistence; absent → ephemeral even with a clientId. */
   database?: Database;
   /** When true, this session writes the base image directly (no splinter) —
@@ -56,6 +61,7 @@ export class DriveSession implements IDriveEngine {
   public fdcErrno: FdcError = FdcError.OK;
   private readonly clientId: string | null;
   private readonly registry: MountRegistry;
+  private readonly clientMounts: ClientMountRegistry | null;
   private readonly database: Database | null;
   private readonly persistent: boolean;
   private readonly writesMaster: boolean;
@@ -64,6 +70,7 @@ export class DriveSession implements IDriveEngine {
   constructor(opts: DriveSessionOptions) {
     this.clientId = opts.clientId;
     this.registry = opts.registry;
+    this.clientMounts = opts.clientMounts ?? null;
     this.database = opts.database ?? null;
     this.writesMaster = !!opts.writesMaster;
     // A splinter persists only when we have both a stable id and a DB to
@@ -78,7 +85,7 @@ export class DriveSession implements IDriveEngine {
    */
   async sync(): Promise<void> {
     for (let drive = 0; drive < MAX_DRIVES; drive++) {
-      const entry = this.registry.get(drive);
+      const entry = this.resolveEffective(drive);
       const cur = this.drives.get(drive);
 
       if (!entry) {
@@ -88,7 +95,7 @@ export class DriveSession implements IDriveEngine {
         continue;
       }
 
-      if (cur && cur.baseEpoch === entry.epoch) {
+      if (cur && cur.baseVersion === entry.version) {
         continue; // unchanged
       }
 
@@ -99,7 +106,7 @@ export class DriveSession implements IDriveEngine {
         await this.closeDrive(drive);
       }
       try {
-        await this.openDrive(drive, entry.filename, entry.epoch, wasMounted);
+        await this.openDrive(drive, entry.filename, entry.version, wasMounted);
       } catch (error) {
         console.error(`[DriveSession ${this.clientId ?? 'anon'}] failed to open drive ${drive} (${entry.filename}):`, error);
         this.drives.delete(drive);
@@ -108,11 +115,27 @@ export class DriveSession implements IDriveEngine {
   }
 
   /**
+   * Resolve the effective mount for a drive: this client's per-drive override
+   * if present, else the global mount. Returns null when neither is mounted.
+   * The `version` bumps whenever the effective mount changes (or flips between
+   * override and global), which drives re-open + swap-window in sync().
+   */
+  private resolveEffective(drive: number): { filename: string; version: string } | null {
+    if (this.clientId && this.clientMounts) {
+      const o = this.clientMounts.get(this.clientId, drive);
+      if (o) return { filename: o.filename, version: `c${o.epoch}` };
+    }
+    const g = this.registry.get(drive);
+    if (g) return { filename: g.filename, version: `g${g.epoch}` };
+    return null;
+  }
+
+  /**
    * Open a drive for this session: re-attach an existing persistent splinter
    * when one exists for the same base, otherwise open the master read-only
    * (copy-on-write kicks in on the first write).
    */
-  private async openDrive(drive: number, master: string, epoch: number, wasMounted: boolean): Promise<void> {
+  private async openDrive(drive: number, master: string, version: string, wasMounted: boolean): Promise<void> {
     const base = path.basename(master);
 
     // Master client writes the base image directly — open read-write, no fork.
@@ -120,7 +143,7 @@ export class DriveSession implements IDriveEngine {
       const handle = await fs.open(master, fsSync.constants.O_RDWR);
       this.drives.set(drive, {
         state: this.makeState(handle.fd, master, wasMounted, null, false, false),
-        handle, master, baseEpoch: epoch,
+        handle, master, baseVersion: version,
       });
       return;
     }
@@ -134,7 +157,7 @@ export class DriveSession implements IDriveEngine {
           const handle = await fs.open(existing.path, fsSync.constants.O_RDWR);
           this.drives.set(drive, {
             state: this.makeState(handle.fd, master, wasMounted, existing.path, existing.dirty === 1),
-            handle, master, baseEpoch: epoch,
+            handle, master, baseVersion: version,
           });
           return;
         } catch {
@@ -152,7 +175,7 @@ export class DriveSession implements IDriveEngine {
     const handle = await fs.open(master, fsSync.constants.O_RDONLY);
     this.drives.set(drive, {
       state: this.makeState(handle.fd, master, wasMounted, null, false),
-      handle, master, baseEpoch: epoch,
+      handle, master, baseVersion: version,
     });
   }
 

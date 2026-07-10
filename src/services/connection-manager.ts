@@ -17,6 +17,7 @@ import { WsTransportManager } from '../ws-transport';
 import { DriveSession } from '../drive-session';
 import { FdcServer } from '../server';
 import { getMountRegistry } from '../mount-registry';
+import { getClientMountRegistry } from '../client-mount-registry';
 import { createDefaultConfig } from '../protocol';
 import { createLogger } from '../logger';
 
@@ -59,6 +60,7 @@ export class ConnectionManager {
     const session = new DriveSession({
       clientId,
       registry: getMountRegistry(),
+      clientMounts: getClientMountRegistry(),
       database: this.deps.database,
       writesMaster,
     });
@@ -98,6 +100,15 @@ export class ConnectionManager {
   async syncAll(): Promise<void> {
     for (const ctx of this.connections.values()) {
       await ctx.session.sync().catch((err) => log.error({ err, id: ctx.id }, 'session sync failed'));
+    }
+  }
+
+  /** Re-sync only the live sessions for one client (per-client mount change). */
+  async syncClient(clientId: string): Promise<void> {
+    for (const ctx of this.connections.values()) {
+      if (ctx.clientId === clientId) {
+        await ctx.session.sync().catch((err) => log.error({ err, id: ctx.id }, 'session sync failed'));
+      }
     }
   }
 
