@@ -15,6 +15,7 @@ import {
 import { MAX_DRIVES } from '../protocol';
 import { CpmFilesystem, paramsForFormat, inferFormatFromSize } from '../cpm-filesystem';
 import { deleteSnapshotsForDisk, renameSnapshotsForDisk } from '../services/disk-snapshots';
+import { getClientMountRegistry } from '../client-mount-registry';
 
 export function registerImageRoutes(router: Router, deps: Dependencies): void {
   /**
@@ -590,6 +591,12 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
       const splinterPaths = await deps.database.deleteClientSplintersForBase(filename);
       await Promise.all(splinterPaths.map((p) => fs.unlink(p).catch(() => { /* best-effort */ })));
 
+      // Drop any per-client drive-bay overrides pointing at this image, in the
+      // DB and the in-memory registry, then re-sync live sessions.
+      await deps.database.deleteClientMountsForBase(filename);
+      getClientMountRegistry().clearByBasename(filename);
+      await deps.connectionManager?.syncAll();
+
       res.json({ success: true, filename });
     } catch (error) {
       res.status(500).json({ error: safeErrorMessage(error) });
@@ -833,6 +840,11 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
 
       // Keep persistent client splinters attached (content unchanged by rename).
       await deps.database.renameClientSplintersBase(filename, newFilename);
+
+      // Keep per-client drive-bay overrides attached to the renamed image.
+      await deps.database.renameClientMountsBase(filename, newFilename);
+      getClientMountRegistry().renameByBasename(filename, destPath);
+      await deps.connectionManager?.syncAll();
 
       res.json({ success: true, filename: newFilename });
     } catch (error) {

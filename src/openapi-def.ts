@@ -50,6 +50,7 @@ export const openapiDefinition: Options = {
       { name: 'Images', description: 'Disk image management' },
       { name: 'Snapshots', description: 'Point-in-time disk image snapshots and rollback' },
       { name: 'Settings', description: 'Operator-facing runtime feature settings (DB-backed, live)' },
+      { name: 'Clients', description: 'Per-client drive-bay overrides and friendly names (multi-client serving)' },
       { name: 'CP/M', description: 'CP/M filesystem browser' },
       { name: 'Cassettes', description: 'Cassette audio management' },
       { name: 'Terminal', description: 'Terminal serial port management' },

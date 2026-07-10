@@ -45,6 +45,10 @@
       "description": "Operator-facing runtime feature settings (DB-backed, live)"
     },
     {
+      "name": "Clients",
+      "description": "Per-client drive-bay overrides and friendly names (multi-client serving)"
+    },
+    {
       "name": "CP/M",
       "description": "CP/M filesystem browser"
     },
@@ -3461,6 +3465,163 @@
         ],
         "summary": "Update the Web & API section (includes apiKey and adminPassword)",
         "description": "Same shape as the other section PUTs, but two fields need\nspecial handling:\n\n- `apiKey` is a machine token; when non-null the value is\n  written verbatim. Change is applied live (no restart) — the\n  auth middleware reads apiKey via a runtime callback.\n- `adminPassword` is bcrypt-hashed here before the write. Only\n  the hash reaches disk; the plaintext never persists. Sending\n  `null` clears the hash; omitting the key leaves it unchanged.\n  Change is applied live (no restart).\n\nFields that still require a daemon restart (webPort, webHost,\nenabling/disabling the web listener) are surfaced via\n`restartRequired: true` in the response. When the patch only\ntouched auth fields, `restartRequired: false`.\n"
+      }
+    },
+    "/api/clients": {
+      "get": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "List known + connected clients with their effective drive bays",
+        "responses": {
+          "200": {
+            "description": "Clients with per-drive effective mounts"
+          }
+        }
+      }
+    },
+    "/api/clients/{clientId}/name": {
+      "put": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Set a client's friendly name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Name updated"
+          }
+        }
+      }
+    },
+    "/api/clients/{clientId}/drives/{drive}": {
+      "put": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Set a client's per-drive mount override",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "drive",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "filename"
+                ],
+                "properties": {
+                  "filename": {
+                    "type": "string"
+                  },
+                  "readonly": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Override set"
+          },
+          "404": {
+            "description": "Image not found"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Clear a client's per-drive override (inherit global)",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "drive",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Override cleared"
+          }
+        }
+      }
+    },
+    "/api/clients/{clientId}": {
+      "delete": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Forget a client (clear its overrides, splinters, and name)",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Client forgotten"
+          }
+        }
       }
     },
     "/api/cassettes/details": {

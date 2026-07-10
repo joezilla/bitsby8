@@ -9,6 +9,8 @@
  * DriveSessions detect the change and re-open + open a swap window).
  */
 
+import * as path from 'path';
+
 export interface ClientMountEntry {
   filename: string;
   readonly: boolean;
@@ -50,6 +52,28 @@ export class ClientMountRegistry {
   /** Snapshot copy of one client's overrides. */
   forClient(clientId: string): Map<number, ClientMountEntry> {
     return new Map(this.byClient.get(clientId) ?? []);
+  }
+
+  /** Remove every override pointing at an image (matched by basename). Used
+   *  when the base image is deleted. */
+  clearByBasename(basename: string): void {
+    for (const [clientId, drives] of this.byClient) {
+      for (const [drive, entry] of drives) {
+        if (path.basename(entry.filename) === basename) drives.delete(drive);
+      }
+      if (drives.size === 0) this.byClient.delete(clientId);
+    }
+  }
+
+  /** Repoint every override on an image to a new absolute path (image renamed). */
+  renameByBasename(oldBasename: string, newFullPath: string): void {
+    for (const drives of this.byClient.values()) {
+      for (const [drive, entry] of drives) {
+        if (path.basename(entry.filename) === oldBasename) {
+          drives.set(drive, { filename: newFullPath, readonly: entry.readonly, epoch: ++this.epochCounter });
+        }
+      }
+    }
   }
 }
 

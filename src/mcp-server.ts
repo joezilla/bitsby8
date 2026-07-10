@@ -16,6 +16,7 @@ import { startRawReplay, startXmodemSend, cancelActiveTransfer } from './service
 import { convertLineEndings, LineEnding } from './replay-engine';
 import { safeResolvePath } from './utils/safe-path';
 import { isDiskMounted } from './utils/drive-status';
+import { getClientMountRegistry } from './client-mount-registry';
 import {
   createSnapshot,
   listSnapshots,
@@ -624,6 +625,11 @@ export function createMcpServer(deps: Dependencies): McpServer {
         // Drop any persistent per-client splinters forked from this image.
         const splinterPaths = await deps.database.deleteClientSplintersForBase(filename);
         await Promise.all(splinterPaths.map((p) => fs.unlink(p).catch(() => { /* best-effort */ })));
+
+        // Drop any per-client drive-bay overrides pointing at this image.
+        await deps.database.deleteClientMountsForBase(filename);
+        getClientMountRegistry().clearByBasename(filename);
+        await deps.connectionManager?.syncAll();
 
         return {
           content: [{

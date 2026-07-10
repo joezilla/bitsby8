@@ -35,6 +35,7 @@ import { registerDriveRoutes } from './routes/drives';
 import { registerImageRoutes } from './routes/images';
 import { registerSnapshotRoutes } from './routes/snapshots';
 import { registerSettingsRoutes } from './routes/settings';
+import { registerClientRoutes } from './routes/clients';
 import { ConnectionManager } from './services/connection-manager';
 import { getMultiClientServing, getWriteMaster } from './services/feature-flags';
 import { registerCpmRoutes } from './routes/cpm';
@@ -177,6 +178,7 @@ export class WebServer {
     registerImageRoutes(router, this.deps);
     registerSnapshotRoutes(router, this.deps);
     registerSettingsRoutes(router, this.deps);
+    registerClientRoutes(router, this.deps);
     registerCpmRoutes(router, this.deps);
     registerCassetteRoutes(router, this.deps);
     registerTerminalRoutes(router, this.deps);
