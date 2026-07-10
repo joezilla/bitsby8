@@ -51,6 +51,9 @@
   let settingsEtag = $state<string | undefined>(undefined);
   let settingsLoading = $state(false);
   let settingsSaving = $state(false);
+  // Advanced: multi-client disk serving feature flag (DB-backed, live).
+  let multiClientServing = $state(false);
+  let multiClientBusy = $state(false);
 
   // Snapshots
   let snapshotDisk = $state<DiskImageInfo | null>(null);
@@ -221,13 +224,32 @@
     showSettings = true;
     settingsLoading = true;
     try {
-      const [cfg, status] = await Promise.all([api.getConfig(), api.getConfigStatus()]);
+      const [cfg, status, settings] = await Promise.all([
+        api.getConfig(),
+        api.getConfigStatus(),
+        api.getSettings(),
+      ]);
       settingsPolicy = cfg.readonlyWritePolicy === 'transient' ? 'transient' : 'error';
       settingsEtag = status.etag;
+      multiClientServing = settings.multiClientServing;
     } catch (err: any) {
       showToast(`Failed to load settings: ${err.message}`, 'error');
     } finally {
       settingsLoading = false;
+    }
+  }
+
+  async function toggleMultiClient() {
+    const next = !multiClientServing;
+    multiClientBusy = true;
+    try {
+      await api.putSettings({ multiClientServing: next });
+      multiClientServing = next;
+      showToast(`Multi-client serving ${next ? 'enabled' : 'disabled'}`, 'success');
+    } catch (err: any) {
+      showToast(`Failed to update setting: ${err.message}`, 'error');
+    } finally {
+      multiClientBusy = false;
     }
   }
 
@@ -1058,10 +1080,31 @@
           Applies to disks with no per-image override. Restart-required — this is an install-time default.
         </div>
       </div>
+
+      <!-- Advanced -->
+      <div style="border-top: 1px solid var(--border-1); padding-top: 12px;">
+        <LabelStrip>Advanced</LabelStrip>
+        <label style="display: flex; align-items: flex-start; gap: 8px; margin-top: 8px;">
+          <input
+            type="checkbox"
+            checked={multiClientServing}
+            disabled={settingsLoading || multiClientBusy}
+            onchange={toggleMultiClient}
+          />
+          <span>
+            <span class="fdc-label-strip" style="text-transform: none; letter-spacing: 0; color: var(--fg-1);">Multi-client disk serving</span>
+            <span class="fdc-label-strip" style="display: block; margin-top: 2px; text-transform: none; letter-spacing: 0; color: var(--fg-3);">
+              Allow multiple virtual (TCP/WebSocket) clients to connect at once, each with its own
+              copy-on-write fork of the mounted disks. Off = single client (default). Applies live.
+            </span>
+          </span>
+        </label>
+      </div>
+
       <div style="display: flex; justify-content: flex-end; gap: 8px;">
-        <Button variant="ghost" disabled={settingsSaving} onclick={() => (showSettings = false)}>Cancel</Button>
+        <Button variant="ghost" disabled={settingsSaving} onclick={() => (showSettings = false)}>Close</Button>
         <Button variant="filled" icon="check" disabled={settingsLoading || settingsSaving} onclick={saveSettings}>
-          {settingsSaving ? 'Saving…' : 'Save'}
+          {settingsSaving ? 'Saving…' : 'Save defaults'}
         </Button>
       </div>
     </div>

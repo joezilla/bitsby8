@@ -80,6 +80,14 @@ const MIGRATIONS: string[] = [
     on_readonly_write TEXT NOT NULL DEFAULT 'inherit',
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );`,
+  // Migration 3: generic key/value settings store for operator-facing runtime
+  // toggles that live in the DB (not the config file), e.g. the multi-client
+  // serving feature flag.
+  `CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );`,
 ];
 
 export class Database {
@@ -381,6 +389,26 @@ export class Database {
   async deleteDiskPolicy(filename: string): Promise<void> {
     this.ensureInitialized();
     this.db!.prepare('DELETE FROM disk_policies WHERE filename = ?').run(filename);
+  }
+
+  /**
+   * Read a generic setting. Returns null when unset so callers can apply their
+   * own default.
+   */
+  async getSetting(key: string): Promise<string | null> {
+    this.ensureInitialized();
+    const row = this.db!.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
+    return row?.value ?? null;
+  }
+
+  /** Write a generic setting. */
+  async setSetting(key: string, value: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare(
+      `INSERT INTO settings (key, value, updated_at)
+       VALUES (?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`
+    ).run(key, value);
   }
 
   /**

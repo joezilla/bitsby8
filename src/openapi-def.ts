@@ -49,6 +49,7 @@ export const openapiDefinition: Options = {
       { name: 'Drives', description: 'Drive mount/unmount and status' },
       { name: 'Images', description: 'Disk image management' },
       { name: 'Snapshots', description: 'Point-in-time disk image snapshots and rollback' },
+      { name: 'Settings', description: 'Operator-facing runtime feature settings (DB-backed, live)' },
       { name: 'CP/M', description: 'CP/M filesystem browser' },
       { name: 'Cassettes', description: 'Cassette audio management' },
       { name: 'Terminal', description: 'Terminal serial port management' },

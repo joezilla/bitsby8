@@ -225,6 +225,13 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ onReadonlyWrite }),
     }),
+  // Runtime feature settings (DB-backed, live)
+  getSettings: () => request<{ multiClientServing: boolean }>('/api/settings'),
+  putSettings: (patch: { multiClientServing?: boolean }) =>
+    request<{ success: boolean; multiClientServing: boolean }>('/api/settings', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    }),
   commitTransient: (driveId: number) =>
     request(`/api/drives/${driveId}/transient/commit`, { method: 'POST' }),
   saveTransientSnapshot: (driveId: number, label?: string) =>
