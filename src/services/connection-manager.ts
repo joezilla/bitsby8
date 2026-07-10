@@ -53,7 +53,8 @@ export class ConnectionManager {
     const transport = new WsTransportManager();
     transport.acceptConnection(ws);
 
-    const session = new DriveSession({ clientId: clientId ?? id, registry: getMountRegistry() });
+    // A supplied clientId → persistent splinters; anonymous → ephemeral.
+    const session = new DriveSession({ clientId, registry: getMountRegistry(), database: this.deps.database });
     await session.sync();
 
     const config = createDefaultConfig();

@@ -37,9 +37,10 @@ fdcsds.overrides.json.tmp
 disks/*.dsk
 disks/*.img
 disks/*.ima
-# Snapshot blob store + transient copy-on-write scratch (runtime data)
+# Snapshot blob store + transient/persistent copy-on-write scratch (runtime data)
 disks/.snapshots/
 disks/.transient/
+disks/.splinter/
 # Uploaded files staging area
 uploads/
 .deps/

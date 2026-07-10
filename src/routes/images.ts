@@ -586,6 +586,10 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
       // Drop any per-image write policy.
       await deps.database.deleteDiskPolicy(filename);
 
+      // Drop any persistent per-client splinters forked from this image.
+      const splinterPaths = await deps.database.deleteClientSplintersForBase(filename);
+      await Promise.all(splinterPaths.map((p) => fs.unlink(p).catch(() => { /* best-effort */ })));
+
       res.json({ success: true, filename });
     } catch (error) {
       res.status(500).json({ error: safeErrorMessage(error) });
@@ -826,6 +830,9 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
 
       // Keep the per-image write policy attached to the renamed image.
       await deps.database.renameDiskPolicy(filename, newFilename);
+
+      // Keep persistent client splinters attached (content unchanged by rename).
+      await deps.database.renameClientSplintersBase(filename, newFilename);
 
       res.json({ success: true, filename: newFilename });
     } catch (error) {

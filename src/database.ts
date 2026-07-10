@@ -41,6 +41,15 @@ export interface SnapshotRecord {
 /** Per-image behavior when the guest writes to a read-only mount. */
 export type ReadonlyWritePolicy = 'inherit' | 'error' | 'transient';
 
+export interface ClientSplinter {
+  client_id: string;
+  drive: number;
+  base_filename: string;
+  path: string;
+  dirty: number; // SQLite 0/1
+  updated_at: string;
+}
+
 // Schema migrations, applied in order. Each runs inside a transaction.
 const MIGRATIONS: string[] = [
   // Migration 0: initial schema
@@ -88,6 +97,20 @@ const MIGRATIONS: string[] = [
     value TEXT NOT NULL,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );`,
+  // Migration 4: persistent per-client copy-on-write splinters. Keyed by
+  // (client_id, drive); `base_filename` records which mounted image the
+  // splinter forked from so a reconnecting client only re-attaches when the
+  // same base is still mounted.
+  `CREATE TABLE IF NOT EXISTS client_splinters (
+    client_id TEXT NOT NULL,
+    drive INTEGER NOT NULL,
+    base_filename TEXT NOT NULL,
+    path TEXT NOT NULL,
+    dirty INTEGER NOT NULL DEFAULT 0,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (client_id, drive)
+  );
+  CREATE INDEX IF NOT EXISTS idx_client_splinters_base ON client_splinters(base_filename);`,
 ];
 
 export class Database {
@@ -409,6 +432,60 @@ export class Database {
        VALUES (?, ?, CURRENT_TIMESTAMP)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`
     ).run(key, value);
+  }
+
+  /** Get a persistent client splinter, or null. */
+  async getClientSplinter(clientId: string, drive: number): Promise<ClientSplinter | null> {
+    this.ensureInitialized();
+    const row = this.db!.prepare(
+      'SELECT * FROM client_splinters WHERE client_id = ? AND drive = ?'
+    ).get(clientId, drive) as ClientSplinter | undefined;
+    return row || null;
+  }
+
+  /** Record (or update) a persistent client splinter. */
+  async upsertClientSplinter(clientId: string, drive: number, baseFilename: string, path: string, dirty: boolean): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare(
+      `INSERT INTO client_splinters (client_id, drive, base_filename, path, dirty, updated_at)
+       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(client_id, drive) DO UPDATE SET
+         base_filename = excluded.base_filename,
+         path = excluded.path,
+         dirty = excluded.dirty,
+         updated_at = CURRENT_TIMESTAMP`
+    ).run(clientId, drive, baseFilename, path, dirty ? 1 : 0);
+  }
+
+  /** Delete one client splinter row. */
+  async deleteClientSplinter(clientId: string, drive: number): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM client_splinters WHERE client_id = ? AND drive = ?').run(clientId, drive);
+  }
+
+  /** List all persistent splinters (e.g. for status / cleanup). */
+  async listClientSplinters(): Promise<ClientSplinter[]> {
+    this.ensureInitialized();
+    return this.db!.prepare('SELECT * FROM client_splinters').all() as ClientSplinter[];
+  }
+
+  /**
+   * Delete every splinter row forked from a base image and return their paths
+   * so the caller can remove the blobs. Used when the base is deleted.
+   */
+  async deleteClientSplintersForBase(baseFilename: string): Promise<string[]> {
+    this.ensureInitialized();
+    const rows = this.db!.prepare('SELECT path FROM client_splinters WHERE base_filename = ?').all(baseFilename) as { path: string }[];
+    this.db!.prepare('DELETE FROM client_splinters WHERE base_filename = ?').run(baseFilename);
+    return rows.map((r) => r.path);
+  }
+
+  /** Repoint splinter rows when a base image is renamed (content unchanged). */
+  async renameClientSplintersBase(oldBase: string, newBase: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare(
+      'UPDATE client_splinters SET base_filename = ?, updated_at = CURRENT_TIMESTAMP WHERE base_filename = ?'
+    ).run(newBase, oldBase);
   }
 
   /**

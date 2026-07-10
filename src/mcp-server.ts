@@ -621,6 +621,10 @@ export function createMcpServer(deps: Dependencies): McpServer {
         // Drop any per-image write policy.
         await deps.database.deleteDiskPolicy(filename);
 
+        // Drop any persistent per-client splinters forked from this image.
+        const splinterPaths = await deps.database.deleteClientSplintersForBase(filename);
+        await Promise.all(splinterPaths.map((p) => fs.unlink(p).catch(() => { /* best-effort */ })));
+
         return {
           content: [{
             type: 'text',

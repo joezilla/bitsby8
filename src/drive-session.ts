@@ -24,10 +24,14 @@ import { MAX_DRIVES, MAX_TRACK_LEN, DriveState, FdcError } from './protocol';
 import { MountRegistry } from './mount-registry';
 import { TRANSIENT_DIRNAME } from './drive';
 import { IDriveEngine } from './drive-engine';
+import { Database } from './database';
 
 // Matches DriveManager.SWAP_INVALIDATE_WINDOW_MS — the not-ready span that
 // forces the FDC master to discard its cached track buffer after a base swap.
 const SWAP_INVALIDATE_WINDOW_MS = 2500;
+
+/** Persistent per-client splinter store: disks/.splinter/<clientId>/drive<N>.img */
+export const SPLINTER_DIRNAME = '.splinter';
 
 interface SessionDrive {
   state: DriveState;      // the mutable object handed to the command loop
@@ -37,19 +41,29 @@ interface SessionDrive {
 }
 
 export interface DriveSessionOptions {
-  clientId: string;
+  /** Stable client id → persistent splinters that survive reconnect/restart.
+   *  null → an anonymous session whose splinters are ephemeral. */
+  clientId: string | null;
   registry: MountRegistry;
+  /** Required for persistence; absent → ephemeral even with a clientId. */
+  database?: Database;
 }
 
 export class DriveSession implements IDriveEngine {
   public fdcErrno: FdcError = FdcError.OK;
-  private readonly clientId: string;
+  private readonly clientId: string | null;
   private readonly registry: MountRegistry;
+  private readonly database: Database | null;
+  private readonly persistent: boolean;
   private drives = new Map<number, SessionDrive>();
 
   constructor(opts: DriveSessionOptions) {
     this.clientId = opts.clientId;
     this.registry = opts.registry;
+    this.database = opts.database ?? null;
+    // A splinter persists only when we have both a stable id and a DB to
+    // record it in; otherwise it's an ephemeral fork discarded on disconnect.
+    this.persistent = opts.clientId != null && !!opts.database;
   }
 
   /**
@@ -72,33 +86,74 @@ export class DriveSession implements IDriveEngine {
         continue; // unchanged
       }
 
-      // New mount or the base changed under us — (re)open the master RO and
-      // open a swap window so the FDC master invalidates its cached track.
+      // New mount or the base changed under us — (re)open and open a swap
+      // window so the FDC master invalidates its cached track.
       const wasMounted = !!cur;
       if (cur) {
         await this.closeDrive(drive);
       }
       try {
-        const handle = await fs.open(entry.filename, fsSync.constants.O_RDONLY);
-        const state: DriveState = {
-          fd: handle.fd,
-          filename: entry.filename,
-          mounted: true,
-          readonly: false,     // writes are allowed — they land on a splinter
-          hdld: false,
-          track: 0,
-          lastIo: null,
-          unavailableUntil: wasMounted ? Date.now() + SWAP_INVALIDATE_WINDOW_MS : null,
-          transient: true,     // this session is copy-on-write over the master
-          scratchPath: null,
-          dirty: false,
-        };
-        this.drives.set(drive, { state, handle, master: entry.filename, baseEpoch: entry.epoch });
+        await this.openDrive(drive, entry.filename, entry.epoch, wasMounted);
       } catch (error) {
-        console.error(`[DriveSession ${this.clientId}] failed to open drive ${drive} (${entry.filename}):`, error);
+        console.error(`[DriveSession ${this.clientId ?? 'anon'}] failed to open drive ${drive} (${entry.filename}):`, error);
         this.drives.delete(drive);
       }
     }
+  }
+
+  /**
+   * Open a drive for this session: re-attach an existing persistent splinter
+   * when one exists for the same base, otherwise open the master read-only
+   * (copy-on-write kicks in on the first write).
+   */
+  private async openDrive(drive: number, master: string, epoch: number, wasMounted: boolean): Promise<void> {
+    const base = path.basename(master);
+
+    // Persistent re-attach path.
+    if (this.persistent && this.clientId) {
+      const existing = await this.database!.getClientSplinter(this.clientId, drive);
+      if (existing && existing.base_filename === base) {
+        try {
+          await fs.access(existing.path);
+          const handle = await fs.open(existing.path, fsSync.constants.O_RDWR);
+          this.drives.set(drive, {
+            state: this.makeState(handle.fd, master, wasMounted, existing.path, existing.dirty === 1),
+            handle, master, baseEpoch: epoch,
+          });
+          return;
+        } catch {
+          // File vanished — drop the stale row and fall through to a fresh open.
+          await this.database!.deleteClientSplinter(this.clientId, drive);
+        }
+      } else if (existing) {
+        // Base changed under this client — its old splinter is stale.
+        await fs.unlink(existing.path).catch(() => { /* best-effort */ });
+        await this.database!.deleteClientSplinter(this.clientId, drive);
+      }
+    }
+
+    // Fresh copy-on-write: read the master read-only until the first write.
+    const handle = await fs.open(master, fsSync.constants.O_RDONLY);
+    this.drives.set(drive, {
+      state: this.makeState(handle.fd, master, wasMounted, null, false),
+      handle, master, baseEpoch: epoch,
+    });
+  }
+
+  private makeState(fd: number, master: string, wasMounted: boolean, scratchPath: string | null, dirty: boolean): DriveState {
+    return {
+      fd,
+      filename: master,     // always the master (mounted-checks see the base)
+      mounted: true,
+      readonly: false,      // writes are allowed — they land on a splinter
+      hdld: false,
+      track: 0,
+      lastIo: null,
+      unavailableUntil: wasMounted ? Date.now() + SWAP_INVALIDATE_WINDOW_MS : null,
+      transient: true,      // this session is copy-on-write over the master
+      scratchPath,
+      dirty,
+    };
   }
 
   getDriveState(drive: number): DriveState | null {
@@ -164,10 +219,22 @@ export class DriveSession implements IDriveEngine {
 
   /** Copy the master to a private splinter and reopen it read-write. */
   private async forkSplinter(drive: number, sd: SessionDrive): Promise<void> {
-    const dir = path.join(path.dirname(sd.master), TRANSIENT_DIRNAME);
-    await fs.mkdir(dir, { recursive: true });
-    const safeId = this.clientId.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const splinter = path.join(dir, `session-${safeId}-drive${drive}-${randomBytes(6).toString('hex')}.scratch`);
+    const base = path.basename(sd.master);
+    let splinter: string;
+    if (this.persistent && this.clientId) {
+      // Persistent: stable path under .splinter/<clientId>, recorded in the DB
+      // so a reconnecting client re-attaches it.
+      const safeId = this.clientId.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const dir = path.join(path.dirname(sd.master), SPLINTER_DIRNAME, safeId);
+      await fs.mkdir(dir, { recursive: true });
+      splinter = path.join(dir, `drive${drive}.img`);
+    } else {
+      // Ephemeral: random path under .transient, swept on restart.
+      const dir = path.join(path.dirname(sd.master), TRANSIENT_DIRNAME);
+      await fs.mkdir(dir, { recursive: true });
+      const tag = (this.clientId ?? 'anon').replace(/[^a-zA-Z0-9_-]/g, '_');
+      splinter = path.join(dir, `session-${tag}-drive${drive}-${randomBytes(6).toString('hex')}.scratch`);
+    }
     await fs.copyFile(sd.master, splinter);
 
     await sd.handle.close().catch(() => { /* best-effort */ });
@@ -175,13 +242,19 @@ export class DriveSession implements IDriveEngine {
     sd.handle = handle;
     sd.state.fd = handle.fd;
     sd.state.scratchPath = splinter;
+
+    if (this.persistent && this.clientId) {
+      await this.database!.upsertClientSplinter(this.clientId, drive, base, splinter, true);
+    }
   }
 
   private async closeDrive(drive: number): Promise<void> {
     const sd = this.drives.get(drive);
     if (!sd) return;
     await sd.handle.close().catch(() => { /* best-effort */ });
-    if (sd.state.scratchPath) {
+    // Ephemeral splinters are discarded; persistent ones are kept on disk (and
+    // in the DB) so the client re-attaches them on reconnect.
+    if (sd.state.scratchPath && !this.persistent) {
       await fs.unlink(sd.state.scratchPath).catch(() => { /* best-effort */ });
     }
     this.drives.delete(drive);
