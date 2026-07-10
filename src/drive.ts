@@ -14,6 +14,7 @@ import {
   FdcError,
 } from './protocol';
 import { getGpioLedController } from './gpio';
+import { MountRegistry } from './mount-registry';
 
 /**
  * Resolves whether a read-only image should be backed by a copy-on-write
@@ -42,6 +43,10 @@ export class DriveManager {
   // Default: never use transient backing (writes to RO images error). Startup
   // injects a resolver that consults the global + per-image policy.
   private transientPolicyResolver: TransientPolicyResolver = () => false;
+  // Authoritative operator mount table. When set, this manager keeps it in
+  // lockstep as it mounts/unmounts/write-protects drives (it is the sole
+  // writer). Consumed by the per-connection drive layer.
+  private mountRegistry: MountRegistry | null = null;
 
   constructor() {
     this.drives = new Map();
@@ -83,6 +88,14 @@ export class DriveManager {
    */
   setTransientPolicyResolver(resolver: TransientPolicyResolver): void {
     this.transientPolicyResolver = resolver;
+  }
+
+  /**
+   * Attach the shared operator mount registry. Once set, mount/unmount/
+   * writeProtect keep it in sync as the authoritative mount table.
+   */
+  setMountRegistry(registry: MountRegistry): void {
+    this.mountRegistry = registry;
   }
 
   /**
@@ -228,6 +241,9 @@ export class DriveManager {
 
       this.fileHandles.set(drive, fileHandle);
 
+      // Keep the operator mount registry in sync (authoritative mount table).
+      this.mountRegistry?.set(drive, filename, driveState.readonly);
+
       // Log successful mount with mode
       console.log(`Mounted drive ${drive}: ${filename}, mode=${driveState.readonly ? (useTransient ? 'RO+transient' : 'RO') : 'RW'}, fd=${fileHandle.fd}`);
 
@@ -280,6 +296,9 @@ export class DriveManager {
     // Discard any transient scratch. Callers wanting to keep the changes must
     // commit or save-as-snapshot BEFORE unmounting.
     await this.discardScratch(driveState);
+
+    // Keep the operator mount registry in sync.
+    this.mountRegistry?.clear(drive);
 
     // Reset drive state
     driveState.fd = null;
@@ -405,6 +424,11 @@ export class DriveManager {
     // If mounted and flag changed, remount with correct mode to prevent EBADF errors
     if (driveState.mounted && oldFlag !== flag) {
       await this.remountWithMode(drive, flag);
+    }
+
+    // Keep the operator mount registry's read-only flag in sync.
+    if (driveState.mounted) {
+      this.mountRegistry?.setReadonly(drive, flag);
     }
 
     // Update GPIO LEDs

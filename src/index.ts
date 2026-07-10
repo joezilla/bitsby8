@@ -15,6 +15,7 @@ import {
   Config,
 } from './protocol';
 import { getDriveManager, TRANSIENT_DIRNAME } from './drive';
+import { getMountRegistry } from './mount-registry';
 import type { ReadonlyWritePolicy } from './database';
 import { getSerialPortManager } from './serial';
 import { getTerminalSerialManager } from './terminal-serial';
@@ -359,6 +360,8 @@ async function main(): Promise<void> {
 
   // Get singleton instances
   const driveManager = getDriveManager();
+  // Keep the shared operator mount table in sync as drives mount/unmount.
+  driveManager.setMountRegistry(getMountRegistry());
   const serialManager = getSerialPortManager();
   const terminalManager = getTerminalSerialManager();
   const gpioController = getGpioLedController();
