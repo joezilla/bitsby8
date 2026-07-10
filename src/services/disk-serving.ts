@@ -78,6 +78,9 @@ export async function disableDiskServing(deps: Dependencies): Promise<void> {
     deps.server = null;
   }
 
+  // Tear down any per-connection multi-client loops too.
+  await deps.connectionManager?.stopAll();
+
   await deps.serialManager.closePort();
   deps.diskServingEnabled = false;
 

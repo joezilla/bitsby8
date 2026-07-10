@@ -59,6 +59,8 @@ export function registerSettingsRoutes(router: Router, deps: Dependencies): void
         return;
       }
       await setMultiClientServing(deps.database, value);
+      // Update the live cache so new connections take effect immediately.
+      deps.multiClientServing = value;
       res.json({ success: true, multiClientServing: value });
     } catch (error) {
       res.status(500).json({ error: safeErrorMessage(error) });

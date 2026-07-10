@@ -78,6 +78,13 @@ export interface Dependencies {
 
   wsTransport: WsTransportManager;
 
+  // Multi-client disk serving (feature-flagged). Cached from the DB settings
+  // store at startup and updated live by PUT /api/settings. When true, extra
+  // virtual clients are served via the ConnectionManager (per-connection
+  // copy-on-write sessions); when false, the legacy single-client path runs.
+  multiClientServing: boolean;
+  connectionManager?: import('./services/connection-manager').ConnectionManager;
+
   // Mutable server state
   server: FdcServer | null;
   diskServingEnabled: boolean;

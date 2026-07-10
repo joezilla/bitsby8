@@ -35,6 +35,8 @@ import { registerDriveRoutes } from './routes/drives';
 import { registerImageRoutes } from './routes/images';
 import { registerSnapshotRoutes } from './routes/snapshots';
 import { registerSettingsRoutes } from './routes/settings';
+import { ConnectionManager } from './services/connection-manager';
+import { getMultiClientServing } from './services/feature-flags';
 import { registerCpmRoutes } from './routes/cpm';
 import { registerCassetteRoutes } from './routes/cassettes';
 import { registerTerminalRoutes } from './routes/terminal';
@@ -120,6 +122,7 @@ export class WebServer {
       configReadonly: options?.configReadonly ?? false,
       sessionStore,
       wsTransport: getWsTransportManager(),
+      multiClientServing: false,
       server: options?.server || null,
       diskServingEnabled: options?.server !== null && options?.server !== undefined,
       serverTask: null,
@@ -145,6 +148,9 @@ export class WebServer {
     if (this.deps.runtimeConfig?.verbose) {
       this.deps.terminalManager.setVerbose(true);
     }
+
+    // Owns the extra per-connection loops used when multi-client serving is on.
+    this.deps.connectionManager = new ConnectionManager(this.deps);
 
     this.setup();
   }
@@ -240,9 +246,20 @@ export class WebServer {
           return;
         }
         wss.handleUpgrade(req, socket, head, (client) => {
-          log.info('Virtual FDC client connected');
-          this.deps.wsTransport.acceptConnection(client);
-          this.broadcastStatus();
+          // Multi-client ON: each virtual client gets its own served loop +
+          // copy-on-write session via the ConnectionManager. OFF: legacy
+          // single shared transport (a new client replaces the prior one).
+          if (this.deps.multiClientServing && this.deps.connectionManager) {
+            const clientId = new URL(rawUrl, 'http://localhost').searchParams.get('clientId');
+            log.info({ clientId }, 'Virtual FDC client connected (multi-client)');
+            this.deps.connectionManager.addWsClient(client, clientId).catch((err) => {
+              log.error({ err }, 'failed to start multi-client FDC connection');
+            });
+          } else {
+            log.info('Virtual FDC client connected');
+            this.deps.wsTransport.acceptConnection(client);
+            this.broadcastStatus();
+          }
         });
         return;
       }
@@ -285,6 +302,13 @@ export class WebServer {
         console.error(`Failed to initialize database at ${this.deps.database.getPath()}:`, error);
         console.log('Continuing without database support');
       }
+    }
+
+    // Cache the multi-client feature flag (updated live by PUT /api/settings).
+    try {
+      this.deps.multiClientServing = await getMultiClientServing(this.deps.database);
+    } catch {
+      this.deps.multiClientServing = false;
     }
 
     return new Promise((resolve, reject) => {

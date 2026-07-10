@@ -39,6 +39,7 @@ export function getStatus(deps: Dependencies) {
       enabled: deps.diskServingEnabled,
       running: deps.server !== null && deps.serverTask !== null,
     },
+    multiClient: getMultiClientStatus(deps),
     drives: getDrivesStatus(deps),
     system: {
       version: buildInfo?.upstream ?? pkg.version,
@@ -95,6 +96,13 @@ export function getDrivesStatus(deps: Dependencies) {
     }
   }
   return drives;
+}
+
+export function getMultiClientStatus(deps: Dependencies) {
+  return {
+    enabled: deps.multiClientServing ?? false,
+    clients: deps.connectionManager?.list() ?? [],
+  };
 }
 
 export function getTerminalStatus(deps: Dependencies) {

@@ -601,6 +601,7 @@ async function main(): Promise<void> {
       baselineConfig,
       startupEpoch,
       configReadonly,
+      multiClientServing: false,
       server: server,
       diskServingEnabled: server !== null,
       serverTask: null,
