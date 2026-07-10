@@ -1,59 +1,28 @@
 import { Router, Request, Response } from 'express';
-import * as path from 'path';
 import { Dependencies } from '../types';
-import { safeResolvePath, safeErrorMessage } from '../utils/safe-path';
-import { getClientMountRegistry } from '../client-mount-registry';
-import { getMountRegistry } from '../mount-registry';
+import { safeErrorMessage } from '../utils/safe-path';
+import { ServiceError } from '../services/service-error';
+import {
+  listClients,
+  setClientName,
+  setClientDrive,
+  clearClientDrive,
+  forgetClient,
+} from '../services/client-service';
 
-// Per-client bays mirror the operator UI's four drive slots.
-const CLIENT_BAYS = 4;
-
-function badClientId(id: string): boolean {
-  return !id || id.includes('/') || id.includes('\\') || id.includes('..');
+function sendError(res: Response, error: unknown): void {
+  if (error instanceof ServiceError) {
+    res.status(error.statusCode).json({ error: error.message });
+    return;
+  }
+  res.status(500).json({ error: safeErrorMessage(error) });
 }
 
 /**
- * Per-client drive-bay management. A client's override on a drive wins over the
- * global mount; unset drives inherit global. Only meaningful when multi-client
- * serving is enabled, but the config is editable regardless (pre-provisioning).
+ * Per-client drive-bay management. Thin HTTP wrappers over client-service, which
+ * both these routes and the MCP tools share.
  */
 export function registerClientRoutes(router: Router, deps: Dependencies): void {
-  const clientReg = getClientMountRegistry();
-
-  async function buildClient(clientId: string, connected: { id: string; connectedAt: number } | null) {
-    const label = await deps.database.getClientLabel(clientId);
-    const overrides = await deps.database.listClientMounts(clientId);
-    const overrideByDrive = new Map(overrides.map((o) => [o.drive, o]));
-    const splinters = await deps.database.listClientSplinters();
-    const dirtyByDrive = new Map(
-      splinters.filter((s) => s.client_id === clientId).map((s) => [s.drive, s.dirty === 1]),
-    );
-
-    const global = getMountRegistry();
-    const drives = [];
-    for (let d = 0; d < CLIENT_BAYS; d++) {
-      const ov = overrideByDrive.get(d);
-      const g = global.get(d);
-      if (ov) {
-        drives.push({ drive: d, filename: ov.filename, readonly: ov.readonly === 1, source: 'override', dirty: dirtyByDrive.get(d) ?? false });
-      } else if (g) {
-        drives.push({ drive: d, filename: path.basename(g.filename), readonly: g.readonly, source: 'global', dirty: dirtyByDrive.get(d) ?? false });
-      } else {
-        drives.push({ drive: d, filename: null, readonly: false, source: 'none', dirty: false });
-      }
-    }
-
-    return {
-      clientId,
-      name: label?.name ?? '',
-      connected: connected !== null,
-      connectedAt: connected?.connectedAt ?? null,
-      isMaster: clientId === deps.writeMaster,
-      hasSplinters: dirtyByDrive.size > 0,
-      drives,
-    };
-  }
-
   /**
    * @openapi
    * /api/clients:
@@ -66,21 +35,9 @@ export function registerClientRoutes(router: Router, deps: Dependencies): void {
    */
   router.get('/api/clients', async (_req: Request, res: Response): Promise<void> => {
     try {
-      const connected = deps.connectionManager?.list() ?? [];
-      // Live connections keyed by clientId (anonymous ones have no persistent id).
-      const connectedById = new Map<string, { id: string; connectedAt: number }>();
-      for (const c of connected) {
-        if (c.clientId) connectedById.set(c.clientId, { id: c.id, connectedAt: c.connectedAt });
-      }
-      const known = await deps.database.listKnownClientIds();
-      const ids = Array.from(new Set([...known, ...connectedById.keys()])).sort();
-
-      const clients = await Promise.all(ids.map((id) => buildClient(id, connectedById.get(id) ?? null)));
-      // Anonymous live connections (no clientId) surfaced separately.
-      const anonymous = connected.filter((c) => !c.clientId).map((c) => ({ id: c.id, connectedAt: c.connectedAt }));
-      res.json({ clients, anonymous });
+      res.json(await listClients(deps));
     } catch (error) {
-      res.status(500).json({ error: safeErrorMessage(error) });
+      sendError(res, error);
     }
   });
 
@@ -106,13 +63,11 @@ export function registerClientRoutes(router: Router, deps: Dependencies): void {
    */
   router.put('/api/clients/:clientId/name', async (req: Request, res: Response): Promise<void> => {
     try {
-      const { clientId } = req.params;
-      if (badClientId(clientId)) { res.status(400).json({ error: 'Invalid client id' }); return; }
       const name = typeof req.body?.name === 'string' ? req.body.name : '';
-      await deps.database.setClientLabel(clientId, name);
-      res.json({ success: true, clientId, name });
+      await setClientName(deps, req.params.clientId, name);
+      res.json({ success: true, clientId: req.params.clientId, name });
     } catch (error) {
-      res.status(500).json({ error: safeErrorMessage(error) });
+      sendError(res, error);
     }
   });
 
@@ -161,39 +116,22 @@ export function registerClientRoutes(router: Router, deps: Dependencies): void {
    */
   router.put('/api/clients/:clientId/drives/:drive', async (req: Request, res: Response): Promise<void> => {
     try {
-      const { clientId } = req.params;
       const drive = parseInt(req.params.drive, 10);
-      const filename = req.body?.filename;
       const readonly = !!req.body?.readonly;
-      if (badClientId(clientId)) { res.status(400).json({ error: 'Invalid client id' }); return; }
-      if (isNaN(drive) || drive < 0 || drive >= CLIENT_BAYS) { res.status(400).json({ error: 'Invalid drive' }); return; }
-      if (!filename || typeof filename !== 'string' || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
-        res.status(400).json({ error: 'Invalid filename' }); return;
-      }
-      const full = safeResolvePath(deps.config.disksDir, filename);
-      if (!full) { res.status(404).json({ error: 'Disk image not found' }); return; }
-
-      await deps.database.setClientMount(clientId, drive, filename, readonly); // basename in DB
-      clientReg.set(clientId, drive, full, readonly);                          // full path in registry
-      await deps.connectionManager?.syncClient(clientId);
-      res.json({ success: true, clientId, drive, filename, readonly });
+      await setClientDrive(deps, req.params.clientId, drive, req.body?.filename, readonly);
+      res.json({ success: true, clientId: req.params.clientId, drive, filename: req.body?.filename, readonly });
     } catch (error) {
-      res.status(500).json({ error: safeErrorMessage(error) });
+      sendError(res, error);
     }
   });
 
   router.delete('/api/clients/:clientId/drives/:drive', async (req: Request, res: Response): Promise<void> => {
     try {
-      const { clientId } = req.params;
       const drive = parseInt(req.params.drive, 10);
-      if (badClientId(clientId)) { res.status(400).json({ error: 'Invalid client id' }); return; }
-      if (isNaN(drive) || drive < 0 || drive >= CLIENT_BAYS) { res.status(400).json({ error: 'Invalid drive' }); return; }
-      await deps.database.deleteClientMount(clientId, drive);
-      clientReg.clear(clientId, drive);
-      await deps.connectionManager?.syncClient(clientId);
-      res.json({ success: true, clientId, drive });
+      await clearClientDrive(deps, req.params.clientId, drive);
+      res.json({ success: true, clientId: req.params.clientId, drive });
     } catch (error) {
-      res.status(500).json({ error: safeErrorMessage(error) });
+      sendError(res, error);
     }
   });
 
@@ -213,22 +151,10 @@ export function registerClientRoutes(router: Router, deps: Dependencies): void {
    */
   router.delete('/api/clients/:clientId', async (req: Request, res: Response): Promise<void> => {
     try {
-      const { clientId } = req.params;
-      if (badClientId(clientId)) { res.status(400).json({ error: 'Invalid client id' }); return; }
-
-      // Remove splinter blobs + rows.
-      const splinters = (await deps.database.listClientSplinters()).filter((s) => s.client_id === clientId);
-      const fsp = await import('fs/promises');
-      await Promise.all(splinters.map((s) => fsp.unlink(s.path).catch(() => { /* best-effort */ })));
-      for (const s of splinters) await deps.database.deleteClientSplinter(clientId, s.drive);
-
-      await deps.database.deleteClientMountsForClient(clientId);
-      await deps.database.deleteClientLabel(clientId);
-      clientReg.clearClient(clientId);
-      await deps.connectionManager?.syncClient(clientId);
-      res.json({ success: true, clientId });
+      await forgetClient(deps, req.params.clientId);
+      res.json({ success: true, clientId: req.params.clientId });
     } catch (error) {
-      res.status(500).json({ error: safeErrorMessage(error) });
+      sendError(res, error);
     }
   });
 }
