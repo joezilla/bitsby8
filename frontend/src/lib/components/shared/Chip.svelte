@@ -9,13 +9,14 @@
     color?: Color;
     icon?: string;
     size?: Size;
+    title?: string;
     children?: Snippet;
   }
 
-  let { color, icon, size = 'md', children }: Props = $props();
+  let { color, icon, size = 'md', title, children }: Props = $props();
 </script>
 
-<span class="chip {color ?? ''} {size === 'sm' ? 'sm' : ''}">
+<span class="chip {color ?? ''} {size === 'sm' ? 'sm' : ''}" {title}>
   {#if icon}
     <Icon name={icon} size={size === 'sm' ? 12 : 16} />
   {/if}

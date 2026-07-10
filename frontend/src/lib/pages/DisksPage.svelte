@@ -11,9 +11,9 @@
   import Input from '$lib/components/shared/Input.svelte';
   import Select from '$lib/components/shared/Select.svelte';
   import TextArea from '$lib/components/shared/TextArea.svelte';
-  import Led from '$lib/components/shared/Led.svelte';
   import PageHeader from '$lib/components/shared/PageHeader.svelte';
   import LabelStrip from '$lib/components/shared/LabelStrip.svelte';
+  import DriveCard from '$lib/components/shared/DriveCard.svelte';
   import type { DiskImageInfo, DriveState, CpmFileInfo, SnapshotInfo, ReadonlyWritePolicy } from '$lib/types/api';
 
   let images = $state<DiskImageInfo[]>([]);
@@ -91,10 +91,17 @@
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
-  function driveLed(drive: DriveState): { color: 'amber' | 'green' | 'off'; pulse: boolean } {
-    if (!drive.mounted) return { color: 'off', pulse: false };
-    if (drive.headLoaded) return { color: 'amber', pulse: true };
-    return { color: 'green', pulse: false };
+  function driveStatus(
+    drive: DriveState
+  ): { color: 'amber' | 'green' | 'off'; pulse?: boolean; text: string } {
+    if (!drive.mounted) return { color: 'off', text: 'Empty' };
+    if (drive.headLoaded) return { color: 'amber', pulse: true, text: 'Reading' };
+    return { color: 'green', text: 'Online' };
+  }
+
+  function togglePicker(id: number) {
+    mountingDrive = mountingDrive === id ? null : id;
+    mountingImage = null;
   }
 
   function emptyDrive(id: number): DriveState {
@@ -666,136 +673,77 @@
     >
       {#each [0, 1, 2, 3] as id}
         {@const drive = drives.find((d) => d.id === id) ?? emptyDrive(id)}
-        {@const ledState = driveLed(drive)}
-        <Card>
-          <div style="padding: 16px; display: flex; flex-direction: column; gap: 10px;">
-            <div style="display: flex; align-items: center; justify-content: space-between;">
-              <div style="display: flex; align-items: baseline; gap: 8px;">
-                <span class="fdc-label-strip">Drive</span>
-                <span class="fdc-mono" style="font-size: 18px; color: var(--accent); font-weight: 600;">{id}</span>
-              </div>
-              <Led color={ledState.color} pulse={ledState.pulse} size="md" />
-            </div>
+        <div style="position: relative;" data-mount-picker>
+          <DriveCard
+            num={id}
+            track={drive.mounted ? drive.track : null}
+            hasDisk={drive.mounted}
+            filename={drive.filename}
+            protectedRo={drive.readonly}
+            dirty={!!(drive.transient && drive.dirty)}
+            status={driveStatus(drive)}
+            emptyText="No disk mounted"
+            onEject={() => unmountDisk(id)}
+            onSwap={() => togglePicker(id)}
+            onToggleRo={() => toggleReadonly(id, drive.readonly)}
+            onInsert={() => togglePicker(id)}
+          />
 
-            <div style="flex: 1; min-height: 40px;">
-              {#if drive.mounted}
-                <div
-                  class="fdc-mono"
-                  style="font-size: 12px; color: var(--fg-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
-                  title={drive.filename ?? ''}
-                >
-                  {drive.filename}
-                </div>
-                <div style="display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap;">
-                  <Chip>TRK {drive.track}</Chip>
-                  {#if drive.readonly}
-                    <Chip color="amber">RO</Chip>
-                  {:else}
-                    <Chip color="green">R/W</Chip>
-                  {/if}
-                  {#if drive.transient}
-                    <Chip color="cyan" icon="content_copy">
-                      {drive.dirty ? 'Transient · changed' : 'Transient'}
-                    </Chip>
-                  {/if}
-                </div>
-              {:else}
-                <div style="font: var(--text-body-sm); color: var(--fg-3); font-style: italic;">Empty bay</div>
-              {/if}
-            </div>
-
+          {#if mountingDrive === id}
             <div
               style="
-                display: flex;
-                align-items: center;
-                gap: 6px;
-                padding-top: 8px;
-                border-top: 1px solid var(--border-1);
+                position: absolute;
+                top: calc(100% + 4px);
+                left: 0;
+                right: 0;
+                z-index: 30;
+                max-height: 280px;
+                overflow-y: auto;
+                background: var(--surface-raised);
+                border: 1px solid var(--border-2);
+                border-radius: var(--radius-md);
+                box-shadow: var(--elev-3);
               "
             >
-              {#if drive.mounted}
-                <Button variant="ghost" size="sm" icon="eject" onclick={() => unmountDisk(id)}>Eject</Button>
-                <Button
-                  variant={drive.readonly ? 'tonal' : 'outline'}
-                  size="sm"
-                  onclick={() => toggleReadonly(id, drive.readonly)}
-                  title={drive.readonly ? 'Set read-write' : 'Set read-only'}
-                >
-                  {drive.readonly ? 'RO' : 'RW'}
-                </Button>
-              {:else}
-                <div style="position: relative;" data-mount-picker>
-                  <Button
-                    variant="tonal"
-                    size="sm"
-                    icon="save"
-                    onclick={(e: MouseEvent) => {
-                      e.stopPropagation();
-                      mountingDrive = mountingDrive === id ? null : id;
-                      mountingImage = null;
-                    }}
-                  >
-                    Mount…
-                  </Button>
-                  {#if mountingDrive === id}
-                    <div
-                      style="
-                        position: absolute;
-                        top: calc(100% + 4px);
-                        left: 0;
-                        z-index: 30;
-                        width: 260px;
-                        max-height: 280px;
-                        overflow-y: auto;
-                        background: var(--surface-raised);
-                        border: 1px solid var(--border-2);
-                        border-radius: var(--radius-md);
-                        box-shadow: var(--elev-3);
-                      "
-                    >
-                      {#if images.length === 0}
-                        <div style="padding: 10px 12px; font: var(--text-body-sm); color: var(--fg-3);">
-                          No disk images available
-                        </div>
-                      {:else}
-                        {#each images as img (img.name)}
-                          <button
-                            type="button"
-                            onclick={() => mountDisk(id, img.name)}
-                            style="
-                              width: 100%;
-                              text-align: left;
-                              padding: 8px 12px;
-                              background: transparent;
-                              border: none;
-                              border-bottom: 1px solid var(--border-1);
-                              color: var(--fg-1);
-                              cursor: pointer;
-                              display: flex;
-                              align-items: center;
-                              justify-content: space-between;
-                              gap: 8px;
-                            "
-                          >
-                            <span
-                              class="fdc-mono"
-                              style="font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
-                            >
-                              {img.name}
-                            </span>
-                            <span class="fdc-mono" style="font-size: 11px; color: var(--fg-3); flex: 0 0 auto;">
-                              {formatSize(img.size)}
-                            </span>
-                          </button>
-                        {/each}
-                      {/if}
-                    </div>
-                  {/if}
+              {#if images.length === 0}
+                <div style="padding: 10px 12px; font: var(--text-body-sm); color: var(--fg-3);">
+                  No disk images available
                 </div>
+              {:else}
+                {#each images as img (img.name)}
+                  <button
+                    type="button"
+                    onclick={() => mountDisk(id, img.name)}
+                    style="
+                      width: 100%;
+                      text-align: left;
+                      padding: 8px 12px;
+                      background: transparent;
+                      border: none;
+                      border-bottom: 1px solid var(--border-1);
+                      color: var(--fg-1);
+                      cursor: pointer;
+                      display: flex;
+                      align-items: center;
+                      justify-content: space-between;
+                      gap: 8px;
+                    "
+                  >
+                    <span
+                      class="fdc-mono"
+                      style="font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                    >
+                      {img.name}
+                    </span>
+                    <span class="fdc-mono" style="font-size: 11px; color: var(--fg-3); flex: 0 0 auto;">
+                      {formatSize(img.size)}
+                    </span>
+                  </button>
+                {/each}
               {/if}
             </div>
-          </div>
-        </Card>
+          {/if}
+        </div>
       {/each}
     </div>
   </div>

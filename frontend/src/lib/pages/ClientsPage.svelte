@@ -9,15 +9,20 @@
   import IconButton from '$lib/components/shared/IconButton.svelte';
   import Chip from '$lib/components/shared/Chip.svelte';
   import Input from '$lib/components/shared/Input.svelte';
-  import Select from '$lib/components/shared/Select.svelte';
+  import Icon from '$lib/components/shared/Icon.svelte';
   import LabelStrip from '$lib/components/shared/LabelStrip.svelte';
-  import type { ClientBay, DiskImageInfo } from '$lib/types/api';
+  import DriveCard from '$lib/components/shared/DriveCard.svelte';
+  import type { ClientBay, ClientDrive, DiskImageInfo } from '$lib/types/api';
 
   let clients = $state<ClientBay[]>([]);
   let images = $state<DiskImageInfo[]>([]);
   let loading = $state(true);
   let newClientId = $state('');
-  let nameEdits = $state<Record<string, string>>({});
+
+  // "Edit friendly name" modal — opened from the pencil icon on each client card.
+  let nameModal = $state<{ clientId: string } | null>(null);
+  let nameModalValue = $state('');
+  let nameModalBusy = $state(false);
 
   // "Keep splinter changes" modal — commit to master, save as a snapshot, or
   // publish as a new disk.
@@ -26,7 +31,35 @@
   let splinterNewName = $state('');
   let splinterBusy = $state(false);
 
+  // Modal disk picker — set/change a client drive's override image. Opened
+  // from the "change disk" (swap) control on each bay.
+  let diskPicker = $state<{ clientId: string; drive: number; readonly: boolean } | null>(null);
+  let diskPickerFilter = $state('');
+  let filteredPickerImages = $derived(
+    diskPickerFilter
+      ? images.filter((i) => i.name.toLowerCase().includes(diskPickerFilter.toLowerCase()))
+      : images
+  );
+
   let multiEnabled = $derived($serverStatus?.multiClient?.enabled ?? false);
+
+  function formatSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function openDiskPicker(clientId: string, drive: number, readonly: boolean) {
+    diskPicker = { clientId, drive, readonly };
+    diskPickerFilter = '';
+  }
+
+  async function pickDisk(filename: string) {
+    if (!diskPicker) return;
+    const { clientId, drive, readonly } = diskPicker;
+    diskPicker = null;
+    await setDrive(clientId, drive, filename, readonly);
+  }
   // Reload when the set of connected client ids changes (connect/disconnect).
   let connectedKey = $derived(
     ($serverStatus?.multiClient?.clients ?? []).map((c) => c.clientId ?? c.id).sort().join(',')
@@ -38,8 +71,6 @@
       const [c, imgs] = await Promise.all([api.getClients(), api.listImagesDetailed()]);
       clients = c.clients;
       images = imgs.images;
-      // Seed name editors without clobbering in-progress edits.
-      for (const cl of clients) if (!(cl.clientId in nameEdits)) nameEdits[cl.clientId] = cl.name;
     } catch (err: any) {
       showToast(`Failed to load clients: ${err.message}`, 'error');
     } finally {
@@ -74,13 +105,23 @@
     }
   }
 
-  async function saveName(clientId: string) {
+  function openNameModal(client: ClientBay) {
+    nameModal = { clientId: client.clientId };
+    nameModalValue = client.name ?? '';
+  }
+
+  async function saveNameModal() {
+    if (!nameModal) return;
+    nameModalBusy = true;
     try {
-      await api.setClientName(clientId, (nameEdits[clientId] ?? '').trim());
+      await api.setClientName(nameModal.clientId, nameModalValue.trim());
       showToast('Name saved', 'success');
+      nameModal = null;
       await load();
     } catch (err: any) {
       showToast(`Save failed: ${err.message}`, 'error');
+    } finally {
+      nameModalBusy = false;
     }
   }
 
@@ -88,7 +129,6 @@
     if (!confirm(`Forget client "${clientId}"? This clears its drive overrides, splinters, and name.`)) return;
     try {
       await api.forgetClient(clientId);
-      delete nameEdits[clientId];
       showToast(`Forgot ${clientId}`, 'success');
       await load();
     } catch (err: any) {
@@ -183,10 +223,10 @@
     }
   }
 
-  function sourceChip(source: string): { color: 'cyan' | 'green' | 'amber'; text: string } {
-    if (source === 'override') return { color: 'cyan', text: 'Override' };
-    if (source === 'global') return { color: 'green', text: 'Inherited' };
-    return { color: 'amber', text: 'Empty' };
+  function driveStatus(d: ClientDrive): { color: 'cyan' | 'green' | 'off'; text: string } {
+    if (d.source === 'override') return { color: 'cyan', text: 'Override' };
+    if (d.source === 'global') return { color: 'green', text: 'Inherited' };
+    return { color: 'off', text: 'Empty' };
   }
 </script>
 
@@ -235,60 +275,194 @@
               <span class="fdc-mono" style="font-size: 15px; color: var(--accent);">{client.clientId}</span>
               {#if client.connected}<Chip color="green" icon="bolt">connected</Chip>{:else}<Chip color="amber">offline</Chip>{/if}
               {#if client.isMaster}<Chip color="green" icon="edit">master</Chip>{/if}
-              {#if client.hasSplinters}<Chip color="cyan" icon="content_copy">splinters</Chip>{/if}
+              {#if client.hasSplinters}<Chip color="cyan" icon="bolt" title="This client has copy-on-write disk splinters with unsaved changes">splinters</Chip>{/if}
             </div>
-            <div style="display: flex; align-items: center; gap: 6px; margin-top: 8px;">
-              <Input placeholder="Friendly name…" bind:value={nameEdits[client.clientId]} />
-              <Button variant="tonal" onclick={() => saveName(client.clientId)}>Save name</Button>
+            <div style="margin-top: 6px; font: var(--text-body-sm); color: {client.name ? 'var(--fg-2)' : 'var(--fg-4)'};">
+              {client.name || 'No friendly name set'}
             </div>
           </div>
-          <IconButton icon="delete_forever" size={18} title="Forget client" onclick={() => forgetClient(client.clientId)} />
+          <div style="display: flex; align-items: center; gap: 4px; flex: none;">
+            <IconButton icon="edit" size={18} title="Edit friendly name" onclick={() => openNameModal(client)} />
+            <IconButton icon="delete_forever" size={18} title="Forget client" onclick={() => forgetClient(client.clientId)} />
+          </div>
         </div>
 
         <!-- Drive bays -->
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;">
           {#each client.drives as d (d.drive)}
-            {@const chip = sourceChip(d.source)}
-            <div style="border: 1px solid var(--border-1); border-radius: var(--radius-md); padding: 12px;">
-              <div style="display: flex; align-items: center; justify-content: space-between;">
-                <span class="fdc-label-strip">Drive {d.drive}</span>
-                <Chip color={chip.color}>{chip.text}</Chip>
-              </div>
-              <div class="fdc-mono" style="font-size: 12px; color: var(--fg-1); margin: 6px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                {d.filename ?? '(empty)'}
-                {#if d.readonly}<span style="color: var(--fg-3);"> · RO</span>{/if}
-                {#if d.dirty}<span style="color: var(--accent);"> · changed</span>{/if}
-              </div>
-              <div style="display: flex; gap: 6px; align-items: center;">
-                <Select
-                  value=""
-                  onchange={(e) => setDrive(client.clientId, d.drive, (e.target as HTMLSelectElement).value, d.readonly)}
-                >
-                  <option value="">— set override —</option>
-                  {#each images as img}
-                    <option value={img.name}>{img.name}</option>
-                  {/each}
-                </Select>
-                {#if d.source === 'override'}
-                  <IconButton
-                    icon={d.readonly ? 'lock' : 'lock_open'}
-                    size={16}
-                    title={d.readonly ? 'Make writable' : 'Make read-only'}
+            <DriveCard
+              num={d.drive}
+              hasDisk={!!d.filename}
+              filename={d.filename}
+              protectedRo={d.readonly}
+              dirty={d.dirty}
+              status={driveStatus(d)}
+              emptyText="Inherits global"
+            >
+              {#snippet actions()}
+                {#if d.filename}
+                  {#if d.source === 'override'}
+                    <button
+                      type="button"
+                      class="dc-sq"
+                      title="Clear override — inherit the global mount"
+                      onclick={() => clearDrive(client.clientId, d.drive)}
+                    >
+                      <Icon name="eject" size={18} />
+                    </button>
+                  {/if}
+                  <button
+                    type="button"
+                    class="dc-sq"
+                    title={d.source === 'override' ? 'Change disk' : 'Set an override disk'}
+                    onclick={() => openDiskPicker(client.clientId, d.drive, d.readonly)}
+                  >
+                    <Icon name="swap_horiz" size={18} />
+                  </button>
+                  {#if d.dirty}
+                    <button
+                      type="button"
+                      class="dc-sq"
+                      title="Keep splinter changes…"
+                      onclick={() => openSplinter(client.clientId, d.drive, d.filename ?? '')}
+                    >
+                      <Icon name="save_as" size={18} />
+                    </button>
+                  {/if}
+                  <button
+                    type="button"
+                    class="dc-toggle {d.readonly ? 'on' : ''}"
+                    title={d.source === 'override'
+                      ? d.readonly
+                        ? 'Set read-write'
+                        : 'Set read-only'
+                      : d.readonly
+                        ? 'Set read-write (pins this disk as a per-client override)'
+                        : 'Set read-only (pins this disk as a per-client override)'}
                     onclick={() => setDrive(client.clientId, d.drive, d.filename!, !d.readonly)}
-                  />
-                  <IconButton icon="undo" size={16} title="Inherit global" onclick={() => clearDrive(client.clientId, d.drive)} />
+                  >
+                    <Icon name={d.readonly ? 'lock' : 'lock_open'} size={16} />
+                    {d.readonly ? 'Locked' : 'Unlocked'}
+                  </button>
+                {:else}
+                  <button
+                    type="button"
+                    class="dc-insert"
+                    title="Set disk — choose an override image for this drive"
+                    onclick={() => openDiskPicker(client.clientId, d.drive, false)}
+                  >
+                    <Icon name="input" size={16} />Set disk
+                  </button>
                 {/if}
-                {#if d.dirty}
-                  <IconButton icon="save_as" size={16} title="Keep splinter changes…" onclick={() => openSplinter(client.clientId, d.drive, d.filename ?? '')} />
-                {/if}
-              </div>
-            </div>
+              {/snippet}
+            </DriveCard>
           {/each}
         </div>
       </div>
     </Card>
   {/each}
 </div>
+
+<!-- Edit friendly name modal -->
+{#if nameModal}
+  <div
+    role="dialog"
+    aria-modal="true"
+    aria-label="Edit friendly name"
+    tabindex="-1"
+    onkeydown={(e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !nameModalBusy) nameModal = null;
+      if (e.key === 'Enter' && !nameModalBusy) saveNameModal();
+    }}
+    style="position: fixed; inset: 0; z-index: 55; background: var(--surface-overlay); display: flex; align-items: center; justify-content: center; padding: 16px;"
+  >
+    <button
+      type="button"
+      onclick={() => { if (!nameModalBusy) nameModal = null; }}
+      aria-label="Close"
+      style="position: absolute; inset: 0; background: transparent; border: none; cursor: default;"
+    ></button>
+    <div
+      role="document"
+      style="position: relative; background: var(--surface-raised); border: 1px solid var(--border-2); border-radius: var(--radius-lg); box-shadow: var(--elev-4); width: 100%; max-width: 440px; padding: 20px; display: flex; flex-direction: column; gap: 14px;"
+    >
+      <div>
+        <LabelStrip>Friendly name</LabelStrip>
+        <p class="fdc-label-strip" style="color: var(--fg-3); margin: 6px 0 0; text-transform: none; letter-spacing: 0;">
+          A human-friendly label for
+          <span class="fdc-mono" style="color: var(--accent);">{nameModal.clientId}</span>.
+          Leave blank to clear it.
+        </p>
+      </div>
+      <div>
+        <label class="fdc-label-strip" for="client-name" style="display: block; margin-bottom: 4px;">Name</label>
+        <Input id="client-name" placeholder="e.g. Altair Lab 1" bind:value={nameModalValue} disabled={nameModalBusy} />
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px;">
+        <Button variant="ghost" disabled={nameModalBusy} onclick={() => (nameModal = null)}>Cancel</Button>
+        <Button variant="filled" icon="check" disabled={nameModalBusy} onclick={saveNameModal}>
+          {nameModalBusy ? 'Saving…' : 'Save'}
+        </Button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Disk picker modal — set/change a client drive's override image -->
+{#if diskPicker}
+  <div
+    role="dialog"
+    aria-modal="true"
+    aria-label="Choose disk image"
+    tabindex="-1"
+    onkeydown={(e: KeyboardEvent) => { if (e.key === 'Escape') diskPicker = null; }}
+    style="position: fixed; inset: 0; z-index: 55; background: var(--surface-overlay); display: flex; align-items: center; justify-content: center; padding: 16px;"
+  >
+    <button
+      type="button"
+      onclick={() => (diskPicker = null)}
+      aria-label="Close"
+      style="position: absolute; inset: 0; background: transparent; border: none; cursor: default;"
+    ></button>
+    <div
+      role="document"
+      style="position: relative; background: var(--surface-raised); border: 1px solid var(--border-2); border-radius: var(--radius-lg); box-shadow: var(--elev-4); width: 100%; max-width: 480px; max-height: 80vh; padding: 20px; display: flex; flex-direction: column; gap: 14px; overflow: hidden;"
+    >
+      <div>
+        <LabelStrip>Set disk · {diskPicker.clientId} · drive {diskPicker.drive}</LabelStrip>
+        <p class="fdc-label-strip" style="color: var(--fg-3); margin: 6px 0 0; text-transform: none; letter-spacing: 0;">
+          Pick an image to mount as this client's drive-{diskPicker.drive} override.
+        </p>
+      </div>
+      <Input variant="search" placeholder="Filter images…" bind:value={diskPickerFilter} />
+      <div style="flex: 1; min-height: 0; overflow-y: auto; border: 1px solid var(--border-1); border-radius: var(--radius-md);">
+        {#if filteredPickerImages.length === 0}
+          <div style="padding: 16px; text-align: center; font: var(--text-body-sm); color: var(--fg-3);">
+            {diskPickerFilter ? 'No images match your filter.' : 'No disk images available.'}
+          </div>
+        {:else}
+          {#each filteredPickerImages as img (img.name)}
+            <button
+              type="button"
+              onclick={() => pickDisk(img.name)}
+              style="width: 100%; text-align: left; padding: 10px 14px; background: transparent; border: none; border-bottom: 1px solid var(--border-1); color: var(--fg-1); cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 10px;"
+            >
+              <span class="fdc-mono" style="font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                {img.name}
+              </span>
+              <span class="fdc-mono" style="font-size: 11px; color: var(--fg-3); flex: 0 0 auto;">
+                {formatSize(img.size)}
+              </span>
+            </button>
+          {/each}
+        {/if}
+      </div>
+      <div style="display: flex; justify-content: flex-end;">
+        <Button variant="ghost" onclick={() => (diskPicker = null)}>Cancel</Button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 {#if splinterModal}
   <div
