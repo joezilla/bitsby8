@@ -17,6 +17,7 @@ import {
 import { getDriveManager, TRANSIENT_DIRNAME } from './drive';
 import { getMountRegistry } from './mount-registry';
 import { getClientMountRegistry } from './client-mount-registry';
+import { safeResolvePath } from './utils/safe-path';
 import type { ReadonlyWritePolicy } from './database';
 import { getSerialPortManager } from './serial';
 import { getTerminalSerialManager } from './terminal-serial';
@@ -502,11 +503,15 @@ async function main(): Promise<void> {
     });
 
     // Load per-client drive-bay overrides into the in-memory registry so
-    // connecting clients resolve their own mounts.
+    // connecting clients resolve their own mounts. The registry holds absolute
+    // paths (what a session opens); the DB stores the image basename. A stale
+    // override (image since deleted) resolves to null and is skipped.
     try {
       const clientReg = getClientMountRegistry();
+      const clientDisksDir = path.join(dataDir, 'disks');
       for (const m of await db.listClientMounts()) {
-        clientReg.set(m.client_id, m.drive, m.filename, m.readonly === 1);
+        const full = safeResolvePath(clientDisksDir, m.filename);
+        if (full) clientReg.set(m.client_id, m.drive, full, m.readonly === 1);
       }
     } catch (error) {
       console.error('Failed to load per-client mount overrides:', error);
