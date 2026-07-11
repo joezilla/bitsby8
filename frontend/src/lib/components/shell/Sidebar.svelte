@@ -27,7 +27,7 @@
     });
   }
 
-  type NavId = 'terminal' | 'disks' | 'clients' | 'cassettes' | 'catalog' | 'scripts' | 'config';
+  type NavId = 'terminal' | 'disks' | 'clients' | 'cassettes' | 'catalog' | 'profiles' | 'scripts' | 'config';
 
   interface Props {
     active: NavId;
@@ -53,6 +53,7 @@
       : []),
     { id: 'cassettes', label: 'Cassettes', icon: 'album',    badge: () => null },
     { id: 'catalog',   label: 'Catalog',   icon: 'developer_board', badge: () => null },
+    { id: 'profiles',  label: 'Profiles',  icon: 'dns',      badge: () => null },
     { id: 'scripts',   label: 'Scripts',   icon: 'terminal', badge: () => null },
     { id: 'config',    label: 'Config',    icon: 'tune',     badge: () => null },
   ]);

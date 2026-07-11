@@ -51,6 +51,7 @@ export const openapiDefinition: Options = {
       { name: 'Snapshots', description: 'Point-in-time disk image snapshots and rollback' },
       { name: 'Settings', description: 'Operator-facing runtime feature settings (DB-backed, live)' },
       { name: 'Clients', description: 'Per-client drive-bay overrides and friendly names (multi-client serving)' },
+      { name: 'Profiles', description: 'Machine Profiles — declarative machines as versioned Primitives (Bitsby8)' },
       { name: 'Instances', description: 'Virtual S-100 Machine Instances — lifecycle + console I/O (Bitsby8)' },
       { name: 'CP/M', description: 'CP/M filesystem browser' },
       { name: 'Cassettes', description: 'Cassette audio management' },
@@ -151,6 +152,48 @@ export const openapiDefinition: Options = {
             },
           },
         },
+        MachineProfile: {
+          type: 'object',
+          description: 'A declarative machine as a versioned Primitive (Bitsby8) — dual Identity (name@version + sha256) with immutable versions.',
+          properties: {
+            id: { type: 'string', example: 'my-imsai@1.0.0', description: 'Identity: name@version.' },
+            name: { type: 'string', example: 'my-imsai' },
+            version: { type: 'string', example: '1.0.0' },
+            digest: { type: 'string', example: 'sha256:…', description: 'Content digest; a change yields a new version + digest.' },
+            cpuKind: { type: 'string', enum: ['i8080', 'z80'] },
+            clock: { description: "Clock: { hz: number } or the string 'max'." },
+            resetVector: { type: 'integer', example: 65280 },
+            memory: {
+              type: 'array',
+              description: 'Memory/ROM layout; a ROM region carries its bytes as base64 in `image`.',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  base: { type: 'integer' },
+                  size: { type: 'integer' },
+                  kind: { type: 'string', enum: ['ram', 'rom', 'mmio'] },
+                  image: { type: 'string', nullable: true, description: 'base64 ROM contents' },
+                },
+              },
+            },
+            cards: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  ref: { type: 'string', description: 'Card Identity (name@version).' },
+                  config: { type: 'object', additionalProperties: true },
+                },
+              },
+            },
+            consoleCardId: { type: 'string', nullable: true },
+            notes: { type: 'string', nullable: true },
+            source: { type: 'string', example: 'user', description: "'user' | 'preset' | 'imported'." },
+            createdAt: { type: 'string' },
+          },
+        },
         MachineInstance: {
           type: 'object',
           description: 'A virtual S-100 Machine Instance (Bitsby8) — a running or defined emulated machine.',
@@ -168,8 +211,9 @@ export const openapiDefinition: Options = {
         },
         InstanceCreateRequest: {
           type: 'object',
-          description: 'Create a Machine Instance from a preset id or an inline MachineProfile (exactly one).',
+          description: 'Create a Machine Instance from a stored Profile ref, a preset id, or an inline MachineProfile (exactly one).',
           properties: {
+            profileRef: { type: 'string', example: 'my-imsai@1.0.0', description: 'Stored Machine Profile reference (name@version, or a bare name → latest).' },
             preset: { type: 'string', example: 'imsai-cpm', description: 'Built-in preset id (see GET /api/instances/presets).' },
             profile: { type: 'object', additionalProperties: true, description: 'Inline MachineProfile (cpuKind, clock, resetVector, memory[], cards[], consoleCardId).' },
           },

@@ -11,6 +11,7 @@ import { ServiceError } from './service-error';
 import type { InstanceInfo, InstanceDriver, InstanceManager } from './instance-manager';
 import { MachineProfile } from './resolver';
 import { getPreset, listPresets, MachinePreset } from './presets';
+import { resolveProfileRef } from './profile-service';
 
 function manager(deps: Dependencies): InstanceManager {
   if (!deps.instanceManager) {
@@ -19,11 +20,26 @@ function manager(deps: Dependencies): InstanceManager {
   return deps.instanceManager;
 }
 
-/** Resolve a machine spec from either a preset id or an inline MachineProfile. */
-function resolveSpec(input: { preset?: string; profile?: MachineProfile }): {
-  profile: MachineProfile;
-  profileRef: string;
-} {
+/** What an instance can be created from: a stored Profile, a built-in preset,
+ * or an inline MachineProfile. */
+export interface InstanceSpecInput {
+  /** A stored Machine Profile reference: `name@version`, or a bare name → latest. */
+  profileRef?: string;
+  /** A built-in machine preset id. */
+  preset?: string;
+  /** An inline MachineProfile. */
+  profile?: MachineProfile;
+}
+
+/** Resolve a machine spec from a stored Profile, a preset, or an inline profile. */
+async function resolveSpec(
+  deps: Dependencies,
+  input: InstanceSpecInput,
+): Promise<{ profile: MachineProfile; profileRef: string }> {
+  if (input.profileRef) {
+    const { profile, doc } = await resolveProfileRef(deps, input.profileRef);
+    return { profile, profileRef: doc.id };
+  }
   if (input.preset) {
     const preset: MachinePreset | undefined = getPreset(input.preset);
     if (!preset) {
@@ -37,7 +53,7 @@ function resolveSpec(input: { preset?: string; profile?: MachineProfile }): {
   if (input.profile) {
     return { profile: input.profile, profileRef: 'inline' };
   }
-  throw new ServiceError('A machine `preset` or `profile` is required', 400);
+  throw new ServiceError('A `profileRef`, `preset`, or inline `profile` is required', 400);
 }
 
 export function listMachinePresets() {
@@ -54,19 +70,19 @@ export function getInstance(deps: Dependencies, id: string): InstanceInfo {
 
 export async function createTransientInstance(
   deps: Dependencies,
-  input: { preset?: string; profile?: MachineProfile },
+  input: InstanceSpecInput,
   driver: InstanceDriver,
 ): Promise<InstanceInfo> {
-  const { profile, profileRef } = resolveSpec(input);
+  const { profile, profileRef } = await resolveSpec(deps, input);
   return manager(deps).createTransient(profile, profileRef, driver);
 }
 
 export async function defineInstance(
   deps: Dependencies,
-  input: { preset?: string; profile?: MachineProfile },
+  input: InstanceSpecInput,
   driver: InstanceDriver,
 ): Promise<InstanceInfo> {
-  const { profile, profileRef } = resolveSpec(input);
+  const { profile, profileRef } = await resolveSpec(deps, input);
   return manager(deps).define(profile, profileRef, driver);
 }
 

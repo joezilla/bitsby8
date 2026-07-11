@@ -14,6 +14,8 @@ import type {
   ConfigStatus,
   CatalogListing,
   CardDetail,
+  MachineProfile,
+  MachinePresetInfo,
   SerialSection,
   WebSection,
   McpSection,
@@ -471,4 +473,32 @@ export const api = {
   },
   getCardDetail: (id: string) =>
     request<CardDetail>(`/api/catalog/cards/${encodeURIComponent(id)}/detail`),
+
+  // Machine Profiles (Bitsby8) — versioned declarative machines.
+  listProfiles: () => request<{ profiles: MachineProfile[] }>('/api/profiles'),
+  getProfile: (id: string) =>
+    request<{ profile: MachineProfile }>(`/api/profiles/${encodeURIComponent(id)}`),
+  listProfileVersions: (name: string) =>
+    request<{ versions: MachineProfile[] }>(`/api/profiles/${encodeURIComponent(name)}/versions`),
+  createProfile: (body: Record<string, unknown>) =>
+    request<{ profile: MachineProfile }>('/api/profiles', { method: 'POST', body: JSON.stringify(body) }),
+  updateProfile: (id: string, patch: Record<string, unknown>) =>
+    request<{ profile: MachineProfile }>(`/api/profiles/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    }),
+  cloneProfile: (id: string, name: string) =>
+    request<{ profile: MachineProfile }>(`/api/profiles/${encodeURIComponent(id)}/clone`, {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+  deleteProfile: (id: string) =>
+    request(`/api/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  listMachinePresets: () => request<{ presets: MachinePresetInfo[] }>('/api/instances/presets'),
+  launchTransient: (profileRef: string) =>
+    request<{ instance: { id: string } }>('/api/instances/transient', {
+      method: 'POST',
+      body: JSON.stringify({ profileRef }),
+    }),
 };

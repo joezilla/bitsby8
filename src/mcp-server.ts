@@ -24,6 +24,16 @@ import {
   writeInstanceConsole,
   readInstanceConsole,
 } from './services/instance-service';
+import {
+  createProfile,
+  createProfileFromPreset,
+  getProfile,
+  listProfiles,
+  listProfileVersions,
+  updateProfile,
+  cloneProfile,
+  deleteProfile,
+} from './services/profile-service';
 import { enableDiskServing, disableDiskServing, broadcastStatus } from './services/disk-serving';
 import { listDiskImagesWithDetails, listCassettesWithDetails } from './services/file-listing';
 import { startRawReplay, startXmodemSend, cancelActiveTransfer } from './services/transfer';
@@ -2017,6 +2027,136 @@ export function createMcpServer(deps: Dependencies): McpServer {
   );
 
   // ===========================================================================
+  // Machine Profiles (Bitsby8 Story 2.3) — declarative machines as versioned
+  // Primitives (dual Identity, immutable versions, clone). Same service as REST.
+  // ===========================================================================
+
+  server.tool(
+    'list_machine_profiles',
+    'List Machine Profiles (latest version of each) — declarative S-100 machines you can run via create_transient_instance({profileRef})',
+    async () => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(await listProfiles(deps), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'get_machine_profile',
+    'Get a Machine Profile by Identity (name@version)',
+    { id: z.string().describe('Profile Identity: name@version') },
+    async ({ id }) => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(await getProfile(deps, id), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'list_machine_profile_versions',
+    'List every version of a Machine Profile name (newest first) — prior versions stay resolvable after an edit',
+    { name: z.string().describe('Profile name') },
+    async ({ name }) => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(await listProfileVersions(deps, name), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'create_machine_profile',
+    'Create a Machine Profile. Easiest: pass a `preset` id (from list_machine_presets) + a `name` to ' +
+      'seed a full bootable machine (ROM + cards) you can then edit. Or pass an explicit content body ' +
+      '(cpuKind, clock, resetVector, memory[], cards[]).',
+    {
+      name: z.string().describe('Profile name (unique)'),
+      preset: z.string().optional().describe('Seed from a built-in preset id, e.g. imsai-cpm'),
+      notes: z.string().optional(),
+      cpuKind: z.enum(['i8080', 'z80']).optional(),
+      clock: z.any().optional().describe("{ hz: number } or the string 'max'"),
+      resetVector: z.number().optional(),
+      memory: z.array(z.record(z.string(), z.any())).optional(),
+      cards: z.array(z.record(z.string(), z.any())).optional(),
+      consoleCardId: z.string().optional(),
+    },
+    async ({ name, preset, notes, ...content }) => {
+      try {
+        const profile = preset
+          ? await createProfileFromPreset(deps, preset, name, notes)
+          : await createProfile(deps, { name, notes, ...content } as Parameters<typeof createProfile>[1]);
+        return { content: [{ type: 'text', text: JSON.stringify(profile, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'update_machine_profile',
+    'Save a change to a Machine Profile — writes a NEW version with a new sha256; prior versions remain ' +
+      'resolvable. Pass the base Identity (name@version) + a partial content patch.',
+    {
+      id: z.string().describe('Base Profile Identity: name@version'),
+      cpuKind: z.enum(['i8080', 'z80']).optional(),
+      clock: z.any().optional(),
+      resetVector: z.number().optional(),
+      memory: z.array(z.record(z.string(), z.any())).optional(),
+      cards: z.array(z.record(z.string(), z.any())).optional(),
+      consoleCardId: z.string().optional(),
+      notes: z.string().optional(),
+    },
+    async ({ id, ...patch }) => {
+      try {
+        const profile = await updateProfile(deps, id, patch as never);
+        return { content: [{ type: 'text', text: JSON.stringify(profile, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'clone_machine_profile',
+    'Clone a Machine Profile into an independent new one (new name, version 1.0.0) that can diverge freely',
+    {
+      id: z.string().describe('Source Profile Identity: name@version'),
+      name: z.string().describe('New profile name'),
+      notes: z.string().optional(),
+    },
+    async ({ id, name, notes }) => {
+      try {
+        const profile = await cloneProfile(deps, id, name, notes);
+        return { content: [{ type: 'text', text: JSON.stringify(profile, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'delete_machine_profile',
+    'Delete a Machine Profile — by default every version of the name; pass scope "version" to delete just one',
+    {
+      id: z.string().describe('Profile Identity: name@version'),
+      scope: z.enum(['version', 'all']).optional().describe('Delete just this version or all versions (default all)'),
+    },
+    async ({ id, scope }) => {
+      try {
+        await deleteProfile(deps, id, scope ?? 'all');
+        return { content: [{ type: 'text', text: JSON.stringify({ id, deleted: true, scope: scope ?? 'all' }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  // ===========================================================================
   // Virtual Machine Instances (Bitsby8 Story 1.7) — the agentic dev loop.
   // Same service layer as the REST routes: create-transient → console I/O →
   // destroy, so an agent can drive a virtual S-100 machine end-to-end (FR-26/27/28).
@@ -2062,18 +2202,20 @@ export function createMcpServer(deps: Dependencies): McpServer {
   server.tool(
     'create_transient_instance',
     'Create AND start a transient virtual Machine Instance (memory-only, no residue on destroy). ' +
-      'Boots immediately; mount a boot disk first (e.g. on drive 0). Pass a `preset` id ' +
-      '(from list_machine_presets) or an inline `profile`. Marked driven-by Claude Code (MCP).',
+      'Boots immediately; mount a boot disk first (e.g. on drive 0). Pass a stored `profileRef` ' +
+      '(name@version from list_machine_profiles), a `preset` id (from list_machine_presets), or an ' +
+      'inline `profile`. Marked driven-by Claude Code (MCP).',
     {
+      profileRef: z.string().optional().describe('Stored Machine Profile ref: name@version (or bare name → latest)'),
       preset: z.string().optional().describe('Machine preset id, e.g. imsai-cpm'),
       profile: z
         .record(z.string(), z.any())
         .optional()
         .describe('Inline MachineProfile (cpuKind, clock, resetVector, memory[], cards[], consoleCardId) — alternative to preset'),
     },
-    async ({ preset, profile }) => {
+    async ({ profileRef, preset, profile }) => {
       try {
-        const info = await createTransientInstance(deps, { preset, profile: profile as never }, 'mcp');
+        const info = await createTransientInstance(deps, { profileRef, preset, profile: profile as never }, 'mcp');
         return { content: [{ type: 'text', text: JSON.stringify(info, null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
@@ -2083,14 +2225,15 @@ export function createMcpServer(deps: Dependencies): McpServer {
 
   server.tool(
     'define_machine_instance',
-    'Define a persistent (DB-backed) virtual Machine Instance without starting it. Pass a `preset` id or inline `profile`.',
+    'Define a persistent (DB-backed) virtual Machine Instance without starting it. Pass a stored `profileRef`, a `preset` id, or an inline `profile`.',
     {
+      profileRef: z.string().optional().describe('Stored Machine Profile ref: name@version (or bare name → latest)'),
       preset: z.string().optional().describe('Machine preset id, e.g. imsai-cpm'),
       profile: z.record(z.string(), z.any()).optional().describe('Inline MachineProfile — alternative to preset'),
     },
-    async ({ preset, profile }) => {
+    async ({ profileRef, preset, profile }) => {
       try {
-        const info = await defineInstance(deps, { preset, profile: profile as never }, 'mcp');
+        const info = await defineInstance(deps, { profileRef, preset, profile: profile as never }, 'mcp');
         return { content: [{ type: 'text', text: JSON.stringify(info, null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };

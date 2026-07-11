@@ -49,6 +49,10 @@
       "description": "Per-client drive-bay overrides and friendly names (multi-client serving)"
     },
     {
+      "name": "Profiles",
+      "description": "Machine Profiles — declarative machines as versioned Primitives (Bitsby8)"
+    },
+    {
       "name": "Instances",
       "description": "Virtual S-100 Machine Instances — lifecycle + console I/O (Bitsby8)"
     },
@@ -271,6 +275,110 @@
           }
         }
       },
+      "MachineProfile": {
+        "type": "object",
+        "description": "A declarative machine as a versioned Primitive (Bitsby8) — dual Identity (name@version + sha256) with immutable versions.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "my-imsai@1.0.0",
+            "description": "Identity: name@version."
+          },
+          "name": {
+            "type": "string",
+            "example": "my-imsai"
+          },
+          "version": {
+            "type": "string",
+            "example": "1.0.0"
+          },
+          "digest": {
+            "type": "string",
+            "example": "sha256:…",
+            "description": "Content digest; a change yields a new version + digest."
+          },
+          "cpuKind": {
+            "type": "string",
+            "enum": [
+              "i8080",
+              "z80"
+            ]
+          },
+          "clock": {
+            "description": "Clock: { hz: number } or the string 'max'."
+          },
+          "resetVector": {
+            "type": "integer",
+            "example": 65280
+          },
+          "memory": {
+            "type": "array",
+            "description": "Memory/ROM layout; a ROM region carries its bytes as base64 in `image`.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "base": {
+                  "type": "integer"
+                },
+                "size": {
+                  "type": "integer"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "ram",
+                    "rom",
+                    "mmio"
+                  ]
+                },
+                "image": {
+                  "type": "string",
+                  "nullable": true,
+                  "description": "base64 ROM contents"
+                }
+              }
+            }
+          },
+          "cards": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "ref": {
+                  "type": "string",
+                  "description": "Card Identity (name@version)."
+                },
+                "config": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "consoleCardId": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "source": {
+            "type": "string",
+            "example": "user",
+            "description": "'user' | 'preset' | 'imported'."
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        }
+      },
       "MachineInstance": {
         "type": "object",
         "description": "A virtual S-100 Machine Instance (Bitsby8) — a running or defined emulated machine.",
@@ -336,8 +444,13 @@
       },
       "InstanceCreateRequest": {
         "type": "object",
-        "description": "Create a Machine Instance from a preset id or an inline MachineProfile (exactly one).",
+        "description": "Create a Machine Instance from a stored Profile ref, a preset id, or an inline MachineProfile (exactly one).",
         "properties": {
+          "profileRef": {
+            "type": "string",
+            "example": "my-imsai@1.0.0",
+            "description": "Stored Machine Profile reference (name@version, or a bare name → latest)."
+          },
           "preset": {
             "type": "string",
             "example": "imsai-cpm",
@@ -1797,6 +1910,321 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/profiles": {
+      "get": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "List Machine Profiles (latest version of each)",
+        "responses": {
+          "200": {
+            "description": "Array of profiles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "profiles": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/MachineProfile"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Create a Machine Profile",
+        "description": "Create from a preset (`preset` + `name`) or from an explicit content body.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "preset": {
+                    "type": "string",
+                    "description": "Seed from a built-in preset (carries ROM + cards)."
+                  },
+                  "notes": {
+                    "type": "string"
+                  },
+                  "cpuKind": {
+                    "type": "string",
+                    "enum": [
+                      "i8080",
+                      "z80"
+                    ]
+                  },
+                  "clock": {},
+                  "resetVector": {
+                    "type": "integer"
+                  },
+                  "memory": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "cards": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "consoleCardId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The created profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "profile": {
+                      "$ref": "#/components/schemas/MachineProfile"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/profiles/{id}": {
+      "get": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Get a Machine Profile by Identity (name@version)",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "profile": {
+                      "$ref": "#/components/schemas/MachineProfile"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Save a change (writes a new version)",
+        "description": "Applies a content patch and persists a NEW version with a new sha256; prior versions remain resolvable.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The new version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "profile": {
+                      "$ref": "#/components/schemas/MachineProfile"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Delete a Profile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scope",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "version",
+                "all"
+              ]
+            },
+            "description": "Delete just this version or every version of the name (default all)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted"
+          }
+        }
+      }
+    },
+    "/api/profiles/{id}/clone": {
+      "post": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Clone a Profile into an independent new one",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "notes": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The cloned profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "profile": {
+                      "$ref": "#/components/schemas/MachineProfile"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/profiles/{name}/versions": {
+      "get": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "List all versions of a Profile name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Versions, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "versions": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/MachineProfile"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
           }
         }
       }

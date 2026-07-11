@@ -173,6 +173,43 @@ export interface CardDetail {
   usedBy: string[];
 }
 
+export interface ProfileMemoryRegion {
+  id: string;
+  base: number;
+  size: number;
+  kind: 'ram' | 'rom' | 'mmio';
+  image?: string; // base64
+}
+
+export interface ProfileCardInstance {
+  id: string;
+  ref: string;
+  config?: Record<string, unknown>;
+}
+
+/** A Machine Profile (Bitsby8) — a declarative machine as a versioned Primitive. */
+export interface MachineProfile {
+  id: string; // name@version
+  name: string;
+  version: string;
+  digest: string;
+  cpuKind: 'i8080' | 'z80';
+  clock: { hz: number } | 'max';
+  resetVector: number;
+  memory: ProfileMemoryRegion[];
+  cards: ProfileCardInstance[];
+  consoleCardId?: string;
+  notes: string | null;
+  source: string;
+  createdAt: string;
+}
+
+export interface MachinePresetInfo {
+  id: string;
+  name: string;
+  description: string;
+}
+
 export interface SerialPortInfo {
   path: string;
   resolvedPath: string;

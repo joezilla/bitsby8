@@ -91,6 +91,22 @@ export interface MachineInstanceRecord {
   created_at: string;
 }
 
+/** A Machine Profile (Bitsby8) — a versioned Primitive (name@version + sha256
+ * `digest`) describing a machine declaratively. The full profile (CPU, clock,
+ * memory/ROM layout, card instances) is stored as JSON with ROM images base64.
+ * Versions are immutable: editing writes a new version; prior versions remain. */
+export interface MachineProfileRecord {
+  id: string; // `${name}@${version}`
+  name: string;
+  version: string;
+  digest: string;
+  cpu_kind: string;
+  profile: string; // JSON (MachineProfile with memory images base64-encoded)
+  notes: string | null;
+  source: string; // 'user' | 'preset' | 'imported'
+  created_at: string;
+}
+
 // Schema migrations, applied in order. Each runs inside a transaction.
 const MIGRATIONS: string[] = [
   // Migration 0: initial schema
@@ -204,6 +220,25 @@ const MIGRATIONS: string[] = [
     status TEXT NOT NULL DEFAULT 'defined',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );`,
+
+  // Migration 8: Machine Profiles (Bitsby8) — a declarative machine as a
+  // versioned Primitive (`name@version` + content `digest`). The full profile
+  // (CPU, clock, memory/ROM layout, card instances) is stored as JSON. Versions
+  // are immutable — an edit inserts a new (name, version) row; prior versions
+  // stay resolvable (FR-10 content addressing).
+  `CREATE TABLE IF NOT EXISTS machine_profiles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    digest TEXT NOT NULL,
+    cpu_kind TEXT NOT NULL,
+    profile TEXT NOT NULL,
+    notes TEXT,
+    source TEXT NOT NULL DEFAULT 'user',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (name, version)
+  );
+  CREATE INDEX IF NOT EXISTS idx_machine_profiles_name ON machine_profiles(name);`,
 ];
 
 export class Database {
@@ -754,6 +789,50 @@ export class Database {
   async deleteMachineInstance(id: string): Promise<void> {
     this.ensureInitialized();
     this.db!.prepare('DELETE FROM machine_instances WHERE id = ?').run(id);
+  }
+
+  // --- Machine Profiles (Bitsby8) ---
+
+  async insertMachineProfile(rec: Omit<MachineProfileRecord, 'created_at'>): Promise<void> {
+    this.ensureInitialized();
+    // Versions are immutable — a colliding (name, version) is a conflict, not an upsert.
+    this.db!.prepare(
+      `INSERT INTO machine_profiles (id, name, version, digest, cpu_kind, profile, notes, source, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+    ).run(rec.id, rec.name, rec.version, rec.digest, rec.cpu_kind, rec.profile, rec.notes, rec.source);
+  }
+
+  async getMachineProfileById(id: string): Promise<MachineProfileRecord | undefined> {
+    this.ensureInitialized();
+    return this.db!.prepare('SELECT * FROM machine_profiles WHERE id = ?').get(id) as
+      | MachineProfileRecord
+      | undefined;
+  }
+
+  /** All versions of a profile name, newest-created first. `rowid` is a
+   * monotonic tiebreaker for versions inserted within the same clock second. */
+  async listMachineProfileVersions(name: string): Promise<MachineProfileRecord[]> {
+    this.ensureInitialized();
+    return this.db!.prepare(
+      'SELECT * FROM machine_profiles WHERE name = ? ORDER BY created_at DESC, rowid DESC'
+    ).all(name) as MachineProfileRecord[];
+  }
+
+  async listMachineProfiles(): Promise<MachineProfileRecord[]> {
+    this.ensureInitialized();
+    return this.db!.prepare(
+      'SELECT * FROM machine_profiles ORDER BY name, created_at DESC, rowid DESC'
+    ).all() as MachineProfileRecord[];
+  }
+
+  async deleteMachineProfile(id: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM machine_profiles WHERE id = ?').run(id);
+  }
+
+  async deleteMachineProfilesByName(name: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM machine_profiles WHERE name = ?').run(name);
   }
 
   isInitialized(): boolean {

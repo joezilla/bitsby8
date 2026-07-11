@@ -36,6 +36,7 @@ import { registerImageRoutes } from './routes/images';
 import { registerSnapshotRoutes } from './routes/snapshots';
 import { registerCatalogRoutes } from './routes/catalog';
 import { registerInstanceRoutes } from './routes/instances';
+import { registerProfileRoutes } from './routes/profiles';
 import { loadSeedCatalog } from './services/catalog-seed';
 import { INSTANCE_CLIENT_PREFIX, InstanceManager } from './services/instance-manager';
 import { registerSettingsRoutes } from './routes/settings';
@@ -184,6 +185,7 @@ export class WebServer {
     registerImageRoutes(router, this.deps);
     registerSnapshotRoutes(router, this.deps);
     registerCatalogRoutes(router, this.deps);
+    registerProfileRoutes(router, this.deps);
     registerInstanceRoutes(router, this.deps);
     registerSettingsRoutes(router, this.deps);
     registerClientRoutes(router, this.deps);
