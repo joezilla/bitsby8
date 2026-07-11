@@ -3,6 +3,7 @@ import { Dependencies } from '../types';
 import { safeErrorMessage } from '../utils/safe-path';
 import { ServiceError } from '../services/service-error';
 import { browseCatalog, getCardDefinition, CatalogFilter } from '../services/catalog';
+import { getCardDetail } from '../services/card-detail';
 
 /** Map a thrown error to an HTTP response: ServiceError carries a status;
  * anything else is a sanitized 500. */
@@ -105,6 +106,40 @@ export function registerCatalogRoutes(router: Router, deps: Dependencies): void 
   router.get('/api/catalog/cards/:id', async (req: Request, res: Response): Promise<void> => {
     try {
       res.json({ card: await getCardDefinition(deps, req.params.id) });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/catalog/cards/{id}/detail:
+   *   get:
+   *     tags: [Catalog]
+   *     summary: Get a card's datasheet (detail)
+   *     description: >-
+   *       The Card Definition plus its default bus footprint (ports/IRQ), a generated
+   *       Skills file (human- and agent-readable), the version list, and the used-by
+   *       reverse index (populated once Machine Profiles exist).
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *         description: Card Identity (name@version)
+   *     responses:
+   *       200:
+   *         description: The card datasheet
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/CardDetail'
+   *       404:
+   *         description: Not found
+   */
+  router.get('/api/catalog/cards/:id/detail', async (req: Request, res: Response): Promise<void> => {
+    try {
+      res.json(await getCardDetail(deps, req.params.id));
     } catch (error) {
       sendError(res, error);
     }

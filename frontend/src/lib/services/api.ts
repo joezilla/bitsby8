@@ -13,6 +13,7 @@ import type {
   ConfigDoc,
   ConfigStatus,
   CatalogListing,
+  CardDetail,
   SerialSection,
   WebSection,
   McpSection,
@@ -468,4 +469,6 @@ export const api = {
     const suffix = qs.toString() ? `?${qs}` : '';
     return request<CatalogListing>(`/api/catalog/cards${suffix}`);
   },
+  getCardDetail: (id: string) =>
+    request<CardDetail>(`/api/catalog/cards/${encodeURIComponent(id)}/detail`),
 };

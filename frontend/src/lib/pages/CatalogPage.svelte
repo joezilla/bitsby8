@@ -5,13 +5,14 @@
   import type { CardDefinition, CatalogFacets } from '$lib/types/api';
   import PageHeader from '$lib/components/shared/PageHeader.svelte';
   import Button from '$lib/components/shared/Button.svelte';
-  import Card from '$lib/components/shared/Card.svelte';
   import Chip from '$lib/components/shared/Chip.svelte';
   import Icon from '$lib/components/shared/Icon.svelte';
+  import CardDetail from '$lib/components/catalog/CardDetail.svelte';
 
   let cards = $state<CardDefinition[]>([]);
   let facets = $state<CatalogFacets>({ types: [], makers: [], capabilities: [] });
   let loading = $state(true);
+  let selectedId = $state<string | null>(null);
 
   // Active filters (single-select facets + free text), applied client-side over
   // the fetched set to match the server's /api/catalog/cards filter semantics.
@@ -86,6 +87,9 @@
   <Button variant="ghost" icon="refresh" onclick={load}>Refresh</Button>
 {/snippet}
 
+{#if selectedId}
+  <CardDetail id={selectedId} onBack={() => (selectedId = null)} />
+{:else}
 <PageHeader
   eyebrow="Build · Catalog"
   title="Card Catalog"
@@ -198,7 +202,11 @@
         </h2>
         <div class="grid">
           {#each group.items as card (card.id)}
-            <Card raised>
+            <button
+              class="card-btn"
+              onclick={() => (selectedId = card.id)}
+              aria-label="Open {card.id} datasheet"
+            >
               <div class="card-body">
                 <div class="card-top">
                   <span class="card-id fdc-mono" title={card.id}>{card.id}</span>
@@ -214,14 +222,16 @@
                     {/each}
                   </div>
                 {/if}
+                <span class="open-hint"><Icon name="arrow_forward" size={16} />Datasheet</span>
               </div>
-            </Card>
+            </button>
           {/each}
         </div>
       </section>
     {/each}
   {/if}
 </div>
+{/if}
 
 <style>
   .catalog {
@@ -380,10 +390,41 @@
     gap: var(--space-3);
   }
 
+  .card-btn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: var(--space-4);
+    background: var(--surface-raised);
+    border: 1px solid var(--border-1);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition:
+      border-color var(--dur-short) var(--ease-standard),
+      transform var(--dur-short) var(--ease-standard);
+  }
+  .card-btn:hover {
+    border-color: var(--accent);
+    transform: translateY(-1px);
+  }
+  .card-btn:hover .open-hint {
+    color: var(--accent);
+  }
+
   .card-body {
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
+  }
+  .open-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-top: var(--space-1);
+    font: var(--text-overline);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--fg-4);
   }
   .card-top {
     display: flex;

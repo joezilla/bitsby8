@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { Dependencies } from './types';
 import { getStatus, getDrivesStatus, getTerminalStatus } from './services/status';
 import { listCardDefinitions, getCardDefinition } from './services/catalog';
+import { getCardDetail } from './services/card-detail';
 import {
   listMachinePresets,
   listInstances,
@@ -1993,6 +1994,21 @@ export function createMcpServer(deps: Dependencies): McpServer {
       try {
         const card = await getCardDefinition(deps, id);
         return { content: [{ type: 'text', text: JSON.stringify(card, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+  server.tool(
+    'get_card_detail',
+    "Get a card's full datasheet (Bitsby8): the Card Definition + default bus footprint " +
+      '(ports/IRQ), a generated Skills file (how to program the card), the version list, and the ' +
+      'used-by reverse index. Identity is name@version (e.g. mits-88-2sio@1.0.0).',
+    { id: z.string().describe('Card Identity: name@version') },
+    async ({ id }) => {
+      try {
+        const detail = await getCardDetail(deps, id);
+        return { content: [{ type: 'text', text: JSON.stringify(detail, null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
       }

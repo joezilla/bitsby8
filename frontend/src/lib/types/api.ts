@@ -148,6 +148,27 @@ export interface CatalogListing {
   facets: CatalogFacets;
 }
 
+export interface CardFootprint {
+  ports: number[];
+  irq: number | null;
+}
+
+export interface CardVersion {
+  id: string;
+  version: string;
+  digest: string;
+  source: string;
+  createdAt: string;
+}
+
+export interface CardDetail {
+  card: CardDefinition;
+  footprint: CardFootprint | null;
+  skills: string;
+  versions: CardVersion[];
+  usedBy: string[];
+}
+
 export interface SerialPortInfo {
   path: string;
   resolvedPath: string;

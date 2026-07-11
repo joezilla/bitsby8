@@ -115,6 +115,41 @@ export const openapiDefinition: Options = {
             createdAt: { type: 'string' },
           },
         },
+        CardDetail: {
+          type: 'object',
+          description: "A card's datasheet (Bitsby8) — definition + footprint + Skills file + versions + used-by.",
+          properties: {
+            card: { $ref: '#/components/schemas/CardDefinition' },
+            footprint: {
+              type: 'object',
+              nullable: true,
+              description: 'Default bus footprint (null if not derivable).',
+              properties: {
+                ports: { type: 'array', items: { type: 'integer' }, example: [16, 17, 18, 19] },
+                irq: { type: 'integer', nullable: true },
+              },
+            },
+            skills: { type: 'string', description: 'Generated Skills file (human- and agent-readable markdown).' },
+            versions: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  version: { type: 'string' },
+                  digest: { type: 'string' },
+                  source: { type: 'string' },
+                  createdAt: { type: 'string' },
+                },
+              },
+            },
+            usedBy: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Machine Profiles referencing this card (populated once Profiles exist).',
+            },
+          },
+        },
         MachineInstance: {
           type: 'object',
           description: 'A virtual S-100 Machine Instance (Bitsby8) — a running or defined emulated machine.',
