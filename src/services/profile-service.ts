@@ -9,7 +9,6 @@
  * Uint8Array for the Resolver / InstanceManager.
  */
 
-import { createHash } from 'crypto';
 import type { CpuKind, Clock } from '@joezilla/8sim';
 import { Dependencies } from '../types';
 import { ServiceError } from './service-error';
@@ -17,6 +16,7 @@ import { MachineProfileRecord } from '../database';
 import { MachineProfile } from './resolver';
 import { getPreset } from './presets';
 import { resolveProfileCards } from './card-config';
+import { primitiveDigest, memberFromBytes, MemberRef } from './content-address';
 
 /** A memory region as stored/exchanged — ROM `image` is base64 (not Uint8Array). */
 export interface ProfileMemoryRegion {
@@ -51,22 +51,36 @@ export interface ProfileDoc extends ProfileContent {
 const SEMVER = /^\d+\.\d+\.\d+$/;
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9 _.-]{0,63}$/;
 
-/** Stable deep key ordering for a basic canonical JSON. */
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value && typeof value === 'object') {
-    return Object.keys(value as Record<string, unknown>)
-      .sort()
-      .reduce<Record<string, unknown>>((acc, k) => {
-        acc[k] = canonicalize((value as Record<string, unknown>)[k]);
-        return acc;
-      }, {});
-  }
-  return value;
-}
-
+/**
+ * Content-addressed digest (AD-8): the profile's declarative body is the
+ * manifest metadata; each ROM/media image is a byte member (hashed over its raw
+ * bytes, not the base64 string), so two profiles with the same layout + ROM
+ * bytes get the same digest, and any content change changes it. The profile
+ * NAME is deliberately excluded — a clone has identical content and therefore
+ * the same digest under a different Identity (a filename is never Identity).
+ */
 function digestOf(content: ProfileContent): string {
-  return 'sha256:' + createHash('sha256').update(JSON.stringify(canonicalize(content))).digest('hex');
+  const members: MemberRef[] = [];
+  const memory = content.memory.map((m) => {
+    if (m.image) {
+      const bytes = new Uint8Array(Buffer.from(m.image, 'base64'));
+      members.push(memberFromBytes(`mem/${m.id}.bin`, bytes));
+      return { id: m.id, base: m.base, size: m.size, kind: m.kind, image: `mem/${m.id}.bin` };
+    }
+    return { id: m.id, base: m.base, size: m.size, kind: m.kind };
+  });
+  return primitiveDigest({
+    kind: 'profile',
+    meta: {
+      cpuKind: content.cpuKind,
+      clock: content.clock as unknown as Record<string, unknown>,
+      resetVector: content.resetVector,
+      consoleCardId: content.consoleCardId,
+      memory,
+      cards: content.cards,
+    },
+    members,
+  });
 }
 
 function contentOf(rec: MachineProfileRecord): ProfileContent {

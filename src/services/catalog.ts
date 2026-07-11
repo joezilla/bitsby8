@@ -3,15 +3,14 @@
  *
  * A Card Definition is a versioned Primitive: Identity = `name@version` +
  * a content `digest`. Registration/list/get are consumed by both REST routes
- * and MCP tools (shared service layer). The digest here is a basic sha256 over
- * the manifest + entry; the full byte-exact content-addressing rule (JCS
- * manifest, POSIX/NFC paths, frozen mediaType table) lands in Story 4.1 (AD-8).
+ * and MCP tools (shared service layer). The digest is the shared content-address
+ * rule (`content-address.ts`, AD-8): sha256 over a JCS canonical Merkle manifest.
  */
 
-import { createHash } from 'crypto';
 import { Dependencies } from '../types';
 import { CardDefinitionRecord } from '../database';
 import { ServiceError } from './service-error';
+import { primitiveDigest } from './content-address';
 
 /** Bus-ontology kind: an S-100 board vs. a component chip that lives on a card. */
 export type PrimitiveKind = 'card' | 'chip';
@@ -106,23 +105,18 @@ export function deriveCapabilities(manifest: CardManifestInput): string[] {
   return Array.from(caps).sort();
 }
 
-/** Stable key ordering for a basic canonical JSON (deep). */
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value && typeof value === 'object') {
-    return Object.keys(value as Record<string, unknown>)
-      .sort()
-      .reduce<Record<string, unknown>>((acc, k) => {
-        acc[k] = canonicalize((value as Record<string, unknown>)[k]);
-        return acc;
-      }, {});
-  }
-  return value;
-}
-
+/**
+ * Content-addressed digest (AD-8). The card manifest is the metadata; a seed
+ * card references its built ESM behavior by `entry` (an imported bundle ships
+ * that ESM as a byte member — Tier-2). Two byte-identical cards get the same
+ * digest; any manifest change changes it.
+ */
 function digestOf(manifest: CardManifestInput, entry?: string | null): string {
-  const canonical = JSON.stringify(canonicalize({ manifest, entry: entry ?? null }));
-  return 'sha256:' + createHash('sha256').update(canonical).digest('hex');
+  return primitiveDigest({
+    kind: 'card',
+    meta: { ...(manifest as unknown as Record<string, unknown>), entry: entry ?? null },
+    members: [],
+  });
 }
 
 function toDoc(rec: CardDefinitionRecord): CardDefinitionDoc {

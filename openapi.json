@@ -155,7 +155,7 @@
           "digest": {
             "type": "string",
             "example": "sha256:…",
-            "description": "Content digest (basic sha256; full rule in a later release)."
+            "description": "Content-addressed Identity (AD-8): sha256 over a JCS canonical Merkle manifest."
           },
           "type": {
             "type": "string",

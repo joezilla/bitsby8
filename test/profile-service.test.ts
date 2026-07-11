@@ -134,6 +134,9 @@ describe('profile-service: clone', () => {
     const clone = await cloneProfile(deps, src.id, 'derived');
     expect(clone.id).toBe('derived@1.0.0');
     expect(clone.name).toBe('derived');
+    // Content-addressing (AD-8): identical content under a different Identity
+    // resolves to the SAME digest — a filename/name is never Identity.
+    expect(clone.digest).toBe(src.digest);
 
     // Diverge the clone; the source is untouched.
     await updateProfile(deps, clone.id, { resetVector: 0x100 });
