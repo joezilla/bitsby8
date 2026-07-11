@@ -23,14 +23,34 @@ export interface IConsoleSource {
   writeByte(byte: number): void;
 }
 
+/** A cursor-delimited slice of recent console output (for request/response
+ * readers like MCP tools). `cursor` is a monotonic total-bytes counter. */
+export interface ConsoleRead {
+  data: string;
+  cursor: number;
+}
+
+const MAX_CONSOLE_BUFFER = 64 * 1024;
+
 export class ConsoleHub {
   private subscribers = new Set<ConsoleSubscriber>();
+  /** Rolling recent-output buffer + a monotonic total-bytes cursor, so a
+   * request/response reader (MCP) can poll output it wasn't subscribed for. */
+  private buffer = '';
+  private totalBytes = 0;
 
   constructor(private readonly source: IConsoleSource) {
     // Shared TX multiplexer: the hub is the source's single output handler.
     this.source.onOutput((byte) => {
+      const b = byte & 0xff;
+      // Always buffer (even with no live subscribers) so MCP can read history.
+      this.buffer += String.fromCharCode(b);
+      this.totalBytes++;
+      if (this.buffer.length > MAX_CONSOLE_BUFFER) {
+        this.buffer = this.buffer.slice(this.buffer.length - MAX_CONSOLE_BUFFER);
+      }
       if (this.subscribers.size === 0) return;
-      const buf = Uint8Array.of(byte & 0xff);
+      const buf = Uint8Array.of(b);
       for (const sub of this.subscribers) {
         try {
           sub.onOutput(buf);
@@ -39,6 +59,15 @@ export class ConsoleHub {
         }
       }
     });
+  }
+
+  /** Read console output since `cursor` (0 = from the start of the buffer).
+   * Returns the new bytes and the next cursor. */
+  readSince(cursor = 0): ConsoleRead {
+    const bufferStart = this.totalBytes - this.buffer.length;
+    const from = Math.max(0, cursor - bufferStart);
+    const data = from < this.buffer.length ? this.buffer.slice(from) : '';
+    return { data, cursor: this.totalBytes };
   }
 
   /** Attach a subscriber; returns an unsubscribe function. */

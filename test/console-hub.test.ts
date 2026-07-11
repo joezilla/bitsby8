@@ -63,6 +63,38 @@ describe('ConsoleHub — shared TX multiplexer', () => {
   });
 });
 
+describe('ConsoleHub — output buffer (readSince, for MCP request/response)', () => {
+  test('buffers output even with no subscribers, and reads from a cursor', () => {
+    const s = fakeSource();
+    const hub = new ConsoleHub(s.source);
+    // No subscriber attached — output must still accumulate for later reads.
+    for (const b of 'HI') s.emit(b.charCodeAt(0));
+
+    const first = hub.readSince(0);
+    expect(first.data).toBe('HI');
+    expect(first.cursor).toBe(2);
+
+    // Reading from the returned cursor yields only new output.
+    s.emit('!'.charCodeAt(0));
+    const next = hub.readSince(first.cursor);
+    expect(next.data).toBe('!');
+    expect(next.cursor).toBe(3);
+
+    // A cursor at the end yields nothing new.
+    expect(hub.readSince(next.cursor).data).toBe('');
+  });
+
+  test('a cursor older than the retained buffer clamps to the buffer start', () => {
+    const s = fakeSource();
+    const hub = new ConsoleHub(s.source);
+    for (let i = 0; i < 70 * 1024; i++) s.emit(0x41); // exceed the 64K cap
+    const read = hub.readSince(0); // cursor 0 predates the retained window
+    expect(read.cursor).toBe(70 * 1024);
+    expect(read.data.length).toBe(64 * 1024); // clamped to retained bytes
+    expect(read.data.length).toBeLessThan(70 * 1024);
+  });
+});
+
 describe('consoleSourceFromCard', () => {
   test('extracts a source from a card exposing a serial channel (channelA)', () => {
     let cb: (byte: number) => void = () => {};

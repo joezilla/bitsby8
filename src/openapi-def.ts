@@ -51,6 +51,7 @@ export const openapiDefinition: Options = {
       { name: 'Snapshots', description: 'Point-in-time disk image snapshots and rollback' },
       { name: 'Settings', description: 'Operator-facing runtime feature settings (DB-backed, live)' },
       { name: 'Clients', description: 'Per-client drive-bay overrides and friendly names (multi-client serving)' },
+      { name: 'Instances', description: 'Virtual S-100 Machine Instances — lifecycle + console I/O (Bitsby8)' },
       { name: 'CP/M', description: 'CP/M filesystem browser' },
       { name: 'Cassettes', description: 'Cassette audio management' },
       { name: 'Terminal', description: 'Terminal serial port management' },
@@ -106,6 +107,29 @@ export const openapiDefinition: Options = {
             entry: { type: 'string', nullable: true, description: 'Reference to the pre-built behavior module.' },
             source: { type: 'string', example: 'seed', description: "Provenance: 'seed' | 'imported' | 'signed'." },
             createdAt: { type: 'string' },
+          },
+        },
+        MachineInstance: {
+          type: 'object',
+          description: 'A virtual S-100 Machine Instance (Bitsby8) — a running or defined emulated machine.',
+          properties: {
+            id: { type: 'string', description: 'Instance id (uuid).' },
+            clientId: { type: 'string', example: 'inst:…', description: 'Reserved FDC serving clientId (inst:<uuid>).' },
+            profileRef: { type: 'string', example: 'preset:imsai-cpm', description: 'Where the profile came from (preset:<id> | inline).' },
+            transient: { type: 'boolean', description: 'Memory-only; leaves no DB/splinter residue on destroy.' },
+            status: { type: 'string', enum: ['defined', 'running', 'stopped'] },
+            driver: { type: 'string', enum: ['operator', 'api', 'mcp'], description: 'Provenance — who drove it into existence.' },
+            cpuKind: { type: 'string', example: 'i8080' },
+            effectiveHz: { type: 'number', nullable: true },
+            targetHz: { oneOf: [{ type: 'number' }, { type: 'string', enum: ['max'] }], nullable: true },
+          },
+        },
+        InstanceCreateRequest: {
+          type: 'object',
+          description: 'Create a Machine Instance from a preset id or an inline MachineProfile (exactly one).',
+          properties: {
+            preset: { type: 'string', example: 'imsai-cpm', description: 'Built-in preset id (see GET /api/instances/presets).' },
+            profile: { type: 'object', additionalProperties: true, description: 'Inline MachineProfile (cpuKind, clock, resetVector, memory[], cards[], consoleCardId).' },
           },
         },
         SystemInfo: {

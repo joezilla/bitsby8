@@ -11,6 +11,18 @@ import { z } from 'zod';
 import { Dependencies } from './types';
 import { getStatus, getDrivesStatus, getTerminalStatus } from './services/status';
 import { listCardDefinitions, getCardDefinition } from './services/catalog';
+import {
+  listMachinePresets,
+  listInstances,
+  getInstance,
+  createTransientInstance,
+  defineInstance,
+  startInstance as startInstanceSvc,
+  stopInstance as stopInstanceSvc,
+  destroyInstance as destroyInstanceSvc,
+  writeInstanceConsole,
+  readInstanceConsole,
+} from './services/instance-service';
 import { enableDiskServing, disableDiskServing, broadcastStatus } from './services/disk-serving';
 import { listDiskImagesWithDetails, listCassettesWithDetails } from './services/file-listing';
 import { startRawReplay, startXmodemSend, cancelActiveTransfer } from './services/transfer';
@@ -1974,6 +1986,165 @@ export function createMcpServer(deps: Dependencies): McpServer {
       try {
         const card = await getCardDefinition(deps, id);
         return { content: [{ type: 'text', text: JSON.stringify(card, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  // ===========================================================================
+  // Virtual Machine Instances (Bitsby8 Story 1.7) — the agentic dev loop.
+  // Same service layer as the REST routes: create-transient → console I/O →
+  // destroy, so an agent can drive a virtual S-100 machine end-to-end (FR-26/27/28).
+  // ===========================================================================
+
+  server.tool(
+    'list_machine_presets',
+    'List built-in Bitsby8 machine presets (ready-to-boot S-100 machines, e.g. imsai-cpm) usable with create_transient_instance',
+    async () => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(listMachinePresets(), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'list_machine_instances',
+    'List all virtual Machine Instances (Bitsby8) with status, driver provenance, CPU, and effective Hz',
+    async () => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(listInstances(deps), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'get_machine_instance',
+    'Get one virtual Machine Instance by id',
+    { id: z.string().describe('Instance id (uuid)') },
+    async ({ id }) => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(getInstance(deps, id), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'create_transient_instance',
+    'Create AND start a transient virtual Machine Instance (memory-only, no residue on destroy). ' +
+      'Boots immediately; mount a boot disk first (e.g. on drive 0). Pass a `preset` id ' +
+      '(from list_machine_presets) or an inline `profile`. Marked driven-by Claude Code (MCP).',
+    {
+      preset: z.string().optional().describe('Machine preset id, e.g. imsai-cpm'),
+      profile: z
+        .record(z.string(), z.any())
+        .optional()
+        .describe('Inline MachineProfile (cpuKind, clock, resetVector, memory[], cards[], consoleCardId) — alternative to preset'),
+    },
+    async ({ preset, profile }) => {
+      try {
+        const info = await createTransientInstance(deps, { preset, profile: profile as never }, 'mcp');
+        return { content: [{ type: 'text', text: JSON.stringify(info, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'define_machine_instance',
+    'Define a persistent (DB-backed) virtual Machine Instance without starting it. Pass a `preset` id or inline `profile`.',
+    {
+      preset: z.string().optional().describe('Machine preset id, e.g. imsai-cpm'),
+      profile: z.record(z.string(), z.any()).optional().describe('Inline MachineProfile — alternative to preset'),
+    },
+    async ({ preset, profile }) => {
+      try {
+        const info = await defineInstance(deps, { preset, profile: profile as never }, 'mcp');
+        return { content: [{ type: 'text', text: JSON.stringify(info, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'start_machine_instance',
+    'Start (or resume) a defined/stopped virtual Machine Instance',
+    { id: z.string().describe('Instance id') },
+    async ({ id }) => {
+      try {
+        const info = await startInstanceSvc(deps, id);
+        return { content: [{ type: 'text', text: JSON.stringify(info, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'stop_machine_instance',
+    'Stop a running virtual Machine Instance (halts the CPU; keeps the definition)',
+    { id: z.string().describe('Instance id') },
+    async ({ id }) => {
+      try {
+        const info = await stopInstanceSvc(deps, id);
+        return { content: [{ type: 'text', text: JSON.stringify(info, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'destroy_machine_instance',
+    'Destroy a virtual Machine Instance (stops it if running; a transient leaves no residue)',
+    { id: z.string().describe('Instance id') },
+    async ({ id }) => {
+      try {
+        await destroyInstanceSvc(deps, id);
+        return { content: [{ type: 'text', text: JSON.stringify({ id, destroyed: true }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'write_instance_console',
+    'Send keystrokes to a running instance\'s console (RX). Use \\r for Enter, e.g. "DIR\\r".',
+    {
+      id: z.string().describe('Instance id'),
+      input: z.string().describe('Characters to send to the console (control chars allowed)'),
+    },
+    async ({ id, input }) => {
+      try {
+        writeInstanceConsole(deps, id, input);
+        return { content: [{ type: 'text', text: JSON.stringify({ id, wrote: input.length }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'read_instance_console',
+    'Read accumulated console output from a running instance since `cursor` (0 = from the ' +
+      'start of the buffer). Returns { data, cursor }; pass the returned cursor next time to poll only new output.',
+    {
+      id: z.string().describe('Instance id'),
+      cursor: z.number().int().min(0).optional().describe('Byte cursor from a prior read (default 0 = whole buffer)'),
+    },
+    async ({ id, cursor }) => {
+      try {
+        const out = readInstanceConsole(deps, id, cursor ?? 0);
+        return { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
       }

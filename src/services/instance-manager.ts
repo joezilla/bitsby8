@@ -29,12 +29,17 @@ export const INSTANCE_CLIENT_PREFIX = 'inst:';
 
 export type InstanceStatus = 'defined' | 'running' | 'stopped';
 
+/** Who drove this instance into existence — surfaced as provenance in the UI
+ * ("driven by: Claude Code (MCP)"), FR-26. */
+export type InstanceDriver = 'operator' | 'api' | 'mcp';
+
 interface RunningInstance {
   id: string;
   clientId: string; // `inst:<id>`
   profileRef: string;
   transient: boolean;
   status: InstanceStatus;
+  driver: InstanceDriver;
   profile: MachineProfile;
   machine?: Machine;
   channel?: WebSocketLike;
@@ -48,6 +53,7 @@ export interface InstanceInfo {
   profileRef: string;
   transient: boolean;
   status: InstanceStatus;
+  driver: InstanceDriver;
   cpuKind: string;
   effectiveHz?: number;
   targetHz?: number | 'max';
@@ -67,8 +73,12 @@ export class InstanceManager {
   }
 
   /** Define a persistent, DB-backed instance (not started). */
-  async define(profile: MachineProfile, profileRef = 'inline'): Promise<InstanceInfo> {
-    const inst = this.register(profile, profileRef, false);
+  async define(
+    profile: MachineProfile,
+    profileRef = 'inline',
+    driver: InstanceDriver = 'api',
+  ): Promise<InstanceInfo> {
+    const inst = this.register(profile, profileRef, false, driver);
     await this.deps.database.upsertMachineInstance({
       id: inst.id,
       profile_ref: profileRef,
@@ -80,8 +90,12 @@ export class InstanceManager {
   }
 
   /** Create AND start a transient instance — memory-only, no DB/splinter residue on destroy. */
-  async createTransient(profile: MachineProfile, profileRef = 'inline'): Promise<InstanceInfo> {
-    const inst = this.register(profile, profileRef, true);
+  async createTransient(
+    profile: MachineProfile,
+    profileRef = 'inline',
+    driver: InstanceDriver = 'api',
+  ): Promise<InstanceInfo> {
+    const inst = this.register(profile, profileRef, true, driver);
     await this.startInstance(inst);
     return this.info(inst);
   }
@@ -124,7 +138,12 @@ export class InstanceManager {
 
   // --- internals ---
 
-  private register(profile: MachineProfile, profileRef: string, transient: boolean): RunningInstance {
+  private register(
+    profile: MachineProfile,
+    profileRef: string,
+    transient: boolean,
+    driver: InstanceDriver,
+  ): RunningInstance {
     const id = randomUUID();
     const inst: RunningInstance = {
       id,
@@ -132,6 +151,7 @@ export class InstanceManager {
       profileRef,
       transient,
       status: 'defined',
+      driver,
       profile,
     };
     this.instances.set(id, inst);
@@ -199,6 +219,11 @@ export class InstanceManager {
     this.getConsole(id).write(data);
   }
 
+  /** Read accumulated console output since `cursor` (request/response, for MCP). */
+  readConsole(id: string, cursor = 0): { data: string; cursor: number } {
+    return this.getConsole(id).readSince(cursor);
+  }
+
   private require(id: string): RunningInstance {
     const inst = this.instances.get(id);
     if (!inst) throw new ServiceError(`Machine instance not found: ${id}`, 404);
@@ -212,6 +237,7 @@ export class InstanceManager {
       profileRef: i.profileRef,
       transient: i.transient,
       status: i.status,
+      driver: i.driver,
       cpuKind: i.profile.cpuKind,
       effectiveHz: i.machine?.runner.effectiveHz,
       targetHz: i.machine?.runner.targetHz,

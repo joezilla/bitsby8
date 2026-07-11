@@ -49,6 +49,10 @@
       "description": "Per-client drive-bay overrides and friendly names (multi-client serving)"
     },
     {
+      "name": "Instances",
+      "description": "Virtual S-100 Machine Instances — lifecycle + console I/O (Bitsby8)"
+    },
+    {
       "name": "CP/M",
       "description": "CP/M filesystem browser"
     },
@@ -179,6 +183,85 @@
           },
           "createdAt": {
             "type": "string"
+          }
+        }
+      },
+      "MachineInstance": {
+        "type": "object",
+        "description": "A virtual S-100 Machine Instance (Bitsby8) — a running or defined emulated machine.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Instance id (uuid)."
+          },
+          "clientId": {
+            "type": "string",
+            "example": "inst:…",
+            "description": "Reserved FDC serving clientId (inst:<uuid>)."
+          },
+          "profileRef": {
+            "type": "string",
+            "example": "preset:imsai-cpm",
+            "description": "Where the profile came from (preset:<id> | inline)."
+          },
+          "transient": {
+            "type": "boolean",
+            "description": "Memory-only; leaves no DB/splinter residue on destroy."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "defined",
+              "running",
+              "stopped"
+            ]
+          },
+          "driver": {
+            "type": "string",
+            "enum": [
+              "operator",
+              "api",
+              "mcp"
+            ],
+            "description": "Provenance — who drove it into existence."
+          },
+          "cpuKind": {
+            "type": "string",
+            "example": "i8080"
+          },
+          "effectiveHz": {
+            "type": "number",
+            "nullable": true
+          },
+          "targetHz": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "max"
+                ]
+              }
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "InstanceCreateRequest": {
+        "type": "object",
+        "description": "Create a Machine Instance from a preset id or an inline MachineProfile (exactly one).",
+        "properties": {
+          "preset": {
+            "type": "string",
+            "example": "imsai-cpm",
+            "description": "Built-in preset id (see GET /api/instances/presets)."
+          },
+          "profile": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Inline MachineProfile (cpuKind, clock, resetVector, memory[], cards[], consoleCardId)."
           }
         }
       },
@@ -1629,6 +1712,360 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/instances/presets": {
+      "get": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "List built-in machine presets",
+        "description": "Ready-to-boot S-100 machine presets usable with POST /api/instances/transient.",
+        "responses": {
+          "200": {
+            "description": "Array of presets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "presets": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/instances": {
+      "get": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "List virtual Machine Instances",
+        "responses": {
+          "200": {
+            "description": "Array of instances",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "instances": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/MachineInstance"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Define a persistent Machine Instance (not started)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstanceCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The defined instance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "instance": {
+                      "$ref": "#/components/schemas/MachineInstance"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/instances/transient": {
+      "post": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Create and start a transient Machine Instance",
+        "description": "Memory-only; boots immediately and leaves no residue on destroy. Mount a boot disk first.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstanceCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The running instance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "instance": {
+                      "$ref": "#/components/schemas/MachineInstance"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/instances/{id}": {
+      "get": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Get a Machine Instance by id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The instance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "instance": {
+                      "$ref": "#/components/schemas/MachineInstance"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Destroy a Machine Instance",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Destroyed"
+          }
+        }
+      }
+    },
+    "/api/instances/{id}/start": {
+      "post": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Start (or resume) a Machine Instance",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The running instance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "instance": {
+                      "$ref": "#/components/schemas/MachineInstance"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/instances/{id}/stop": {
+      "post": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Stop a running Machine Instance",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stopped instance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "instance": {
+                      "$ref": "#/components/schemas/MachineInstance"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/instances/{id}/console": {
+      "get": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Read accumulated console output",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "Byte cursor from a prior read (default 0 = whole buffer)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Console output slice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "string"
+                    },
+                    "cursor": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Send keystrokes to the console",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "input"
+                ],
+                "properties": {
+                  "input": {
+                    "type": "string",
+                    "description": "Characters to send (use \\r for Enter)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Accepted"
           }
         }
       }
