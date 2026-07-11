@@ -498,6 +498,8 @@ export const api = {
     }),
   deleteProfile: (id: string) =>
     request(`/api/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  exportProfile: (id: string) =>
+    request<Record<string, unknown>>(`/api/profiles/${encodeURIComponent(id)}/export`),
 
   validateProfileBody: (body: { memory?: unknown[]; cards?: unknown[] }) =>
     request<ProfileValidation>('/api/profiles/validate', { method: 'POST', body: JSON.stringify(body) }),

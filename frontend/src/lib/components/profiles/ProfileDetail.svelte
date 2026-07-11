@@ -154,6 +154,26 @@
     }
   }
 
+  async function exportBundle() {
+    if (!profile) return;
+    try {
+      busy = true;
+      const bundle = await api.exportProfile(profile.id);
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${profile.name}-${profile.version}.b8.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('Exported bundle', 'success');
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      busy = false;
+    }
+  }
+
   async function clone() {
     if (!profile) return;
     const name = prompt(`Clone "${profile.name}" as:`, `${profile.name}-copy`);
@@ -226,6 +246,7 @@
           Launch
         </Button>
         <Button variant="outline" icon="content_copy" onclick={clone} disabled={busy}>Clone</Button>
+        <Button variant="ghost" icon="download" onclick={exportBundle} disabled={busy}>Export</Button>
         <Button variant="ghost" icon="delete" danger onclick={remove} disabled={busy}>Delete</Button>
       </div>
     </header>

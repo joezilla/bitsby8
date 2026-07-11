@@ -2516,6 +2516,33 @@
         }
       }
     },
+    "/api/profiles/{id}/export": {
+      "get": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Export a Profile to a self-describing bundle (FR-23)",
+        "description": "A downloadable Bitsby8 bundle containing the Profile (ROM/media inline), its content Identity, and its referenced cards pinned by Identity. Carries no host-specific device paths.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The bundle (application/json, download)"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
     "/api/instances/presets": {
       "get": {
         "tags": [

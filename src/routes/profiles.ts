@@ -14,6 +14,7 @@ import {
   ProfileContent,
 } from '../services/profile-service';
 import { validateProfile, autoAssign } from '../services/collision-validator';
+import { exportProfile, bundleFilename } from '../services/bundle-service';
 
 /** Normalize a request body into a ProfileContent for collision checks
  * (only memory + cards affect collisions; the rest is defaulted). */
@@ -354,6 +355,33 @@ export function registerProfileRoutes(router: Router, deps: Dependencies): void 
     try {
       const profile = await getProfile(deps, req.params.id);
       res.json(await validateProfile(deps, profile));
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/profiles/{id}/export:
+   *   get:
+   *     tags: [Profiles]
+   *     summary: Export a Profile to a self-describing bundle (FR-23)
+   *     description: A downloadable Bitsby8 bundle containing the Profile (ROM/media inline), its content Identity, and its referenced cards pinned by Identity. Carries no host-specific device paths.
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *     responses:
+   *       200:
+   *         description: The bundle (application/json, download)
+   *       404: { description: Not found }
+   */
+  router.get('/api/profiles/:id/export', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const bundle = await exportProfile(deps, req.params.id);
+      res.setHeader('Content-Disposition', `attachment; filename="${bundleFilename(bundle)}"`);
+      res.json(bundle);
     } catch (error) {
       sendError(res, error);
     }

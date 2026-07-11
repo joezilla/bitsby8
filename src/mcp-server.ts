@@ -31,6 +31,7 @@ import {
   listInstanceSnapshots,
   restoreInstanceSnapshot,
 } from './services/instance-snapshot-service';
+import { exportProfile } from './services/bundle-service';
 import {
   createProfile,
   createProfileFromPreset,
@@ -2142,6 +2143,20 @@ export function createMcpServer(deps: Dependencies): McpServer {
       try {
         const profile = await updateProfile(deps, id, patch as never);
         return { content: [{ type: 'text', text: JSON.stringify(profile, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'export_machine_profile',
+    'Export a Machine Profile to a self-describing Bitsby8 bundle (FR-23) — the Profile with its ROM/media ' +
+      'inline + its content Identity + referenced cards pinned by Identity. Deterministic; no host device paths.',
+    { id: z.string().describe('Profile Identity: name@version') },
+    async ({ id }) => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(await exportProfile(deps, id), null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
       }
