@@ -2,11 +2,12 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/services/api';
   import { showToast } from '$lib/stores/toast';
-  import type { MachineProfile } from '$lib/types/api';
+  import type { MachineProfile, CardDefinition, ProfileCardInstance } from '$lib/types/api';
   import Button from '$lib/components/shared/Button.svelte';
   import Card from '$lib/components/shared/Card.svelte';
   import Chip from '$lib/components/shared/Chip.svelte';
   import Icon from '$lib/components/shared/Icon.svelte';
+  import Backplane from '$lib/components/profiles/Backplane.svelte';
 
   interface Props {
     id: string;
@@ -18,14 +19,16 @@
 
   let profile = $state<MachineProfile | null>(null);
   let versions = $state<MachineProfile[]>([]);
+  let catalog = $state<CardDefinition[]>([]);
   let loading = $state(true);
   let busy = $state(false);
 
-  // Editable fields (basic — the backplane card editor is Story 2.4).
+  // Editable working state.
   let clockMode = $state<'max' | 'hz'>('max');
   let clockHz = $state(2000000);
   let resetVector = $state(0);
   let notes = $state('');
+  let editCards = $state<ProfileCardInstance[]>([]);
 
   const hex = (n: number) => `0x${n.toString(16).toUpperCase()}`;
   const clockLabel = (c: MachineProfile['clock']) => (c === 'max' ? 'max' : `${c.hz} Hz`);
@@ -34,7 +37,13 @@
     if (!profile) return false;
     const curClock = clockMode === 'max' ? 'max' : { hz: clockHz };
     const clockChanged = JSON.stringify(curClock) !== JSON.stringify(profile.clock);
-    return clockChanged || resetVector !== profile.resetVector || (notes ?? '') !== (profile.notes ?? '');
+    const cardsChanged = JSON.stringify(editCards) !== JSON.stringify(profile.cards);
+    return (
+      clockChanged ||
+      resetVector !== profile.resetVector ||
+      (notes ?? '') !== (profile.notes ?? '') ||
+      cardsChanged
+    );
   });
 
   function syncEditable(p: MachineProfile) {
@@ -42,6 +51,7 @@
     clockHz = p.clock === 'max' ? 2000000 : p.clock.hz;
     resetVector = p.resetVector;
     notes = p.notes ?? '';
+    editCards = structuredClone(p.cards);
   }
 
   async function load() {
@@ -50,7 +60,12 @@
       const { profile: p } = await api.getProfile(id);
       profile = p;
       syncEditable(p);
-      versions = (await api.listProfileVersions(p.name)).versions;
+      const [vers, cat] = await Promise.all([
+        api.listProfileVersions(p.name),
+        catalog.length ? Promise.resolve({ cards: catalog }) : api.browseCatalog(),
+      ]);
+      versions = vers.versions;
+      catalog = cat.cards;
     } catch (err) {
       showToast(`Failed to load profile: ${(err as Error).message}`, 'error');
       onBack();
@@ -67,6 +82,7 @@
         clock: clockMode === 'max' ? 'max' : { hz: clockHz },
         resetVector,
         notes,
+        cards: editCards,
       };
       const { profile: np } = await api.updateProfile(profile.id, patch);
       if (np.id === profile.id) {
@@ -217,21 +233,10 @@
 
         <Card raised>
           <div class="sec-row">
-            <h2 class="sec">Card instances</h2>
-            <span class="pill">edit on the backplane · Story 2.4</span>
+            <h2 class="sec">S-100 backplane</h2>
+            <span class="pill">{editCards.length} card{editCards.length === 1 ? '' : 's'}</span>
           </div>
-          {#if p.cards.length}
-            <ul class="cards">
-              {#each p.cards as c (c.id)}
-                <li>
-                  <span class="fdc-mono cid">{c.id}</span>
-                  <span class="fdc-mono cref">{c.ref}</span>
-                </li>
-              {/each}
-            </ul>
-          {:else}
-            <p class="muted">No card instances.</p>
-          {/if}
+          <Backplane cards={editCards} {catalog} onchange={(c) => (editCards = c)} />
         </Card>
 
         <Card raised>
@@ -452,7 +457,6 @@
     color: var(--fg-2);
   }
 
-  .cards,
   .versions {
     list-style: none;
     margin: 0;
@@ -460,20 +464,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
-  }
-  .cards li {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    font-size: 13px;
-  }
-  .cid {
-    color: var(--fg-1);
-    font-weight: 600;
-  }
-  .cref {
-    color: var(--fg-3);
-    font-size: 12px;
   }
   .versions li {
     display: flex;

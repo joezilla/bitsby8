@@ -12,6 +12,7 @@ import { Dependencies } from './types';
 import { getStatus, getDrivesStatus, getTerminalStatus } from './services/status';
 import { listCardDefinitions, getCardDefinition } from './services/catalog';
 import { getCardDetail } from './services/card-detail';
+import { checkCardConfig } from './services/card-config';
 import {
   listMachinePresets,
   listInstances,
@@ -2020,6 +2021,24 @@ export function createMcpServer(deps: Dependencies): McpServer {
       try {
         const detail = await getCardDetail(deps, id);
         return { content: [{ type: 'text', text: JSON.stringify(detail, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'validate_card_config',
+    'Validate a Card Instance config against the card\'s Config Schema (Bitsby8, define-time). ' +
+      'Returns the defaults-filled `resolved` config and any `errors` (ranges/enums), without throwing.',
+    {
+      id: z.string().describe('Card Identity: name@version'),
+      config: z.record(z.string(), z.any()).optional().describe('The settings to validate'),
+    },
+    async ({ id, config }) => {
+      try {
+        const result = await checkCardConfig(deps, id, config ?? {});
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
       }

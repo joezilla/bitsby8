@@ -4,6 +4,7 @@ import { safeErrorMessage } from '../utils/safe-path';
 import { ServiceError } from '../services/service-error';
 import { browseCatalog, getCardDefinition, CatalogFilter } from '../services/catalog';
 import { getCardDetail } from '../services/card-detail';
+import { checkCardConfig } from '../services/card-config';
 
 /** Map a thrown error to an HTTP response: ServiceError carries a status;
  * anything else is a sanitized 500. */
@@ -146,6 +147,53 @@ export function registerCatalogRoutes(router: Router, deps: Dependencies): void 
   router.get('/api/catalog/cards/:id/detail', async (req: Request, res: Response): Promise<void> => {
     try {
       res.json(await getCardDetail(deps, req.params.id));
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/catalog/cards/{id}/validate-config:
+   *   post:
+   *     tags: [Catalog]
+   *     summary: Validate a Card Instance config against the card's schema
+   *     description: Define-time validation (FR-7) — returns the defaults-filled `resolved` config plus any `errors` (each naming the parameter and the specific violation). Does not throw on invalid values.
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *         description: Card Identity (name@version)
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               config: { type: object, additionalProperties: true }
+   *     responses:
+   *       200:
+   *         description: Validation result
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 resolved: { type: object, additionalProperties: true }
+   *                 errors:
+   *                   type: array
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       param: { type: string }
+   *                       message: { type: string }
+   *       404: { description: Card not in the Catalog }
+   */
+  router.post('/api/catalog/cards/:id/validate-config', async (req: Request, res: Response): Promise<void> => {
+    try {
+      res.json(await checkCardConfig(deps, req.params.id, req.body?.config ?? {}));
     } catch (error) {
       sendError(res, error);
     }

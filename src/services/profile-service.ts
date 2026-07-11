@@ -16,6 +16,7 @@ import { ServiceError } from './service-error';
 import { MachineProfileRecord } from '../database';
 import { MachineProfile } from './resolver';
 import { getPreset } from './presets';
+import { resolveProfileCards } from './card-config';
 
 /** A memory region as stored/exchanged — ROM `image` is base64 (not Uint8Array). */
 export interface ProfileMemoryRegion {
@@ -190,8 +191,11 @@ export async function createProfile(
   if ((await deps.database.listMachineProfileVersions(name)).length > 0) {
     throw new ServiceError(`A profile named "${name}" already exists`, 409);
   }
-  const { name: _n, notes, ...content } = input;
-  return persist(deps, name, '1.0.0', content as ProfileContent, 'user', notes ?? null);
+  const { name: _n, notes, ...rest } = input;
+  const content = rest as ProfileContent;
+  // Validate + fill defaults for each Card Instance against its Config Schema.
+  content.cards = await resolveProfileCards(deps, content.cards ?? []);
+  return persist(deps, name, '1.0.0', content, 'user', notes ?? null);
 }
 
 /** Create a Profile seeded from a built-in machine preset (carries ROM + cards). */
@@ -243,12 +247,17 @@ export async function updateProfile(
 ): Promise<ProfileDoc> {
   const base = await getProfile(deps, id);
   const { notes: patchNotes, ...contentPatch } = patch;
+  // A cards patch is re-validated against each card's Config Schema; unchanged
+  // cards carry over already-validated.
+  const cards = contentPatch.cards
+    ? await resolveProfileCards(deps, contentPatch.cards)
+    : base.cards;
   const newContent: ProfileContent = {
     cpuKind: contentPatch.cpuKind ?? base.cpuKind,
     clock: contentPatch.clock ?? base.clock,
     resetVector: contentPatch.resetVector ?? base.resetVector,
     memory: contentPatch.memory ?? base.memory,
-    cards: contentPatch.cards ?? base.cards,
+    cards,
     consoleCardId: 'consoleCardId' in contentPatch ? contentPatch.consoleCardId : base.consoleCardId,
   };
   const newNotes = patchNotes !== undefined ? patchNotes : base.notes;

@@ -10,6 +10,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { Database } from '../src/database';
 import { Dependencies } from '../src/types';
+import { registerCardDefinition } from '../src/services/catalog';
 import {
   createProfile,
   createProfileFromPreset,
@@ -28,7 +29,20 @@ async function makeDeps(): Promise<Dependencies> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fdcsds-prof-'));
   const db = new Database(path.join(dir, 'test.db'));
   await db.initialize();
-  return { database: db } as unknown as Dependencies;
+  const deps = { database: db } as unknown as Dependencies;
+  // Card Instances are validated against the Catalog on save, so seed the card
+  // the sample profile references.
+  await registerCardDefinition(deps, {
+    manifest: {
+      name: 'mits-88-2sio',
+      version: '1.0.0',
+      type: 'serial',
+      maker: 'MITS',
+      configSchema: { basePort: { type: 'u8', default: 0x10, min: 0, max: 0xfc } },
+    },
+    source: 'seed',
+  });
+  return deps;
 }
 
 const content: ProfileContent = {
