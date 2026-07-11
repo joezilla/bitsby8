@@ -409,6 +409,11 @@
                     "type": "string"
                   },
                   "description": "Colliding card instance ids (or memory region ids)."
+                },
+                "port": {
+                  "type": "integer",
+                  "nullable": true,
+                  "description": "The colliding I/O port (kind port only)."
                 }
               }
             }

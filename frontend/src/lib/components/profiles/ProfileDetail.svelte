@@ -325,7 +325,14 @@
             <h2 class="sec">S-100 backplane</h2>
             <span class="pill">{editCards.length} card{editCards.length === 1 ? '' : 's'}</span>
           </div>
-          <Backplane cards={editCards} {catalog} offenders={offenderIds} onchange={(c) => (editCards = c)} />
+          <Backplane
+            cards={editCards}
+            {catalog}
+            offenders={offenderIds}
+            claims={validation?.claims ?? []}
+            collisions={validation?.collisions ?? []}
+            onchange={(c) => (editCards = c)}
+          />
         </Card>
 
         <Card raised>

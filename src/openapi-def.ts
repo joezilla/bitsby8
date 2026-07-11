@@ -207,6 +207,7 @@ export const openapiDefinition: Options = {
                   kind: { type: 'string', enum: ['port', 'irq', 'memory'] },
                   resource: { type: 'string', example: 'I/O port 0x10' },
                   offenders: { type: 'array', items: { type: 'string' }, description: 'Colliding card instance ids (or memory region ids).' },
+                  port: { type: 'integer', nullable: true, description: 'The colliding I/O port (kind port only).' },
                 },
               },
             },

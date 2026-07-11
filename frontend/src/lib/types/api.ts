@@ -214,6 +214,7 @@ export interface Collision {
   kind: 'port' | 'irq' | 'memory';
   resource: string;
   offenders: string[];
+  port?: number;
 }
 
 export interface CardClaim {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { CardDefinition, ProfileCardInstance } from '$lib/types/api';
+  import type { CardDefinition, ProfileCardInstance, CardClaim, Collision } from '$lib/types/api';
   import Icon from '$lib/components/shared/Icon.svelte';
   import Button from '$lib/components/shared/Button.svelte';
   import HexInput from '$lib/components/shared/HexInput.svelte';
@@ -18,8 +18,18 @@
     catalog: CardDefinition[];
     onchange: (cards: ProfileCardInstance[]) => void;
     offenders?: Set<string>;
+    claims?: CardClaim[];
+    collisions?: Collision[];
   }
-  let { cards, catalog, onchange, offenders = new Set() }: Props = $props();
+  let { cards, catalog, onchange, offenders = new Set(), claims = [], collisions = [] }: Props = $props();
+
+  const footprintOf = (cardId: string) => claims.find((c) => c.cardId === cardId)?.ports ?? [];
+  const collidingPortsOf = (cardId: string) =>
+    new Set(
+      collisions
+        .filter((c) => c.kind === 'port' && c.port !== undefined && c.offenders.includes(cardId))
+        .map((c) => c.port as number),
+    );
 
   let addRef = $state('');
   $effect(() => {
@@ -163,6 +173,18 @@
               </div>
             {:else}
               <p class="muted small">No configurable settings.</p>
+            {/if}
+
+            {#if footprintOf(card.id).length}
+              {@const bad = collidingPortsOf(card.id)}
+              <div class="footprint">
+                <span class="fp-label">occupies</span>
+                <div class="fp-ports">
+                  {#each footprintOf(card.id) as p (p)}
+                    <span class="fp-port fdc-mono" class:clash={bad.has(p)}>0x{p.toString(16).toUpperCase()}</span>
+                  {/each}
+                </div>
+              </div>
             {/if}
           </div>
         </li>
@@ -337,6 +359,39 @@
   .perr {
     font-size: 11px;
     color: var(--error);
+  }
+
+  .footprint {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--border-1);
+  }
+  .fp-label {
+    font: var(--text-overline);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--fg-4);
+  }
+  .fp-ports {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .fp-port {
+    font-size: 11px;
+    color: var(--fg-2);
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-1);
+    border-radius: var(--radius-xs);
+    padding: 1px 6px;
+  }
+  .fp-port.clash {
+    color: var(--error);
+    border-color: var(--error);
+    background: color-mix(in srgb, var(--error) 12%, transparent);
+    font-weight: 600;
   }
   .muted {
     color: var(--fg-3);

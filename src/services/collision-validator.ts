@@ -27,6 +27,8 @@ export interface Collision {
   kind: 'port' | 'irq' | 'memory';
   resource: string; // human label, e.g. "I/O port 0x10"
   offenders: string[]; // card instance ids (or memory region ids)
+  /** The colliding I/O port (kind 'port' only) — lets the UI highlight it. */
+  port?: number;
 }
 
 export interface ProfileValidation {
@@ -98,7 +100,7 @@ export async function validateProfile(
     const dupes = new Set<number>();
     for (const p of c.ports) (seen.has(p) ? dupes : seen).add(p);
     for (const p of [...dupes].sort((a, b) => a - b)) {
-      collisions.push({ kind: 'port', resource: `I/O port ${hex(p)}`, offenders: [c.cardId] });
+      collisions.push({ kind: 'port', resource: `I/O port ${hex(p)}`, offenders: [c.cardId], port: p });
     }
   }
 
@@ -107,7 +109,7 @@ export async function validateProfile(
   const portMap = new Map<number, string[]>();
   for (const c of claims) for (const p of new Set(c.ports)) portMap.set(p, [...(portMap.get(p) ?? []), c.cardId]);
   for (const [port, ids] of [...portMap.entries()].sort((a, b) => a[0] - b[0])) {
-    if (ids.length > 1) collisions.push({ kind: 'port', resource: `I/O port ${hex(port)}`, offenders: ids });
+    if (ids.length > 1) collisions.push({ kind: 'port', resource: `I/O port ${hex(port)}`, offenders: ids, port });
   }
 
   // IRQ collisions.
