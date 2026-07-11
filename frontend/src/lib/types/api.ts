@@ -229,6 +229,29 @@ export interface ProfileValidation {
   claims: CardClaim[];
 }
 
+export interface DiskBinding {
+  drive: number;
+  filename: string;
+  readonly: boolean;
+  dirty: boolean;
+}
+
+/** A virtual Machine Instance's dashboard status (Bitsby8). */
+export interface InstanceStatus {
+  id: string;
+  clientId: string;
+  profileRef: string;
+  transient: boolean;
+  status: 'defined' | 'running' | 'stopped';
+  driver: 'operator' | 'api' | 'mcp';
+  cpuKind: string;
+  effectiveHz?: number;
+  targetHz?: number | 'max';
+  uptimeSeconds?: number;
+  headless: boolean;
+  disks: DiskBinding[];
+}
+
 export interface SerialPortInfo {
   path: string;
   resolvedPath: string;

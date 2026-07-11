@@ -42,6 +42,7 @@ interface RunningInstance {
   driver: InstanceDriver;
   /** Launch-time speed override (Hz or 'max'); undefined → the profile's clock. */
   speed?: CpuSpeed;
+  startedAt?: number; // epoch ms when the machine last started (running only)
   profile: MachineProfile;
   machine?: Machine;
   channel?: WebSocketLike;
@@ -59,6 +60,11 @@ export interface InstanceInfo {
   cpuKind: string;
   effectiveHz?: number;
   targetHz?: number | 'max';
+  /** Seconds since this instance last started (running only). */
+  uptimeSeconds?: number;
+  /** Running with no live console subscriber — an agent-spun machine nobody is
+   * watching. Clears when a human attaches. */
+  headless: boolean;
 }
 
 export class InstanceManager {
@@ -193,6 +199,7 @@ export class InstanceManager {
     inst.machine = machine;
     inst.channel = channel;
     inst.channelConnId = connId;
+    inst.startedAt = Date.now();
     inst.status = 'running';
     log.info(
       { id: inst.id, clientId: inst.clientId, transient: inst.transient, console: !!inst.console },
@@ -207,6 +214,7 @@ export class InstanceManager {
     inst.channel = undefined;
     inst.channelConnId = undefined;
     inst.console = undefined;
+    inst.startedAt = undefined;
   }
 
   /** The console hub of a running instance (throws if not running / no console). */
@@ -250,6 +258,8 @@ export class InstanceManager {
       cpuKind: i.profile.cpuKind,
       effectiveHz: i.machine?.runner.effectiveHz,
       targetHz: i.machine?.runner.targetHz,
+      uptimeSeconds: i.startedAt ? Math.floor((Date.now() - i.startedAt) / 1000) : undefined,
+      headless: i.status === 'running' && (i.console?.subscriberCount ?? 0) === 0,
     };
   }
 }

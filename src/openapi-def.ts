@@ -238,6 +238,21 @@ export const openapiDefinition: Options = {
             cpuKind: { type: 'string', example: 'i8080' },
             effectiveHz: { type: 'number', nullable: true },
             targetHz: { oneOf: [{ type: 'number' }, { type: 'string', enum: ['max'] }], nullable: true },
+            uptimeSeconds: { type: 'integer', nullable: true, description: 'Seconds since last start (running only).' },
+            headless: { type: 'boolean', description: 'Running with no live console subscriber (agent-spun, unattended).' },
+            disks: {
+              type: 'array',
+              description: 'Bound disks (operator mounts) with per-instance copy-on-write dirty state.',
+              items: {
+                type: 'object',
+                properties: {
+                  drive: { type: 'integer' },
+                  filename: { type: 'string' },
+                  readonly: { type: 'boolean' },
+                  dirty: { type: 'boolean' },
+                },
+              },
+            },
           },
         },
         InstanceCreateRequest: {

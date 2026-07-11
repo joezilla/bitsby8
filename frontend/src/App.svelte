@@ -9,6 +9,7 @@
   import CassettesPage from '$lib/pages/CassettesPage.svelte';
   import CatalogPage from '$lib/pages/CatalogPage.svelte';
   import ProfilesPage from '$lib/pages/ProfilesPage.svelte';
+  import MachinesPage from '$lib/pages/MachinesPage.svelte';
   import ScriptsPage from '$lib/pages/ScriptsPage.svelte';
   import ConfigPage from '$lib/pages/ConfigPage.svelte';
   import ChatPanel from '$lib/components/chat/ChatPanel.svelte';
@@ -18,7 +19,7 @@
   // Initialize theme store (side effect: applies <html data-theme>)
   import '$lib/stores/theme';
 
-  type PageId = 'terminal' | 'disks' | 'clients' | 'cassettes' | 'catalog' | 'profiles' | 'scripts' | 'config';
+  type PageId = 'terminal' | 'disks' | 'clients' | 'cassettes' | 'catalog' | 'profiles' | 'machines' | 'scripts' | 'config';
 
   function isNarrowNow(): boolean {
     return typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches;
@@ -101,6 +102,8 @@
         <CatalogPage />
       {:else if currentPage === 'profiles'}
         <ProfilesPage />
+      {:else if currentPage === 'machines'}
+        <MachinesPage />
       {:else if currentPage === 'scripts'}
         <ScriptsPage />
       {:else if currentPage === 'config'}

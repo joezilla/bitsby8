@@ -12,6 +12,40 @@ import type { InstanceInfo, InstanceDriver, InstanceManager } from './instance-m
 import { MachineProfile } from './resolver';
 import { getPreset, listPresets, MachinePreset } from './presets';
 import { resolveProfileRef } from './profile-service';
+import { getMountRegistry } from '../mount-registry';
+import * as path from 'path';
+
+/** A disk bound to an instance (an operator mount) + its per-instance dirty state. */
+export interface DiskBinding {
+  drive: number;
+  filename: string;
+  readonly: boolean;
+  dirty: boolean;
+}
+
+/** An instance plus the disks it has bound (for the Machines dashboard). */
+export type InstanceStatus = InstanceInfo & { disks: DiskBinding[] };
+
+/** Enumerate an instance's bound disks (operator mounts) with its splinter
+ * dirty state (copy-on-write writes are tracked per `inst:<uuid>` clientId). */
+async function disksFor(deps: Dependencies, clientId: string): Promise<DiskBinding[]> {
+  const mounts = getMountRegistry().all();
+  const out: DiskBinding[] = [];
+  for (const [drive, entry] of [...mounts.entries()].sort((a, b) => a[0] - b[0])) {
+    const splinter = await deps.database.getClientSplinter(clientId, drive).catch(() => null);
+    out.push({
+      drive,
+      filename: path.basename(entry.filename),
+      readonly: entry.readonly,
+      dirty: splinter?.dirty === 1,
+    });
+  }
+  return out;
+}
+
+async function withDisks(deps: Dependencies, info: InstanceInfo): Promise<InstanceStatus> {
+  return { ...info, disks: await disksFor(deps, info.clientId) };
+}
 
 function manager(deps: Dependencies): InstanceManager {
   if (!deps.instanceManager) {
@@ -77,6 +111,16 @@ export function listInstances(deps: Dependencies): InstanceInfo[] {
 
 export function getInstance(deps: Dependencies, id: string): InstanceInfo {
   return manager(deps).get(id);
+}
+
+/** List instances enriched with per-instance disk bindings (dashboard status). */
+export async function listInstanceStatus(deps: Dependencies): Promise<InstanceStatus[]> {
+  return Promise.all(manager(deps).list().map((i) => withDisks(deps, i)));
+}
+
+/** One instance's full status (with disk bindings). */
+export async function getInstanceStatus(deps: Dependencies, id: string): Promise<InstanceStatus> {
+  return withDisks(deps, manager(deps).get(id));
 }
 
 export async function createTransientInstance(

@@ -17,11 +17,13 @@ import { _setSimForTests, SimModule } from '../src/services/bundle-registry';
 import {
   listMachinePresets,
   listInstances,
+  listInstanceStatus,
   createTransientInstance,
   destroyInstance,
   writeInstanceConsole,
   readInstanceConsole,
 } from '../src/services/instance-service';
+import { getMountRegistry } from '../src/mount-registry';
 
 /** A fake sim whose machine exposes a console channel (id 'sio') that loops
  * RX back to TX, so console write→read round-trips through the real ConsoleHub. */
@@ -110,6 +112,27 @@ describe('instance-service', () => {
   test('neither preset nor profile yields a 400', async () => {
     const deps = await makeDeps();
     await expect(createTransientInstance(deps, {}, 'mcp')).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  test('status carries bound disks, uptime, and headless that clears on console attach', async () => {
+    const deps = await makeDeps();
+    getMountRegistry().set(0, '/disks/boot.dsk', true);
+    try {
+      const info = await createTransientInstance(deps, { profile }, 'mcp');
+      const st = (await listInstanceStatus(deps))[0];
+      expect(st.disks).toEqual([{ drive: 0, filename: 'boot.dsk', readonly: true, dirty: false }]);
+      expect(st.uptimeSeconds).toBeGreaterThanOrEqual(0);
+      expect(st.headless).toBe(true); // no console subscriber yet
+
+      const off = deps.instanceManager!.subscribeConsole(info.id, { onOutput() {} });
+      expect((await listInstanceStatus(deps))[0].headless).toBe(false);
+      off();
+      expect((await listInstanceStatus(deps))[0].headless).toBe(true);
+
+      await destroyInstance(deps, info.id);
+    } finally {
+      getMountRegistry().clear(0);
+    }
   });
 
   test('a launch-time speed override sets the runner Hz (authentic 2 MHz)', async () => {

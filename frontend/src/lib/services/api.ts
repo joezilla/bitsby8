@@ -18,6 +18,7 @@ import type {
   MachinePresetInfo,
   ProfileValidation,
   ProfileCardInstance,
+  InstanceStatus,
   SerialSection,
   WebSection,
   McpSection,
@@ -504,6 +505,17 @@ export const api = {
       '/api/profiles/auto-assign',
       { method: 'POST', body: JSON.stringify(body) },
     ),
+
+  // Machine Instances (Bitsby8) — the Machines dashboard.
+  listInstances: () => request<{ instances: InstanceStatus[] }>('/api/instances'),
+  getInstance: (id: string) =>
+    request<{ instance: InstanceStatus }>(`/api/instances/${encodeURIComponent(id)}`),
+  startInstance: (id: string) =>
+    request<{ instance: InstanceStatus }>(`/api/instances/${encodeURIComponent(id)}/start`, { method: 'POST' }),
+  stopInstance: (id: string) =>
+    request<{ instance: InstanceStatus }>(`/api/instances/${encodeURIComponent(id)}/stop`, { method: 'POST' }),
+  destroyInstance: (id: string) =>
+    request(`/api/instances/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   listMachinePresets: () => request<{ presets: MachinePresetInfo[] }>('/api/instances/presets'),
   launchTransient: (profileRef: string, speed?: number | 'max') =>

@@ -15,8 +15,8 @@ import { getCardDetail } from './services/card-detail';
 import { checkCardConfig } from './services/card-config';
 import {
   listMachinePresets,
-  listInstances,
-  getInstance,
+  listInstanceStatus,
+  getInstanceStatus,
   createTransientInstance,
   defineInstance,
   startInstance as startInstanceSvc,
@@ -2249,10 +2249,11 @@ export function createMcpServer(deps: Dependencies): McpServer {
 
   server.tool(
     'list_machine_instances',
-    'List all virtual Machine Instances (Bitsby8) with status, driver provenance, CPU, and effective Hz',
+    'List all virtual Machine Instances (Bitsby8) with status, driver provenance, CPU, effective/target ' +
+      'Hz, uptime, headless flag, and bound disks (with per-instance dirty state)',
     async () => {
       try {
-        return { content: [{ type: 'text', text: JSON.stringify(listInstances(deps), null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(await listInstanceStatus(deps), null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
       }
@@ -2261,11 +2262,11 @@ export function createMcpServer(deps: Dependencies): McpServer {
 
   server.tool(
     'get_machine_instance',
-    'Get one virtual Machine Instance by id',
+    'Get one virtual Machine Instance by id (full status incl. uptime, headless, and bound disks)',
     { id: z.string().describe('Instance id (uuid)') },
     async ({ id }) => {
       try {
-        return { content: [{ type: 'text', text: JSON.stringify(getInstance(deps, id), null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(await getInstanceStatus(deps, id), null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
       }

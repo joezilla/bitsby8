@@ -4,8 +4,8 @@ import { safeErrorMessage } from '../utils/safe-path';
 import { ServiceError } from '../services/service-error';
 import {
   listMachinePresets,
-  listInstances,
-  getInstance,
+  listInstanceStatus,
+  getInstanceStatus,
   createTransientInstance,
   defineInstance,
   startInstance,
@@ -94,9 +94,9 @@ export function registerInstanceRoutes(router: Router, deps: Dependencies): void
    *                 instance:
    *                   $ref: '#/components/schemas/MachineInstance'
    */
-  router.get('/api/instances', (_req: Request, res: Response): void => {
+  router.get('/api/instances', async (_req: Request, res: Response): Promise<void> => {
     try {
-      res.json({ instances: listInstances(deps) });
+      res.json({ instances: await listInstanceStatus(deps) });
     } catch (error) {
       sendError(res, error);
     }
@@ -177,9 +177,9 @@ export function registerInstanceRoutes(router: Router, deps: Dependencies): void
    *     responses:
    *       200: { description: Destroyed }
    */
-  router.get('/api/instances/:id', (req: Request, res: Response): void => {
+  router.get('/api/instances/:id', async (req: Request, res: Response): Promise<void> => {
     try {
-      res.json({ instance: getInstance(deps, req.params.id) });
+      res.json({ instance: await getInstanceStatus(deps, req.params.id) });
     } catch (error) {
       sendError(res, error);
     }
