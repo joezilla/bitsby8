@@ -19,6 +19,7 @@ import type {
   ProfileValidation,
   ProfileCardInstance,
   InstanceStatus,
+  InstanceSnapshot,
   SerialSection,
   WebSection,
   McpSection,
@@ -521,6 +522,20 @@ export const api = {
     }),
   destroyInstance: (id: string) =>
     request(`/api/instances/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  listInstanceSnapshots: (id: string) =>
+    request<{ snapshots: InstanceSnapshot[] }>(`/api/instances/${encodeURIComponent(id)}/snapshots`),
+  snapshotInstance: (id: string, label?: string) =>
+    request<{ snapshot: InstanceSnapshot }>(`/api/instances/${encodeURIComponent(id)}/snapshots`, {
+      method: 'POST',
+      body: JSON.stringify({ label }),
+    }),
+  restoreInstanceSnapshot: (snapshotId: string) =>
+    request<{ instanceId: string; restored: number[] }>(
+      `/api/instance-snapshots/${encodeURIComponent(snapshotId)}/restore`,
+      { method: 'POST' },
+    ),
+  deleteInstanceSnapshot: (snapshotId: string) =>
+    request(`/api/instance-snapshots/${encodeURIComponent(snapshotId)}`, { method: 'DELETE' }),
 
   listMachinePresets: () => request<{ presets: MachinePresetInfo[] }>('/api/instances/presets'),
   launchTransient: (profileRef: string, speed?: number | 'max') =>

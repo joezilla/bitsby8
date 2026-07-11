@@ -445,6 +445,43 @@
           }
         }
       },
+      "InstanceSnapshot": {
+        "type": "object",
+        "description": "An instance's disk/media snapshot (Bitsby8) — machine definition + per-drive disk state; execution state is not captured.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "instanceId": {
+            "type": "string"
+          },
+          "profileRef": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "disks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "drive": {
+                  "type": "integer"
+                },
+                "filename": {
+                  "type": "string",
+                  "description": "Base image the drive was bound to."
+                }
+              }
+            }
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        }
+      },
       "MachineInstance": {
         "type": "object",
         "description": "A virtual S-100 Machine Instance (Bitsby8) — a running or defined emulated machine.",
@@ -2808,6 +2845,140 @@
           },
           "409": {
             "description": "Instance is not running"
+          }
+        }
+      }
+    },
+    "/api/instances/{id}/snapshots": {
+      "get": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "List an instance's disk/media snapshots",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Snapshots, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "snapshots": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/InstanceSnapshot"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Snapshot an instance's disk/media state (FR-18)",
+        "description": "Captures the machine definition + each bound drive's disk state (execution state is out of scope).",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "snapshot": {
+                      "$ref": "#/components/schemas/InstanceSnapshot"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/instance-snapshots/{snapshotId}/restore": {
+      "post": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Restore a disk/media snapshot onto its instance",
+        "description": "Stops the instance, writes the captured disks back, and restarts it (reproduces the disk state; the machine reboots).",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "snapshotId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Restored"
+          },
+          "404": {
+            "description": "Snapshot or instance not found"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Delete a disk/media snapshot",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "snapshotId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted"
           }
         }
       }

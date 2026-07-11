@@ -91,6 +91,19 @@ export interface MachineInstanceRecord {
   created_at: string;
 }
 
+/** An instance disk/media snapshot (Bitsby8 Story 3.4) — the machine definition
+ * (profile_ref) + a copy of each bound drive's disk state, as a restorable unit.
+ * Execution (CPU) state is explicitly NOT captured. Disk images live under
+ * `{disksDir}/.instance-snapshots/<id>/`; `disks` is the JSON manifest. */
+export interface InstanceSnapshotRecord {
+  id: string;
+  instance_id: string;
+  profile_ref: string;
+  label: string | null;
+  disks: string; // JSON: [{ drive, base_filename, file }]
+  created_at: string;
+}
+
 /** A Machine Profile (Bitsby8) — a versioned Primitive (name@version + sha256
  * `digest`) describing a machine declaratively. The full profile (CPU, clock,
  * memory/ROM layout, card instances) is stored as JSON with ROM images base64.
@@ -239,6 +252,20 @@ const MIGRATIONS: string[] = [
     UNIQUE (name, version)
   );
   CREATE INDEX IF NOT EXISTS idx_machine_profiles_name ON machine_profiles(name);`,
+
+  // Migration 9: instance disk/media snapshots (Bitsby8 Story 3.4). A snapshot
+  // is the machine definition (profile_ref) + a copy of each bound drive's disk
+  // state, restorable as a unit. Execution state is out of scope. Disk images
+  // are stored on disk under {disksDir}/.instance-snapshots/<id>/.
+  `CREATE TABLE IF NOT EXISTS instance_snapshots (
+    id TEXT PRIMARY KEY,
+    instance_id TEXT NOT NULL,
+    profile_ref TEXT NOT NULL,
+    label TEXT,
+    disks TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_instance_snapshots_instance ON instance_snapshots(instance_id);`,
 ];
 
 export class Database {
@@ -833,6 +860,40 @@ export class Database {
   async deleteMachineProfilesByName(name: string): Promise<void> {
     this.ensureInitialized();
     this.db!.prepare('DELETE FROM machine_profiles WHERE name = ?').run(name);
+  }
+
+  // --- Instance snapshots (Bitsby8) ---
+
+  async insertInstanceSnapshot(rec: Omit<InstanceSnapshotRecord, 'created_at'>): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare(
+      `INSERT INTO instance_snapshots (id, instance_id, profile_ref, label, disks, created_at)
+       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+    ).run(rec.id, rec.instance_id, rec.profile_ref, rec.label, rec.disks);
+  }
+
+  async getInstanceSnapshot(id: string): Promise<InstanceSnapshotRecord | undefined> {
+    this.ensureInitialized();
+    return this.db!.prepare('SELECT * FROM instance_snapshots WHERE id = ?').get(id) as
+      | InstanceSnapshotRecord
+      | undefined;
+  }
+
+  async listInstanceSnapshots(instanceId?: string): Promise<InstanceSnapshotRecord[]> {
+    this.ensureInitialized();
+    if (instanceId) {
+      return this.db!.prepare(
+        'SELECT * FROM instance_snapshots WHERE instance_id = ? ORDER BY created_at DESC, rowid DESC'
+      ).all(instanceId) as InstanceSnapshotRecord[];
+    }
+    return this.db!.prepare(
+      'SELECT * FROM instance_snapshots ORDER BY created_at DESC, rowid DESC'
+    ).all() as InstanceSnapshotRecord[];
+  }
+
+  async deleteInstanceSnapshot(id: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM instance_snapshots WHERE id = ?').run(id);
   }
 
   isInitialized(): boolean {

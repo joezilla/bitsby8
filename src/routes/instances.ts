@@ -15,6 +15,12 @@ import {
   writeInstanceConsole,
   readInstanceConsole,
 } from '../services/instance-service';
+import {
+  snapshotInstance,
+  listInstanceSnapshots,
+  restoreInstanceSnapshot,
+  deleteInstanceSnapshot,
+} from '../services/instance-snapshot-service';
 
 function sendError(res: Response, error: unknown): void {
   if (error instanceof ServiceError) {
@@ -292,6 +298,113 @@ export function registerInstanceRoutes(router: Router, deps: Dependencies): void
   router.post('/api/instances/:id/speed', async (req: Request, res: Response): Promise<void> => {
     try {
       res.json({ instance: await setInstanceSpeed(deps, req.params.id, req.body?.speed) });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/instances/{id}/snapshots:
+   *   get:
+   *     tags: [Instances]
+   *     summary: List an instance's disk/media snapshots
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *     responses:
+   *       200:
+   *         description: Snapshots, newest first
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 snapshots:
+   *                   type: array
+   *                   items: { $ref: '#/components/schemas/InstanceSnapshot' }
+   *   post:
+   *     tags: [Instances]
+   *     summary: Snapshot an instance's disk/media state (FR-18)
+   *     description: Captures the machine definition + each bound drive's disk state (execution state is out of scope).
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               label: { type: string }
+   *     responses:
+   *       200:
+   *         description: The snapshot
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 snapshot: { $ref: '#/components/schemas/InstanceSnapshot' }
+   */
+  router.get('/api/instances/:id/snapshots', async (req: Request, res: Response): Promise<void> => {
+    try {
+      res.json({ snapshots: await listInstanceSnapshots(deps, req.params.id) });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.post('/api/instances/:id/snapshots', async (req: Request, res: Response): Promise<void> => {
+    try {
+      res.json({ snapshot: await snapshotInstance(deps, req.params.id, req.body?.label) });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/instance-snapshots/{snapshotId}/restore:
+   *   post:
+   *     tags: [Instances]
+   *     summary: Restore a disk/media snapshot onto its instance
+   *     description: Stops the instance, writes the captured disks back, and restarts it (reproduces the disk state; the machine reboots).
+   *     parameters:
+   *       - in: path
+   *         name: snapshotId
+   *         required: true
+   *         schema: { type: string }
+   *     responses:
+   *       200: { description: Restored }
+   *       404: { description: Snapshot or instance not found }
+   *   delete:
+   *     tags: [Instances]
+   *     summary: Delete a disk/media snapshot
+   *     parameters:
+   *       - in: path
+   *         name: snapshotId
+   *         required: true
+   *         schema: { type: string }
+   *     responses:
+   *       200: { description: Deleted }
+   */
+  router.post('/api/instance-snapshots/:snapshotId/restore', async (req: Request, res: Response): Promise<void> => {
+    try {
+      res.json(await restoreInstanceSnapshot(deps, req.params.snapshotId, req.body?.targetInstanceId));
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.delete('/api/instance-snapshots/:snapshotId', async (req: Request, res: Response): Promise<void> => {
+    try {
+      await deleteInstanceSnapshot(deps, req.params.snapshotId);
+      res.json({ id: req.params.snapshotId, deleted: true });
     } catch (error) {
       sendError(res, error);
     }

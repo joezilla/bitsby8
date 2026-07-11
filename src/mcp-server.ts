@@ -27,6 +27,11 @@ import {
   readInstanceConsole,
 } from './services/instance-service';
 import {
+  snapshotInstance,
+  listInstanceSnapshots,
+  restoreInstanceSnapshot,
+} from './services/instance-snapshot-service';
+import {
   createProfile,
   createProfileFromPreset,
   getProfile,
@@ -2340,6 +2345,47 @@ export function createMcpServer(deps: Dependencies): McpServer {
       try {
         const info = await stopInstanceSvc(deps, id);
         return { content: [{ type: 'text', text: JSON.stringify(info, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'snapshot_machine_instance',
+    "Snapshot a virtual Machine Instance's disk/media state (Bitsby8, FR-18) — captures the machine " +
+      'definition + each bound drive\'s disk state as a restorable unit (execution/CPU state is not captured).',
+    { id: z.string().describe('Instance id'), label: z.string().optional() },
+    async ({ id, label }) => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(await snapshotInstance(deps, id, label), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'list_instance_snapshots',
+    'List disk/media snapshots for a Machine Instance (Bitsby8)',
+    { id: z.string().describe('Instance id') },
+    async ({ id }) => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(await listInstanceSnapshots(deps, id), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'restore_instance_snapshot',
+    'Restore a disk/media snapshot onto its instance (Bitsby8) — stops it, writes the captured disks ' +
+      'back, and restarts it. Reproduces the disk state; the machine reboots.',
+    { snapshotId: z.string().describe('Snapshot id') },
+    async ({ snapshotId }) => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(await restoreInstanceSnapshot(deps, snapshotId), null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
       }

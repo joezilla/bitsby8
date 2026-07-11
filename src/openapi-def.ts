@@ -226,6 +226,27 @@ export const openapiDefinition: Options = {
             },
           },
         },
+        InstanceSnapshot: {
+          type: 'object',
+          description: "An instance's disk/media snapshot (Bitsby8) — machine definition + per-drive disk state; execution state is not captured.",
+          properties: {
+            id: { type: 'string' },
+            instanceId: { type: 'string' },
+            profileRef: { type: 'string' },
+            label: { type: 'string', nullable: true },
+            disks: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  drive: { type: 'integer' },
+                  filename: { type: 'string', description: 'Base image the drive was bound to.' },
+                },
+              },
+            },
+            createdAt: { type: 'string' },
+          },
+        },
         MachineInstance: {
           type: 'object',
           description: 'A virtual S-100 Machine Instance (Bitsby8) — a running or defined emulated machine.',

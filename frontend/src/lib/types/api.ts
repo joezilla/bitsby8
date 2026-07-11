@@ -237,6 +237,15 @@ export interface DiskBinding {
   dirty: boolean;
 }
 
+export interface InstanceSnapshot {
+  id: string;
+  instanceId: string;
+  profileRef: string;
+  label: string | null;
+  disks: { drive: number; filename: string }[];
+  createdAt: string;
+}
+
 /** A virtual Machine Instance's dashboard status (Bitsby8). */
 export interface InstanceStatus {
   id: string;

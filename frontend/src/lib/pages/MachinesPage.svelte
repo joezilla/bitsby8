@@ -8,10 +8,12 @@
   import Icon from '$lib/components/shared/Icon.svelte';
   import Sparkline from '$lib/components/machines/Sparkline.svelte';
   import InstanceConsole from '$lib/components/machines/InstanceConsole.svelte';
+  import SnapshotsModal from '$lib/components/machines/SnapshotsModal.svelte';
 
   let instances = $state<InstanceStatus[]>([]);
   let loading = $state(true);
   let consoleFor = $state<InstanceStatus | null>(null);
+  let snapshotsFor = $state<InstanceStatus | null>(null);
   let sparkData = $state<Record<string, number[]>>({}); // per-instance effectiveHz ring
   let poll: ReturnType<typeof setInterval> | null = null;
 
@@ -187,6 +189,9 @@
             {:else}
               <Button variant="tonal" size="sm" icon="play_arrow" onclick={() => act(() => api.startInstance(i.id), 'Started')}>Start</Button>
             {/if}
+            {#if i.disks.length}
+              <Button variant="ghost" size="sm" icon="photo_camera" onclick={() => (snapshotsFor = i)}>Snapshots</Button>
+            {/if}
             <Button variant="ghost" size="sm" icon="delete" danger onclick={() => destroy(i)}>Destroy</Button>
           </div>
         </div>
@@ -197,6 +202,15 @@
 
 {#if consoleFor}
   <InstanceConsole instanceId={consoleFor.id} title={consoleFor.profileRef} onClose={() => (consoleFor = null)} />
+{/if}
+
+{#if snapshotsFor}
+  <SnapshotsModal
+    instanceId={snapshotsFor.id}
+    title={snapshotsFor.profileRef}
+    onClose={() => (snapshotsFor = null)}
+    onRestored={load}
+  />
 {/if}
 
 <style>
