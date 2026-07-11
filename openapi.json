@@ -127,6 +127,61 @@
           }
         }
       },
+      "CardDefinition": {
+        "type": "object",
+        "description": "A Catalog Card Definition (Bitsby8) — a versioned Primitive identified by name@version + digest.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "mits-88-2sio@1.0.0",
+            "description": "Identity: name@version."
+          },
+          "name": {
+            "type": "string",
+            "example": "mits-88-2sio"
+          },
+          "version": {
+            "type": "string",
+            "example": "1.0.0"
+          },
+          "digest": {
+            "type": "string",
+            "example": "sha256:…",
+            "description": "Content digest (basic sha256; full rule in a later release)."
+          },
+          "type": {
+            "type": "string",
+            "example": "serial"
+          },
+          "maker": {
+            "type": "string",
+            "nullable": true,
+            "example": "MITS"
+          },
+          "summary": {
+            "type": "string",
+            "nullable": true
+          },
+          "manifest": {
+            "type": "object",
+            "description": "The CardManifest (config schema, etc.).",
+            "additionalProperties": true
+          },
+          "entry": {
+            "type": "string",
+            "nullable": true,
+            "description": "Reference to the pre-built behavior module."
+          },
+          "source": {
+            "type": "string",
+            "example": "seed",
+            "description": "Provenance: 'seed' | 'imported' | 'signed'."
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        }
+      },
       "SystemInfo": {
         "type": "object",
         "properties": {
@@ -3797,6 +3852,74 @@
           },
           "404": {
             "description": "No splinter for this client/drive"
+          }
+        }
+      }
+    },
+    "/api/catalog/cards": {
+      "get": {
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "List Card Definitions",
+        "description": "Returns every Card Definition in the Catalog (seed cards in Tier-1), with Identity, type, and manifest.",
+        "responses": {
+          "200": {
+            "description": "Array of Card Definitions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "cards": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/CardDefinition"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/catalog/cards/{id}": {
+      "get": {
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "Get a Card Definition by Identity",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Card Identity (name@version, e.g. mits-88-2sio@1.0.0)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The Card Definition",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "card": {
+                      "$ref": "#/components/schemas/CardDefinition"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
           }
         }
       }

@@ -34,6 +34,7 @@ import { registerDiskServingRoutes } from './routes/disk-serving';
 import { registerDriveRoutes } from './routes/drives';
 import { registerImageRoutes } from './routes/images';
 import { registerSnapshotRoutes } from './routes/snapshots';
+import { registerCatalogRoutes } from './routes/catalog';
 import { registerSettingsRoutes } from './routes/settings';
 import { registerClientRoutes } from './routes/clients';
 import { ConnectionManager } from './services/connection-manager';
@@ -177,6 +178,7 @@ export class WebServer {
     registerDriveRoutes(router, this.deps);
     registerImageRoutes(router, this.deps);
     registerSnapshotRoutes(router, this.deps);
+    registerCatalogRoutes(router, this.deps);
     registerSettingsRoutes(router, this.deps);
     registerClientRoutes(router, this.deps);
     registerCpmRoutes(router, this.deps);
