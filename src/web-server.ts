@@ -36,7 +36,7 @@ import { registerImageRoutes } from './routes/images';
 import { registerSnapshotRoutes } from './routes/snapshots';
 import { registerCatalogRoutes } from './routes/catalog';
 import { loadSeedCatalog } from './services/catalog-seed';
-import { INSTANCE_CLIENT_PREFIX } from './services/instance-manager';
+import { INSTANCE_CLIENT_PREFIX, InstanceManager } from './services/instance-manager';
 import { registerSettingsRoutes } from './routes/settings';
 import { registerClientRoutes } from './routes/clients';
 import { ConnectionManager } from './services/connection-manager';
@@ -156,6 +156,8 @@ export class WebServer {
 
     // Owns the extra per-connection loops used when multi-client serving is on.
     this.deps.connectionManager = new ConnectionManager(this.deps);
+    // Owns virtual Machine Instance lifecycle + consoles (Bitsby8).
+    this.deps.instanceManager = new InstanceManager(this.deps);
 
     this.setup();
   }

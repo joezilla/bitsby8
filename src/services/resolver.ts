@@ -27,6 +27,9 @@ export interface MachineProfile {
   resetVector: number;
   memory: MemoryRegionSpec[];
   cards: ProfileCardInstance[];
+  /** Which Card Instance drives the operator console; defaults to the first
+   * card that exposes a serial console channel. */
+  consoleCardId?: string;
 }
 
 export interface ResolvedCardProvenance {

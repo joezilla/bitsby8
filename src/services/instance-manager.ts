@@ -19,6 +19,7 @@ import { Dependencies } from '../types';
 import { ServiceError } from './service-error';
 import { getSim } from './bundle-registry';
 import { resolveProfile, MachineProfile } from './resolver';
+import { ConsoleHub, ConsoleSubscriber, consoleSourceFromCard } from './console-hub';
 import { createLogger } from '../logger';
 
 const log = createLogger('instance-manager');
@@ -38,6 +39,7 @@ interface RunningInstance {
   machine?: Machine;
   channel?: WebSocketLike;
   channelConnId?: string;
+  console?: ConsoleHub;
 }
 
 export interface InstanceInfo {
@@ -151,12 +153,22 @@ export class InstanceManager {
         500,
       );
     }
+    // Wire the operator console to the designated serial card (AD-6).
+    const consoleCard = inst.profile.consoleCardId
+      ? machine.cards.find((c) => c.id === inst.profile.consoleCardId)
+      : machine.cards.find((c) => consoleSourceFromCard(c) !== null);
+    const source = consoleCard ? consoleSourceFromCard(consoleCard) : null;
+    inst.console = source ? new ConsoleHub(source) : undefined;
+
     machine.runner.start();
     inst.machine = machine;
     inst.channel = channel;
     inst.channelConnId = connId;
     inst.status = 'running';
-    log.info({ id: inst.id, clientId: inst.clientId, transient: inst.transient }, 'instance started');
+    log.info(
+      { id: inst.id, clientId: inst.clientId, transient: inst.transient, console: !!inst.console },
+      'instance started',
+    );
   }
 
   private teardown(inst: RunningInstance): void {
@@ -165,6 +177,26 @@ export class InstanceManager {
     inst.machine = undefined;
     inst.channel = undefined;
     inst.channelConnId = undefined;
+    inst.console = undefined;
+  }
+
+  /** The console hub of a running instance (throws if not running / no console). */
+  getConsole(id: string): ConsoleHub {
+    const inst = this.require(id);
+    if (!inst.console) {
+      throw new ServiceError(`Instance ${id} has no live console (not running?)`, 409);
+    }
+    return inst.console;
+  }
+
+  /** Subscribe to a running instance's console output; returns an unsubscribe fn. */
+  subscribeConsole(id: string, sub: ConsoleSubscriber): () => void {
+    return this.getConsole(id).subscribe(sub);
+  }
+
+  /** Send input to a running instance's console (RX). */
+  writeConsole(id: string, data: Uint8Array | string): void {
+    this.getConsole(id).write(data);
   }
 
   private require(id: string): RunningInstance {

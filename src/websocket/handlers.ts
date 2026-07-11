@@ -26,9 +26,41 @@ export function setupWebSocket(io: SocketIOServer, deps: Dependencies): void {
     socket.emit('status', getStatus(deps));
     socket.emit('terminal:status', getTerminalStatus(deps));
 
+    // Per-socket subscriptions to virtual instance consoles (Bitsby8).
+    const consoleUnsubs = new Map<string, () => void>();
+
     // Handle disconnect
     socket.on('disconnect', () => {
-      // no-op
+      for (const off of consoleUnsubs.values()) off();
+      consoleUnsubs.clear();
+    });
+
+    // --- Virtual instance console (Bitsby8, AD-6) ---
+
+    socket.on('instance:console:subscribe', ({ instanceId }: { instanceId: string }) => {
+      try {
+        if (!deps.instanceManager) throw new Error('virtual instances are not available');
+        if (consoleUnsubs.has(instanceId)) return; // idempotent
+        const off = deps.instanceManager.subscribeConsole(instanceId, {
+          onOutput: (bytes) => socket.emit('instance:console:data', { instanceId, data: Array.from(bytes) }),
+        });
+        consoleUnsubs.set(instanceId, off);
+      } catch (error) {
+        socket.emit('instance:console:error', { instanceId, message: safeErrorMessage(error) });
+      }
+    });
+
+    socket.on('instance:console:write', ({ instanceId, data }: { instanceId: string; data: string }) => {
+      try {
+        deps.instanceManager?.writeConsole(instanceId, data);
+      } catch (error) {
+        socket.emit('instance:console:error', { instanceId, message: safeErrorMessage(error) });
+      }
+    });
+
+    socket.on('instance:console:unsubscribe', ({ instanceId }: { instanceId: string }) => {
+      consoleUnsubs.get(instanceId)?.();
+      consoleUnsubs.delete(instanceId);
     });
 
     // Handle status request
