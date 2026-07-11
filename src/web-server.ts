@@ -34,6 +34,8 @@ import { registerDiskServingRoutes } from './routes/disk-serving';
 import { registerDriveRoutes } from './routes/drives';
 import { registerImageRoutes } from './routes/images';
 import { registerSnapshotRoutes } from './routes/snapshots';
+import { registerCatalogRoutes } from './routes/catalog';
+import { loadSeedCatalog } from './services/catalog-seed';
 import { registerSettingsRoutes } from './routes/settings';
 import { registerClientRoutes } from './routes/clients';
 import { ConnectionManager } from './services/connection-manager';
@@ -177,6 +179,7 @@ export class WebServer {
     registerDriveRoutes(router, this.deps);
     registerImageRoutes(router, this.deps);
     registerSnapshotRoutes(router, this.deps);
+    registerCatalogRoutes(router, this.deps);
     registerSettingsRoutes(router, this.deps);
     registerClientRoutes(router, this.deps);
     registerCpmRoutes(router, this.deps);
@@ -305,6 +308,13 @@ export class WebServer {
         console.error(`Failed to initialize database at ${this.deps.database.getPath()}:`, error);
         console.log('Continuing without database support');
       }
+    }
+
+    // Seed the Catalog with 8sim's built-in Card Definitions (non-fatal).
+    try {
+      await loadSeedCatalog(this.deps);
+    } catch (error) {
+      console.error('Catalog seeding failed (continuing):', error);
     }
 
     // Cache the multi-client settings (updated live by PUT /api/settings).

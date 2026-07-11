@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      8sim:
+        specifier: file:../8sim
+        version: file:../8sim
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
@@ -172,6 +175,9 @@ importers:
         version: 6.4.2(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)
 
 packages:
+
+  8sim@file:../8sim:
+    resolution: {directory: ../8sim, type: directory}
 
   '@apidevtools/json-schema-ref-parser@14.0.1':
     resolution: {integrity: sha512-Oc96zvmxx1fqoSEdUmfmvvb59/KDOnUoJ7s2t7bISyAn0XEz57LCCw8k2Y4Pf3mwKaZLMciESALORLgfe2frCw==}
@@ -3174,6 +3180,8 @@ packages:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
 snapshots:
+
+  8sim@file:../8sim: {}
 
   '@apidevtools/json-schema-ref-parser@14.0.1':
     dependencies:

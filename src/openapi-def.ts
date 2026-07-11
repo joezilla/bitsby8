@@ -91,6 +91,23 @@ export const openapiDefinition: Options = {
             },
           },
         },
+        CardDefinition: {
+          type: 'object',
+          description: 'A Catalog Card Definition (Bitsby8) — a versioned Primitive identified by name@version + digest.',
+          properties: {
+            id: { type: 'string', example: 'mits-88-2sio@1.0.0', description: 'Identity: name@version.' },
+            name: { type: 'string', example: 'mits-88-2sio' },
+            version: { type: 'string', example: '1.0.0' },
+            digest: { type: 'string', example: 'sha256:…', description: 'Content digest (basic sha256; full rule in a later release).' },
+            type: { type: 'string', example: 'serial' },
+            maker: { type: 'string', nullable: true, example: 'MITS' },
+            summary: { type: 'string', nullable: true },
+            manifest: { type: 'object', description: 'The CardManifest (config schema, etc.).', additionalProperties: true },
+            entry: { type: 'string', nullable: true, description: 'Reference to the pre-built behavior module.' },
+            source: { type: 'string', example: 'seed', description: "Provenance: 'seed' | 'imported' | 'signed'." },
+            createdAt: { type: 'string' },
+          },
+        },
         SystemInfo: {
           type: 'object',
           properties: {

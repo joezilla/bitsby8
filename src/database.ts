@@ -64,6 +64,22 @@ export interface ClientLabel {
   updated_at: string;
 }
 
+/** A Card Definition in the Catalog (Bitsby8). Identity = `name@version` +
+ * `digest`; `manifest` is the JSON-serialized CardManifest. */
+export interface CardDefinitionRecord {
+  id: string; // `${name}@${version}`
+  name: string;
+  version: string;
+  digest: string;
+  type: string;
+  maker: string | null;
+  summary: string | null;
+  manifest: string; // JSON
+  entry: string | null; // bundle entry ref
+  source: string; // 'seed' | 'imported' | 'signed'
+  created_at: string;
+}
+
 // Schema migrations, applied in order. Each runs inside a transaction.
 const MIGRATIONS: string[] = [
   // Migration 0: initial schema
@@ -143,6 +159,27 @@ const MIGRATIONS: string[] = [
     name TEXT NOT NULL DEFAULT '',
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );`,
+
+  // Migration 6: Catalog — Card Definitions (Bitsby8). A Card Definition is a
+  // versioned Primitive identified by `name@version` + a content `digest`; the
+  // full CardManifest (config schema, docs refs) is stored as JSON. `entry` is
+  // the bundle's behavior-module ref; `source` records provenance for the
+  // (deferred) trust boundary.
+  `CREATE TABLE IF NOT EXISTS card_definitions (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    digest TEXT NOT NULL,
+    type TEXT NOT NULL,
+    maker TEXT,
+    summary TEXT,
+    manifest TEXT NOT NULL,
+    entry TEXT,
+    source TEXT NOT NULL DEFAULT 'seed',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (name, version)
+  );
+  CREATE INDEX IF NOT EXISTS idx_card_definitions_name ON card_definitions(name);`,
 ];
 
 export class Database {
@@ -628,6 +665,37 @@ export class Database {
   /**
    * Check if database is initialized.
    */
+  // --- Catalog: Card Definitions (Bitsby8) ---
+
+  async upsertCardDefinition(rec: Omit<CardDefinitionRecord, 'created_at'>): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare(
+      `INSERT INTO card_definitions (id, name, version, digest, type, maker, summary, manifest, entry, source, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(id) DO UPDATE SET
+         digest = excluded.digest, type = excluded.type, maker = excluded.maker,
+         summary = excluded.summary, manifest = excluded.manifest,
+         entry = excluded.entry, source = excluded.source`
+    ).run(
+      rec.id, rec.name, rec.version, rec.digest, rec.type,
+      rec.maker, rec.summary, rec.manifest, rec.entry, rec.source
+    );
+  }
+
+  async getCardDefinitionById(id: string): Promise<CardDefinitionRecord | undefined> {
+    this.ensureInitialized();
+    return this.db!.prepare('SELECT * FROM card_definitions WHERE id = ?').get(id) as
+      | CardDefinitionRecord
+      | undefined;
+  }
+
+  async listCardDefinitions(): Promise<CardDefinitionRecord[]> {
+    this.ensureInitialized();
+    return this.db!.prepare(
+      'SELECT * FROM card_definitions ORDER BY type, name, version'
+    ).all() as CardDefinitionRecord[];
+  }
+
   isInitialized(): boolean {
     return this.initialized;
   }

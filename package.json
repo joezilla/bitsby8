@@ -31,6 +31,7 @@
   "author": "Joe Toppe (TypeScript version)",
   "license": "GPL-3.0",
   "dependencies": {
+    "8sim": "file:../8sim",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/multer": "^2.0.0",
     "@types/play-sound": "^1.1.2",

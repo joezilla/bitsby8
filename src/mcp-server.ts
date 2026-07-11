@@ -10,6 +10,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { Dependencies } from './types';
 import { getStatus, getDrivesStatus, getTerminalStatus } from './services/status';
+import { listCardDefinitions, getCardDefinition } from './services/catalog';
 import { enableDiskServing, disableDiskServing, broadcastStatus } from './services/disk-serving';
 import { listDiskImagesWithDetails, listCassettesWithDetails } from './services/file-listing';
 import { startRawReplay, startXmodemSend, cancelActiveTransfer } from './services/transfer';
@@ -1947,6 +1948,32 @@ export function createMcpServer(deps: Dependencies): McpServer {
       try {
         const cassettes = await listCassettesWithDetails(deps);
         return { content: [{ type: 'text', text: JSON.stringify(cassettes, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'list_card_definitions',
+    'List all Card Definitions in the Catalog (Bitsby8) — seed S-100 cards with Identity, type, and manifest',
+    async () => {
+      try {
+        const cards = await listCardDefinitions(deps);
+        return { content: [{ type: 'text', text: JSON.stringify(cards, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+  server.tool(
+    'get_card_definition',
+    'Get one Card Definition from the Catalog by Identity (name@version, e.g. mits-88-2sio@1.0.0)',
+    { id: z.string().describe('Card Identity: name@version') },
+    async ({ id }) => {
+      try {
+        const card = await getCardDefinition(deps, id);
+        return { content: [{ type: 'text', text: JSON.stringify(card, null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
       }
