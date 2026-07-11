@@ -506,9 +506,9 @@ export const api = {
     ),
 
   listMachinePresets: () => request<{ presets: MachinePresetInfo[] }>('/api/instances/presets'),
-  launchTransient: (profileRef: string) =>
+  launchTransient: (profileRef: string, speed?: number | 'max') =>
     request<{ instance: { id: string } }>('/api/instances/transient', {
       method: 'POST',
-      body: JSON.stringify({ profileRef }),
+      body: JSON.stringify({ profileRef, speed }),
     }),
 };

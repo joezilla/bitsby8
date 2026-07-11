@@ -2285,10 +2285,11 @@ export function createMcpServer(deps: Dependencies): McpServer {
         .record(z.string(), z.any())
         .optional()
         .describe('Inline MachineProfile (cpuKind, clock, resetVector, memory[], cards[], consoleCardId) — alternative to preset'),
+      speed: z.union([z.number(), z.literal('max')]).optional().describe('Launch speed: Hz (e.g. 2000000 for authentic 2 MHz) or "max"'),
     },
-    async ({ profileRef, preset, profile }) => {
+    async ({ profileRef, preset, profile, speed }) => {
       try {
-        const info = await createTransientInstance(deps, { profileRef, preset, profile: profile as never }, 'mcp');
+        const info = await createTransientInstance(deps, { profileRef, preset, profile: profile as never, speed }, 'mcp');
         return { content: [{ type: 'text', text: JSON.stringify(info, null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
@@ -2303,10 +2304,11 @@ export function createMcpServer(deps: Dependencies): McpServer {
       profileRef: z.string().optional().describe('Stored Machine Profile ref: name@version (or bare name → latest)'),
       preset: z.string().optional().describe('Machine preset id, e.g. imsai-cpm'),
       profile: z.record(z.string(), z.any()).optional().describe('Inline MachineProfile — alternative to preset'),
+      speed: z.union([z.number(), z.literal('max')]).optional().describe('Launch speed: Hz or "max"'),
     },
-    async ({ profileRef, preset, profile }) => {
+    async ({ profileRef, preset, profile, speed }) => {
       try {
-        const info = await defineInstance(deps, { profileRef, preset, profile: profile as never }, 'mcp');
+        const info = await defineInstance(deps, { profileRef, preset, profile: profile as never, speed }, 'mcp');
         return { content: [{ type: 'text', text: JSON.stringify(info, null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };

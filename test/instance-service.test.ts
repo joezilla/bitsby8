@@ -44,10 +44,17 @@ function consoleFakeSim() {
           enqueueRx: (b: number) => tx(b), // echo RX straight to TX
         },
       };
+      let hz: number | 'max' = 'max';
       return {
         cpu: { pc: 0, halted: false, step: () => 1, reset() {} },
         bus: {}, pic: {}, cards: [card], spec: {},
-        runner: { start() {}, stop() {}, effectiveHz: 2000, targetHz: 'max' as const },
+        runner: {
+          start() {},
+          stop() {},
+          setHz(h: number | 'max') { hz = h; },
+          get effectiveHz() { return typeof hz === 'number' ? hz : 2000; },
+          get targetHz() { return hz; },
+        },
       };
     },
   } as unknown as SimModule;
@@ -103,6 +110,21 @@ describe('instance-service', () => {
   test('neither preset nor profile yields a 400', async () => {
     const deps = await makeDeps();
     await expect(createTransientInstance(deps, {}, 'mcp')).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  test('a launch-time speed override sets the runner Hz (authentic 2 MHz)', async () => {
+    const deps = await makeDeps();
+    const info = await createTransientInstance(deps, { profile, speed: 2000000 }, 'api');
+    expect(info.targetHz).toBe(2000000);
+    expect(info.effectiveHz).toBe(2000000);
+    await destroyInstance(deps, info.id);
+  });
+
+  test('an invalid speed is rejected (400)', async () => {
+    const deps = await makeDeps();
+    await expect(createTransientInstance(deps, { profile, speed: -5 as never }, 'api')).rejects.toMatchObject({
+      statusCode: 400,
+    });
   });
 
   test('create-transient records driver provenance and drives the console loop', async () => {

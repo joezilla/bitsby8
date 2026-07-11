@@ -29,6 +29,17 @@ export interface InstanceSpecInput {
   preset?: string;
   /** An inline MachineProfile. */
   profile?: MachineProfile;
+  /** Launch-time speed override: a Hz number (e.g. 2000000 for authentic 2 MHz) or 'max'. */
+  speed?: number | 'max';
+}
+
+/** Normalize a speed input (number | 'max' | numeric string) or undefined. */
+function normalizeSpeed(speed: unknown): number | 'max' | undefined {
+  if (speed === undefined || speed === null) return undefined;
+  if (speed === 'max') return 'max';
+  const n = typeof speed === 'string' ? Number(speed) : speed;
+  if (typeof n === 'number' && Number.isFinite(n) && n > 0) return n;
+  throw new ServiceError(`speed must be a positive Hz number or 'max', got ${JSON.stringify(speed)}`, 400);
 }
 
 /** Resolve a machine spec from a stored Profile, a preset, or an inline profile. */
@@ -74,7 +85,7 @@ export async function createTransientInstance(
   driver: InstanceDriver,
 ): Promise<InstanceInfo> {
   const { profile, profileRef } = await resolveSpec(deps, input);
-  return manager(deps).createTransient(profile, profileRef, driver);
+  return manager(deps).createTransient(profile, profileRef, driver, normalizeSpeed(input.speed));
 }
 
 export async function defineInstance(
@@ -83,7 +94,7 @@ export async function defineInstance(
   driver: InstanceDriver,
 ): Promise<InstanceInfo> {
   const { profile, profileRef } = await resolveSpec(deps, input);
-  return manager(deps).define(profile, profileRef, driver);
+  return manager(deps).define(profile, profileRef, driver, normalizeSpeed(input.speed));
 }
 
 export async function startInstance(deps: Dependencies, id: string): Promise<InstanceInfo> {

@@ -104,8 +104,8 @@ export function registerInstanceRoutes(router: Router, deps: Dependencies): void
 
   router.post('/api/instances', async (req: Request, res: Response): Promise<void> => {
     try {
-      const { profileRef, preset, profile } = req.body ?? {};
-      res.json({ instance: await defineInstance(deps, { profileRef, preset, profile }, 'api') });
+      const { profileRef, preset, profile, speed } = req.body ?? {};
+      res.json({ instance: await defineInstance(deps, { profileRef, preset, profile, speed }, 'api') });
     } catch (error) {
       sendError(res, error);
     }
@@ -137,8 +137,8 @@ export function registerInstanceRoutes(router: Router, deps: Dependencies): void
    */
   router.post('/api/instances/transient', async (req: Request, res: Response): Promise<void> => {
     try {
-      const { profileRef, preset, profile } = req.body ?? {};
-      res.json({ instance: await createTransientInstance(deps, { profileRef, preset, profile }, 'api') });
+      const { profileRef, preset, profile, speed } = req.body ?? {};
+      res.json({ instance: await createTransientInstance(deps, { profileRef, preset, profile, speed }, 'api') });
     } catch (error) {
       sendError(res, error);
     }

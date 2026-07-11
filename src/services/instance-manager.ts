@@ -14,7 +14,7 @@
  */
 
 import { randomUUID } from 'crypto';
-import type { WebSocketLike, Machine } from '@joezilla/8sim';
+import type { WebSocketLike, Machine, CpuSpeed } from '@joezilla/8sim';
 import { Dependencies } from '../types';
 import { ServiceError } from './service-error';
 import { getSim } from './bundle-registry';
@@ -40,6 +40,8 @@ interface RunningInstance {
   transient: boolean;
   status: InstanceStatus;
   driver: InstanceDriver;
+  /** Launch-time speed override (Hz or 'max'); undefined → the profile's clock. */
+  speed?: CpuSpeed;
   profile: MachineProfile;
   machine?: Machine;
   channel?: WebSocketLike;
@@ -77,8 +79,9 @@ export class InstanceManager {
     profile: MachineProfile,
     profileRef = 'inline',
     driver: InstanceDriver = 'api',
+    speed?: CpuSpeed,
   ): Promise<InstanceInfo> {
-    const inst = this.register(profile, profileRef, false, driver);
+    const inst = this.register(profile, profileRef, false, driver, speed);
     await this.deps.database.upsertMachineInstance({
       id: inst.id,
       profile_ref: profileRef,
@@ -94,8 +97,9 @@ export class InstanceManager {
     profile: MachineProfile,
     profileRef = 'inline',
     driver: InstanceDriver = 'api',
+    speed?: CpuSpeed,
   ): Promise<InstanceInfo> {
-    const inst = this.register(profile, profileRef, true, driver);
+    const inst = this.register(profile, profileRef, true, driver, speed);
     await this.startInstance(inst);
     return this.info(inst);
   }
@@ -143,6 +147,7 @@ export class InstanceManager {
     profileRef: string,
     transient: boolean,
     driver: InstanceDriver,
+    speed?: CpuSpeed,
   ): RunningInstance {
     const id = randomUUID();
     const inst: RunningInstance = {
@@ -152,6 +157,7 @@ export class InstanceManager {
       transient,
       status: 'defined',
       driver,
+      speed,
       profile,
     };
     this.instances.set(id, inst);
@@ -181,6 +187,9 @@ export class InstanceManager {
     inst.console = source ? new ConsoleHub(source) : undefined;
 
     machine.runner.start();
+    // Launch-time speed override (authentic 2 MHz, 'max', etc.) — applied live
+    // over whatever clock the profile built with (FR-14; same setHz path 3.3 uses).
+    if (inst.speed !== undefined) machine.runner.setHz(inst.speed);
     inst.machine = machine;
     inst.channel = channel;
     inst.channelConnId = connId;

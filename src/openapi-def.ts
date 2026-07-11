@@ -247,6 +247,7 @@ export const openapiDefinition: Options = {
             profileRef: { type: 'string', example: 'my-imsai@1.0.0', description: 'Stored Machine Profile reference (name@version, or a bare name → latest).' },
             preset: { type: 'string', example: 'imsai-cpm', description: 'Built-in preset id (see GET /api/instances/presets).' },
             profile: { type: 'object', additionalProperties: true, description: 'Inline MachineProfile (cpuKind, clock, resetVector, memory[], cards[], consoleCardId).' },
+            speed: { oneOf: [{ type: 'number' }, { type: 'string', enum: ['max'] }], description: 'Launch speed: Hz (e.g. 2000000 for authentic 2 MHz) or "max".' },
           },
         },
         SystemInfo: {

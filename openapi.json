@@ -521,6 +521,20 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Inline MachineProfile (cpuKind, clock, resetVector, memory[], cards[], consoleCardId)."
+          },
+          "speed": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "max"
+                ]
+              }
+            ],
+            "description": "Launch speed: Hz (e.g. 2000000 for authentic 2 MHz) or \"max\"."
           }
         }
       },

@@ -31,6 +31,7 @@
   let editCards = $state<ProfileCardInstance[]>([]);
   let validation = $state<ProfileValidation | null>(null);
   let validateToken = 0;
+  let launchSpeed = $state<'2000000' | '4000000' | 'max'>('2000000');
 
   const hex = (n: number) => `0x${n.toString(16).toUpperCase()}`;
   const clockLabel = (c: MachineProfile['clock']) => (c === 'max' ? 'max' : `${c.hz} Hz`);
@@ -142,7 +143,8 @@
     if (!profile) return;
     try {
       busy = true;
-      const { instance } = await api.launchTransient(profile.id);
+      const speed = launchSpeed === 'max' ? 'max' : Number(launchSpeed);
+      const { instance } = await api.launchTransient(profile.id, speed);
       showToast(`Launched instance ${instance.id.slice(0, 8)}… (mount a boot disk on drive 0 to boot)`, 'success');
     } catch (err) {
       showToast((err as Error).message, 'error');
@@ -205,6 +207,14 @@
         </div>
       </div>
       <div class="head-actions">
+        <label class="speed-pick" title="CPU speed at launch">
+          <span class="sr-only">Launch speed</span>
+          <select class="speed-select fdc-mono" bind:value={launchSpeed} disabled={busy}>
+            <option value="2000000">2 MHz</option>
+            <option value="4000000">4 MHz</option>
+            <option value="max">max</option>
+          </select>
+        </label>
         <Button
           variant="tonal"
           icon="play_arrow"
@@ -389,8 +399,33 @@
   }
   .head-actions {
     display: flex;
+    align-items: center;
     gap: var(--space-2);
     flex-wrap: wrap;
+  }
+  .speed-select {
+    height: 36px;
+    padding: 0 var(--space-2);
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius-sm);
+    color: var(--fg-1);
+    font-size: 13px;
+  }
+  .speed-select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   .validator-bar {
