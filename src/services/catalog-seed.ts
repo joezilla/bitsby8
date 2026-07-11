@@ -69,7 +69,7 @@ export async function loadSeedCatalog(deps: Dependencies): Promise<number> {
     const dynamicImport = new Function('specifier', 'return import(specifier)') as (
       specifier: string,
     ) => Promise<{ seedBundles?: ReadonlyArray<SeedBundleLike> }>;
-    const sim = await dynamicImport('8sim');
+    const sim = await dynamicImport('@joezilla/8sim');
     const bundles = sim.seedBundles;
     if (!bundles || bundles.length === 0) {
       log.warn('8sim exports no seedBundles; Catalog not seeded');

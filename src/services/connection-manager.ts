@@ -11,9 +11,12 @@
  */
 
 import { WebSocket } from 'ws';
+import type { WebSocketLike } from '@joezilla/8sim';
 import { randomUUID } from 'crypto';
 import { Dependencies } from '../types';
 import { WsTransportManager } from '../ws-transport';
+import { IFdcTransport } from '../transport';
+import { InProcessFdcChannel } from './in-process-fdc-channel';
 import { DriveSession } from '../drive-session';
 import { FdcServer } from '../server';
 import { getMountRegistry } from '../mount-registry';
@@ -23,10 +26,13 @@ import { createLogger } from '../logger';
 
 const log = createLogger('connection-manager');
 
+type TransportKind = 'websocket' | 'in-process';
+
 interface ConnectionContext {
   id: string;
   clientId: string | null;
-  transport: WsTransportManager;
+  transport: IFdcTransport;
+  kind: TransportKind;
   session: DriveSession;
   server: FdcServer;
   task: Promise<void> | null;
@@ -36,7 +42,7 @@ interface ConnectionContext {
 export interface ConnectedClientInfo {
   id: string;
   clientId: string | null;
-  transport: 'websocket';
+  transport: TransportKind;
   connectedAt: number;
 }
 
@@ -50,12 +56,38 @@ export class ConnectionManager {
    * Only called when the multi-client flag is on.
    */
   async addWsClient(ws: WebSocket, clientId: string | null): Promise<void> {
-    const id = randomUUID();
     const transport = new WsTransportManager();
     transport.acceptConnection(ws);
+    const id = await this.startServed(transport, clientId, 'websocket');
+    // Tear down when the socket closes.
+    ws.on('close', () => { void this.remove(id); });
+    log.info({ id, clientId, transport: 'websocket', total: this.connections.size }, 'multi-client FDC connection started');
+    this.broadcast();
+  }
 
-    // A supplied clientId → persistent splinters; anonymous → ephemeral.
-    // The designated master client writes the base image directly.
+  /**
+   * Accept a LOCAL virtual client over an in-process FDC frame channel (no TCP,
+   * AD-3). Returns the client-side WebSocketLike to hand to the emulated card's
+   * FdcPlusClient, plus the connection id. Closing the channel tears the served
+   * connection down, exactly like a socket close.
+   */
+  async addInProcessClient(clientId: string | null): Promise<{ channel: WebSocketLike; id: string }> {
+    const channel = new InProcessFdcChannel();
+    const id = await this.startServed(channel.server, clientId, 'in-process');
+    channel.setOnClose(() => { void this.remove(id); });
+    log.info({ id, clientId, transport: 'in-process', total: this.connections.size }, 'in-process FDC connection started');
+    this.broadcast();
+    return { channel: channel.client, id };
+  }
+
+  /**
+   * Build and start a served connection over any FDC transport (a real
+   * WebSocket or an in-process channel). Each gets its own DriveSession —
+   * a supplied clientId → persistent splinters; anonymous → ephemeral; the
+   * designated master client writes the base image directly.
+   */
+  private async startServed(transport: IFdcTransport, clientId: string | null, kind: TransportKind): Promise<string> {
+    const id = randomUUID();
     const writesMaster = clientId != null && clientId === this.deps.writeMaster;
     const session = new DriveSession({
       clientId,
@@ -72,18 +104,14 @@ export class ConnectionManager {
 
     const server = new FdcServer(session, transport, config);
     const ctx: ConnectionContext = {
-      id, clientId, transport, session, server, task: null, connectedAt: Date.now(),
+      id, clientId, transport, kind, session, server, task: null, connectedAt: Date.now(),
     };
     this.connections.set(id, ctx);
-
-    // Tear down when the socket closes.
-    ws.on('close', () => { void this.remove(id); });
 
     ctx.task = server.start().catch((err) => {
       log.error({ err, id, clientId }, 'per-connection FDC loop error');
     });
-    log.info({ id, clientId, total: this.connections.size }, 'multi-client FDC connection started');
-    this.broadcast();
+    return id;
   }
 
   private async remove(id: string): Promise<void> {
@@ -116,7 +144,7 @@ export class ConnectionManager {
     return Array.from(this.connections.values()).map((c) => ({
       id: c.id,
       clientId: c.clientId,
-      transport: 'websocket',
+      transport: c.kind,
       connectedAt: c.connectedAt,
     }));
   }
