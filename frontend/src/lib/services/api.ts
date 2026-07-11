@@ -16,6 +16,8 @@ import type {
   CardDetail,
   MachineProfile,
   MachinePresetInfo,
+  ProfileValidation,
+  ProfileCardInstance,
   SerialSection,
   WebSection,
   McpSection,
@@ -494,6 +496,14 @@ export const api = {
     }),
   deleteProfile: (id: string) =>
     request(`/api/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  validateProfileBody: (body: { memory?: unknown[]; cards?: unknown[] }) =>
+    request<ProfileValidation>('/api/profiles/validate', { method: 'POST', body: JSON.stringify(body) }),
+  autoAssignProfile: (body: { memory?: unknown[]; cards?: unknown[] }) =>
+    request<{ content: { cards: ProfileCardInstance[] }; unresolved: string[]; changes: unknown[] }>(
+      '/api/profiles/auto-assign',
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
 
   listMachinePresets: () => request<{ presets: MachinePresetInfo[] }>('/api/instances/presets'),
   launchTransient: (profileRef: string) =>

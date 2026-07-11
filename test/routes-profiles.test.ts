@@ -11,6 +11,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { Database } from '../src/database';
 import { registerProfileRoutes } from '../src/routes/profiles';
+import { registerCardDefinition } from '../src/services/catalog';
+import { _setSimForTests, SimModule } from '../src/services/bundle-registry';
 import { Dependencies } from '../src/types';
 
 async function buildApp() {
@@ -77,5 +79,57 @@ describe('/api/profiles lifecycle', () => {
     expect((await request(app).post('/api/profiles').send(body)).status).toBe(409);
     expect((await request(app).get('/api/profiles/nope@9.9.9')).status).toBe(404);
     expect((await request(app).post('/api/profiles').send({ cpuKind: 'i8080' })).status).toBe(400);
+  });
+});
+
+describe('/api/profiles/validate + /auto-assign', () => {
+  const fakeSim = {
+    seedBundles: [
+      {
+        manifest: { name: 'q', version: '1.0.0', type: 'serial', configSchema: { basePort: { type: 'u8', default: 0x10, min: 0, max: 0xfc } } },
+        cardFactory: (id: string) => ({ id }),
+        claims: (cfg: Record<string, unknown>) => {
+          const b = ((cfg.basePort as number) ?? 0x10) & 0xff;
+          return { ports: [b, b + 1] };
+        },
+      },
+    ],
+    withDefaults: (_m: unknown, c: Record<string, unknown> = {}) => ({ ...c }),
+  } as unknown as SimModule;
+
+  beforeEach(() => _setSimForTests(fakeSim));
+  afterEach(() => _setSimForTests(null));
+
+  async function appWithCard() {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fdcsds-rpv-'));
+    const database = new Database(path.join(dir, 'test.db'));
+    await database.initialize();
+    const deps = { database } as unknown as Dependencies;
+    await registerCardDefinition(deps, {
+      manifest: { name: 'q', version: '1.0.0', type: 'serial', configSchema: { basePort: { type: 'u8', default: 0x10, min: 0, max: 0xfc } } },
+      source: 'seed',
+    });
+    const app = express();
+    app.use(express.json());
+    const router = express.Router();
+    registerProfileRoutes(router, deps);
+    app.use(router);
+    return app;
+  }
+
+  test('validate reports a port collision; auto-assign clears it', async () => {
+    const app = await appWithCard();
+    const cards = [
+      { id: 'a', ref: 'q@1.0.0', config: { basePort: 0x10 } },
+      { id: 'b', ref: 'q@1.0.0', config: { basePort: 0x10 } },
+    ];
+    const bad = await request(app).post('/api/profiles/validate').send({ cards, memory: [] });
+    expect(bad.body.ok).toBe(false);
+    expect(bad.body.collisions[0]).toMatchObject({ kind: 'port', offenders: ['a', 'b'] });
+
+    const aa = await request(app).post('/api/profiles/auto-assign').send({ cards, memory: [] });
+    expect(aa.body.unresolved).toEqual([]);
+    const good = await request(app).post('/api/profiles/validate').send({ cards: aa.body.content.cards, memory: [] });
+    expect(good.body.ok).toBe(true);
   });
 });

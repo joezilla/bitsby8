@@ -11,7 +11,22 @@ import {
   updateProfile,
   cloneProfile,
   deleteProfile,
+  ProfileContent,
 } from '../services/profile-service';
+import { validateProfile, autoAssign } from '../services/collision-validator';
+
+/** Normalize a request body into a ProfileContent for collision checks
+ * (only memory + cards affect collisions; the rest is defaulted). */
+function contentFromBody(body: Record<string, unknown>): ProfileContent {
+  return {
+    cpuKind: (body.cpuKind as ProfileContent['cpuKind']) ?? 'i8080',
+    clock: (body.clock as ProfileContent['clock']) ?? 'max',
+    resetVector: (body.resetVector as number) ?? 0,
+    memory: (body.memory as ProfileContent['memory']) ?? [],
+    cards: (body.cards as ProfileContent['cards']) ?? [],
+    consoleCardId: body.consoleCardId as string | undefined,
+  };
+}
 
 function sendError(res: Response, error: unknown): void {
   if (error instanceof ServiceError) {
@@ -73,6 +88,73 @@ export function registerProfileRoutes(router: Router, deps: Dependencies): void 
   router.get('/api/profiles', async (_req: Request, res: Response): Promise<void> => {
     try {
       res.json({ profiles: await listProfiles(deps) });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/profiles/validate:
+   *   post:
+   *     tags: [Profiles]
+   *     summary: Validate a (possibly unsaved) Profile for bus collisions
+   *     description: Define-time collision check (FR-8) — returns every collision (port/IRQ/memory) naming both offenders and the specific resource, plus each card's claimed footprint. `ok:true` means the Profile is runnable.
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               memory: { type: array, items: { type: object } }
+   *               cards: { type: array, items: { type: object } }
+   *     responses:
+   *       200:
+   *         description: Validation result
+   *         content:
+   *           application/json:
+   *             schema: { $ref: '#/components/schemas/ProfileValidation' }
+   */
+  router.post('/api/profiles/validate', async (req: Request, res: Response): Promise<void> => {
+    try {
+      res.json(await validateProfile(deps, contentFromBody(req.body ?? {})));
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/profiles/auto-assign:
+   *   post:
+   *     tags: [Profiles]
+   *     summary: Auto-assign collision-free base ports
+   *     description: Sweeps each colliding card's base port for a collision-free value (FR-8). Returns the updated content plus any cards that couldn't be resolved.
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               memory: { type: array, items: { type: object } }
+   *               cards: { type: array, items: { type: object } }
+   *     responses:
+   *       200:
+   *         description: Reassignment result
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 content: { type: object }
+   *                 unresolved: { type: array, items: { type: string } }
+   *                 changes: { type: array, items: { type: object } }
+   */
+  router.post('/api/profiles/auto-assign', async (req: Request, res: Response): Promise<void> => {
+    try {
+      res.json(await autoAssign(deps, contentFromBody(req.body ?? {})));
     } catch (error) {
       sendError(res, error);
     }
@@ -244,6 +326,34 @@ export function registerProfileRoutes(router: Router, deps: Dependencies): void 
   router.get('/api/profiles/:name/versions', async (req: Request, res: Response): Promise<void> => {
     try {
       res.json({ versions: await listProfileVersions(deps, req.params.name) });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/profiles/{id}/validation:
+   *   get:
+   *     tags: [Profiles]
+   *     summary: Validate a stored Profile for bus collisions
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *     responses:
+   *       200:
+   *         description: Validation result
+   *         content:
+   *           application/json:
+   *             schema: { $ref: '#/components/schemas/ProfileValidation' }
+   *       404: { description: Not found }
+   */
+  router.get('/api/profiles/:id/validation', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const profile = await getProfile(deps, req.params.id);
+      res.json(await validateProfile(deps, profile));
     } catch (error) {
       sendError(res, error);
     }

@@ -16,8 +16,9 @@
     cards: ProfileCardInstance[];
     catalog: CardDefinition[];
     onchange: (cards: ProfileCardInstance[]) => void;
+    offenders?: Set<string>;
   }
-  let { cards, catalog, onchange }: Props = $props();
+  let { cards, catalog, onchange, offenders = new Set() }: Props = $props();
 
   let addRef = $state('');
   $effect(() => {
@@ -110,10 +111,13 @@
         {@const params = Object.entries(schema)}
         <li class="slot">
           <div class="slot-rail" aria-hidden="true"><span class="slot-no fdc-mono">{i + 1}</span></div>
-          <div class="board">
+          <div class="board" class:collision={offenders.has(card.id)}>
             <div class="board-head">
               <div class="board-id">
-                <span class="cid fdc-mono">{card.id}</span>
+                <span class="cid fdc-mono">
+                  {#if offenders.has(card.id)}<Icon name="error" size={16} />{/if}
+                  {card.id}
+                </span>
                 <span class="cref fdc-mono">{card.ref}</span>
               </div>
               <div class="board-actions">
@@ -242,6 +246,16 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
+  }
+  .board.collision {
+    border-color: var(--error);
+    background: color-mix(in srgb, var(--error) 7%, var(--surface-raised));
+  }
+  .board.collision .cid {
+    color: var(--error);
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
   }
   .board-head {
     display: flex;

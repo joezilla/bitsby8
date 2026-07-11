@@ -379,6 +379,67 @@
           }
         }
       },
+      "ProfileValidation": {
+        "type": "object",
+        "description": "Define-time bus-collision validation of a Profile (Bitsby8). ok:true → runnable.",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "collisions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "port",
+                    "irq",
+                    "memory"
+                  ]
+                },
+                "resource": {
+                  "type": "string",
+                  "example": "I/O port 0x10"
+                },
+                "offenders": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Colliding card instance ids (or memory region ids)."
+                }
+              }
+            }
+          },
+          "claims": {
+            "type": "array",
+            "description": "Each card's claimed bus footprint at its config.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "cardId": {
+                  "type": "string"
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "ports": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                },
+                "irq": {
+                  "type": "integer",
+                  "nullable": true
+                }
+              }
+            }
+          }
+        }
+      },
       "MachineInstance": {
         "type": "object",
         "description": "A virtual S-100 Machine Instance (Bitsby8) — a running or defined emulated machine.",
@@ -2017,6 +2078,113 @@
         }
       }
     },
+    "/api/profiles/validate": {
+      "post": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Validate a (possibly unsaved) Profile for bus collisions",
+        "description": "Define-time collision check (FR-8) — returns every collision (port/IRQ/memory) naming both offenders and the specific resource, plus each card's claimed footprint. `ok:true` means the Profile is runnable.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "memory": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "cards": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Validation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileValidation"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/profiles/auto-assign": {
+      "post": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Auto-assign collision-free base ports",
+        "description": "Sweeps each colliding card's base port for a collision-free value (FR-8). Returns the updated content plus any cards that couldn't be resolved.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "memory": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "cards": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reassignment result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "content": {
+                      "type": "object"
+                    },
+                    "unresolved": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "changes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/profiles/{id}": {
       "get": {
         "tags": [
@@ -2219,6 +2387,39 @@
                       }
                     }
                   }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/api/profiles/{id}/validation": {
+      "get": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Validate a stored Profile for bus collisions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Validation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileValidation"
                 }
               }
             }

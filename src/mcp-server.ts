@@ -34,7 +34,9 @@ import {
   updateProfile,
   cloneProfile,
   deleteProfile,
+  ProfileContent,
 } from './services/profile-service';
+import { validateProfile, autoAssign } from './services/collision-validator';
 import { enableDiskServing, disableDiskServing, broadcastStatus } from './services/disk-serving';
 import { listDiskImagesWithDetails, listCassettesWithDetails } from './services/file-listing';
 import { startRawReplay, startXmodemSend, cancelActiveTransfer } from './services/transfer';
@@ -2152,6 +2154,58 @@ export function createMcpServer(deps: Dependencies): McpServer {
       try {
         const profile = await cloneProfile(deps, id, name, notes);
         return { content: [{ type: 'text', text: JSON.stringify(profile, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'validate_machine_profile',
+    'Validate a Machine Profile for bus collisions (Bitsby8, define-time, FR-8) — pass a stored ' +
+      "`id` (name@version) or an inline `memory`+`cards` body. Returns every collision (port/IRQ/memory) " +
+      "naming both offenders + the resource, plus each card's footprint. ok:true means runnable.",
+    {
+      id: z.string().optional().describe('Stored Profile Identity: name@version'),
+      memory: z.array(z.record(z.string(), z.any())).optional().describe('Inline memory layout (with id)'),
+      cards: z.array(z.record(z.string(), z.any())).optional().describe('Inline card instances (id, ref, config)'),
+    },
+    async ({ id, memory, cards }) => {
+      try {
+        const content: ProfileContent = id
+          ? await getProfile(deps, id)
+          : {
+              cpuKind: 'i8080',
+              clock: 'max',
+              resetVector: 0,
+              memory: (memory ?? []) as never,
+              cards: (cards ?? []) as never,
+            };
+        return { content: [{ type: 'text', text: JSON.stringify(await validateProfile(deps, content), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'auto_assign_machine_profile',
+    'Auto-assign collision-free base ports for a Profile body (Bitsby8, FR-8). Pass inline ' +
+      '`memory`+`cards`; returns the updated `content`, any `unresolved` cards, and the `changes` applied.',
+    {
+      memory: z.array(z.record(z.string(), z.any())).optional(),
+      cards: z.array(z.record(z.string(), z.any())).optional(),
+    },
+    async ({ memory, cards }) => {
+      try {
+        const content: ProfileContent = {
+          cpuKind: 'i8080',
+          clock: 'max',
+          resetVector: 0,
+          memory: (memory ?? []) as never,
+          cards: (cards ?? []) as never,
+        };
+        return { content: [{ type: 'text', text: JSON.stringify(await autoAssign(deps, content), null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
       }

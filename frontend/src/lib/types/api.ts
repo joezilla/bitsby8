@@ -210,6 +210,25 @@ export interface MachinePresetInfo {
   description: string;
 }
 
+export interface Collision {
+  kind: 'port' | 'irq' | 'memory';
+  resource: string;
+  offenders: string[];
+}
+
+export interface CardClaim {
+  cardId: string;
+  ref: string;
+  ports: number[];
+  irq: number | null;
+}
+
+export interface ProfileValidation {
+  ok: boolean;
+  collisions: Collision[];
+  claims: CardClaim[];
+}
+
 export interface SerialPortInfo {
   path: string;
   resolvedPath: string;

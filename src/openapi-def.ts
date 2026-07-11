@@ -194,6 +194,37 @@ export const openapiDefinition: Options = {
             createdAt: { type: 'string' },
           },
         },
+        ProfileValidation: {
+          type: 'object',
+          description: 'Define-time bus-collision validation of a Profile (Bitsby8). ok:true → runnable.',
+          properties: {
+            ok: { type: 'boolean' },
+            collisions: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  kind: { type: 'string', enum: ['port', 'irq', 'memory'] },
+                  resource: { type: 'string', example: 'I/O port 0x10' },
+                  offenders: { type: 'array', items: { type: 'string' }, description: 'Colliding card instance ids (or memory region ids).' },
+                },
+              },
+            },
+            claims: {
+              type: 'array',
+              description: "Each card's claimed bus footprint at its config.",
+              items: {
+                type: 'object',
+                properties: {
+                  cardId: { type: 'string' },
+                  ref: { type: 'string' },
+                  ports: { type: 'array', items: { type: 'integer' } },
+                  irq: { type: 'integer', nullable: true },
+                },
+              },
+            },
+          },
+        },
         MachineInstance: {
           type: 'object',
           description: 'A virtual S-100 Machine Instance (Bitsby8) — a running or defined emulated machine.',

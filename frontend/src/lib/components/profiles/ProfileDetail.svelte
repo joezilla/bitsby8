@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/services/api';
   import { showToast } from '$lib/stores/toast';
-  import type { MachineProfile, CardDefinition, ProfileCardInstance } from '$lib/types/api';
+  import type { MachineProfile, CardDefinition, ProfileCardInstance, ProfileValidation } from '$lib/types/api';
   import Button from '$lib/components/shared/Button.svelte';
   import Card from '$lib/components/shared/Card.svelte';
   import Chip from '$lib/components/shared/Chip.svelte';
@@ -29,9 +29,47 @@
   let resetVector = $state(0);
   let notes = $state('');
   let editCards = $state<ProfileCardInstance[]>([]);
+  let validation = $state<ProfileValidation | null>(null);
+  let validateToken = 0;
 
   const hex = (n: number) => `0x${n.toString(16).toUpperCase()}`;
   const clockLabel = (c: MachineProfile['clock']) => (c === 'max' ? 'max' : `${c.hz} Hz`);
+
+  // Card instance ids currently involved in a bus collision (for inline flags).
+  let offenderIds = $derived(
+    new Set((validation?.collisions ?? []).flatMap((c) => c.offenders)),
+  );
+
+  // Re-validate for bus collisions whenever the backplane changes.
+  $effect(() => {
+    const cards = editCards;
+    const memory = profile?.memory ?? [];
+    const token = ++validateToken;
+    api
+      .validateProfileBody({ cards, memory })
+      .then((v) => {
+        if (token === validateToken) validation = v;
+      })
+      .catch(() => {});
+  });
+
+  async function autoAssign() {
+    if (!profile) return;
+    try {
+      busy = true;
+      const res = await api.autoAssignProfile({ cards: editCards, memory: profile.memory });
+      editCards = res.content.cards;
+      if (res.unresolved.length) {
+        showToast(`Auto-assigned; ${res.unresolved.length} card(s) need manual fixing: ${res.unresolved.join(', ')}`, 'error');
+      } else {
+        showToast('Auto-assigned collision-free ports', 'success');
+      }
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      busy = false;
+    }
+  }
 
   let dirty = $derived.by(() => {
     if (!profile) return false;
@@ -167,11 +205,39 @@
         </div>
       </div>
       <div class="head-actions">
-        <Button variant="tonal" icon="play_arrow" onclick={launch} disabled={busy}>Launch</Button>
+        <Button
+          variant="tonal"
+          icon="play_arrow"
+          onclick={launch}
+          disabled={busy || validation?.ok === false}
+          title={validation?.ok === false ? 'Resolve bus collisions before launching' : ''}
+        >
+          Launch
+        </Button>
         <Button variant="outline" icon="content_copy" onclick={clone} disabled={busy}>Clone</Button>
         <Button variant="ghost" icon="delete" danger onclick={remove} disabled={busy}>Delete</Button>
       </div>
     </header>
+
+    {#if validation && !validation.ok}
+      <div class="validator-bar" role="alert">
+        <Icon name="error" size={20} />
+        <div class="vb-body">
+          <strong>{validation.collisions.length} bus collision{validation.collisions.length === 1 ? '' : 's'} — not runnable</strong>
+          <ul class="vb-list">
+            {#each validation.collisions as col (col.kind + col.resource)}
+              <li><span class="fdc-mono">{col.resource}</span> — {col.offenders.join(' ✕ ')}</li>
+            {/each}
+          </ul>
+        </div>
+        <Button variant="tonal" size="sm" icon="auto_fix_high" onclick={autoAssign} disabled={busy}>Auto-assign</Button>
+      </div>
+    {:else if validation?.ok}
+      <div class="validator-bar ok">
+        <Icon name="check_circle" size={18} />
+        <span>No bus collisions — runnable.</span>
+      </div>
+    {/if}
 
     <div class="cols">
       <div class="col">
@@ -236,7 +302,7 @@
             <h2 class="sec">S-100 backplane</h2>
             <span class="pill">{editCards.length} card{editCards.length === 1 ? '' : 's'}</span>
           </div>
-          <Backplane cards={editCards} {catalog} onchange={(c) => (editCards = c)} />
+          <Backplane cards={editCards} {catalog} offenders={offenderIds} onchange={(c) => (editCards = c)} />
         </Card>
 
         <Card raised>
@@ -325,6 +391,41 @@
     display: flex;
     gap: var(--space-2);
     flex-wrap: wrap;
+  }
+
+  .validator-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--error) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--error) 40%, transparent);
+    color: var(--error);
+  }
+  .validator-bar.ok {
+    background: color-mix(in srgb, var(--success) 10%, transparent);
+    border-color: color-mix(in srgb, var(--success) 35%, transparent);
+    color: var(--success);
+    font: var(--text-body-sm);
+  }
+  .vb-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    color: var(--fg-1);
+  }
+  .vb-body strong {
+    color: var(--error);
+    font-size: 14px;
+  }
+  .vb-list {
+    margin: 0;
+    padding-left: var(--space-4);
+    font: var(--text-body-sm);
+    color: var(--fg-2);
   }
 
   .cols {
