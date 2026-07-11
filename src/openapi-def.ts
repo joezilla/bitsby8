@@ -48,6 +48,9 @@ export const openapiDefinition: Options = {
       { name: 'Disk Serving', description: 'Enable/disable FDC disk serving' },
       { name: 'Drives', description: 'Drive mount/unmount and status' },
       { name: 'Images', description: 'Disk image management' },
+      { name: 'Snapshots', description: 'Point-in-time disk image snapshots and rollback' },
+      { name: 'Settings', description: 'Operator-facing runtime feature settings (DB-backed, live)' },
+      { name: 'Clients', description: 'Per-client drive-bay overrides and friendly names (multi-client serving)' },
       { name: 'CP/M', description: 'CP/M filesystem browser' },
       { name: 'Cassettes', description: 'Cassette audio management' },
       { name: 'Terminal', description: 'Terminal serial port management' },
@@ -78,6 +81,14 @@ export const openapiDefinition: Options = {
               nullable: true,
               description: 'Epoch ms of most recent successful read/write; null if no I/O yet.',
             },
+            transient: {
+              type: 'boolean',
+              description: 'Read-only image backed by a copy-on-write scratch; writes go to the scratch and the master stays pristine.',
+            },
+            dirty: {
+              type: 'boolean',
+              description: 'A transient-backed drive that has received at least one write since mount.',
+            },
           },
         },
         SystemInfo: {
@@ -98,6 +109,16 @@ export const openapiDefinition: Options = {
             size: { type: 'integer', example: 337568 },
             description: { type: 'string' },
             notes: { type: 'string' },
+          },
+        },
+        Snapshot: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: '9f8c1a2b3d4e5f60718293a4b5c6d7e8' },
+            disk_filename: { type: 'string', example: 'cpm63k.dsk' },
+            label: { type: 'string', example: 'before format' },
+            size_bytes: { type: 'integer', example: 337568 },
+            created_at: { type: 'string', example: '2026-07-09 14:03:11' },
           },
         },
         CpmFileInfo: {

@@ -28,6 +28,12 @@ export const SerialSchema = z.object({
   drive2: z.string().nullable().optional(),
   drive3: z.string().nullable().optional(),
   readonly: z.array(z.number().int().min(0).max(3)).optional(),
+  // Default behavior when the guest writes to a read-only image:
+  //   'error'     — refuse the write (write-protect; the historical behavior)
+  //   'transient' — back the image with a throwaway copy-on-write scratch so
+  //                 the write succeeds and the master stays pristine
+  // Absent = 'error'. A per-image policy (disk_policies table) overrides this.
+  readonlyWritePolicy: z.enum(['error', 'transient']).optional(),
 });
 
 export const WebSchema = z.object({
@@ -46,6 +52,15 @@ export const WebSchema = z.object({
 
 export const McpSchema = z.object({
   enableMcpHttp: z.boolean().optional(),
+});
+
+// Disk-serving transport toggles. `enableWsTransport` gates the
+// TCP-based (WebSocket) FDC transport at /fdc-ws that lets a virtual
+// Altair FDC client take over disk serving without a physical serial
+// port. Absent = on: the feature is enabled by default, and only an
+// explicit `false` turns it off.
+export const DiskServingSchema = z.object({
+  enableWsTransport: z.boolean().optional(),
 });
 
 export const TerminalSchema = z.object({
@@ -135,6 +150,7 @@ export const ConfigSchema = z
     ...SerialSchema.shape,
     ...WebSchema.shape,
     ...McpSchema.shape,
+    ...DiskServingSchema.shape,
     ...TerminalSchema.shape,
     ...LoggingSchema.shape,
     ...DataSchema.shape,
@@ -175,6 +191,7 @@ export const OverrideConfigSchema = z
     ...SerialSchema.shape,
     ...WebSchema.shape,
     ...McpSchema.shape,
+    ...DiskServingSchema.shape,
     ...TerminalSchema.shape,
     ...LoggingSchema.shape,
     ...DataSchema.shape,
@@ -509,6 +526,7 @@ export function getExampleConfig(): string {
     terminalAutoconnect: false,
     apiKey: null as string | null,
     enableMcpHttp: false,
+    enableWsTransport: true,
     gpioLeds: {
       enabled: true,
       blinkDuration: 100,

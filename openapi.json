@@ -37,6 +37,18 @@
       "description": "Disk image management"
     },
     {
+      "name": "Snapshots",
+      "description": "Point-in-time disk image snapshots and rollback"
+    },
+    {
+      "name": "Settings",
+      "description": "Operator-facing runtime feature settings (DB-backed, live)"
+    },
+    {
+      "name": "Clients",
+      "description": "Per-client drive-bay overrides and friendly names (multi-client serving)"
+    },
+    {
       "name": "CP/M",
       "description": "CP/M filesystem browser"
     },
@@ -104,6 +116,14 @@
             "type": "integer",
             "nullable": true,
             "description": "Epoch ms of most recent successful read/write; null if no I/O yet."
+          },
+          "transient": {
+            "type": "boolean",
+            "description": "Read-only image backed by a copy-on-write scratch; writes go to the scratch and the master stays pristine."
+          },
+          "dirty": {
+            "type": "boolean",
+            "description": "A transient-backed drive that has received at least one write since mount."
           }
         }
       },
@@ -161,6 +181,31 @@
           },
           "notes": {
             "type": "string"
+          }
+        }
+      },
+      "Snapshot": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "9f8c1a2b3d4e5f60718293a4b5c6d7e8"
+          },
+          "disk_filename": {
+            "type": "string",
+            "example": "cpm63k.dsk"
+          },
+          "label": {
+            "type": "string",
+            "example": "before format"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "example": 337568
+          },
+          "created_at": {
+            "type": "string",
+            "example": "2026-07-09 14:03:11"
           }
         }
       },
@@ -556,6 +601,228 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/images/{filename}/snapshots": {
+      "get": {
+        "tags": [
+          "Snapshots"
+        ],
+        "summary": "List snapshots for a disk image",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Snapshots for the disk, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "snapshots": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Snapshot"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid filename"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Snapshots"
+        ],
+        "summary": "Create a snapshot of a disk image",
+        "description": "Captures a point-in-time full copy of the disk. Allowed while the disk is mounted.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "description": "Optional human-readable label"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Snapshot created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "snapshot": {
+                      "$ref": "#/components/schemas/Snapshot"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Disk image not found"
+          }
+        }
+      }
+    },
+    "/api/images/{filename}/snapshots/{id}/restore": {
+      "post": {
+        "tags": [
+          "Snapshots"
+        ],
+        "summary": "Roll a disk image back to a snapshot",
+        "description": "Overwrites the disk image with the snapshot's contents. Fails if the disk is mounted on any drive.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Disk image rolled back"
+          },
+          "404": {
+            "description": "Disk image or snapshot not found"
+          },
+          "409": {
+            "description": "Disk is mounted on a drive"
+          }
+        }
+      }
+    },
+    "/api/images/{filename}/snapshots/{id}": {
+      "delete": {
+        "tags": [
+          "Snapshots"
+        ],
+        "summary": "Delete a snapshot",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Snapshot deleted"
+          },
+          "404": {
+            "description": "Snapshot not found"
+          }
+        }
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Get runtime feature settings",
+        "responses": {
+          "200": {
+            "description": "Current runtime settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "multiClientServing": {
+                      "type": "boolean",
+                      "description": "Multi-client disk serving (concurrent clients + per-client splinters)."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Update runtime feature settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "multiClientServing": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated settings"
+          },
+          "400": {
+            "description": "Invalid payload"
           }
         }
       }
@@ -1954,6 +2221,77 @@
         }
       }
     },
+    "/api/images/{filename}/policy": {
+      "get": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Get a disk image's read-only-write policy",
+        "description": "Returns onReadonlyWrite: inherit (follow the global default), error (fail writes), or transient (back with copy-on-write scratch).",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current per-image policy"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Set a disk image's read-only-write policy",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "onReadonlyWrite"
+                ],
+                "properties": {
+                  "onReadonlyWrite": {
+                    "type": "string",
+                    "enum": [
+                      "inherit",
+                      "error",
+                      "transient"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Policy updated"
+          },
+          "400": {
+            "description": "Invalid filename or policy value"
+          }
+        }
+      }
+    },
     "/api/health": {
       "get": {
         "tags": [
@@ -2380,6 +2718,77 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/drives/{id}/transient/commit": {
+      "post": {
+        "tags": [
+          "Drives"
+        ],
+        "summary": "Commit a transient drive's changes to its master image",
+        "description": "Writes the copy-on-write scratch back onto the read-only master image. The drive stays mounted and transient. Fails if the drive is not transient-backed or the master is mounted on another drive.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Changes committed to the master"
+          },
+          "400": {
+            "description": "Invalid drive ID or drive is not transient-backed"
+          },
+          "409": {
+            "description": "Master image is mounted on another drive"
+          }
+        }
+      }
+    },
+    "/api/drives/{id}/transient/save-snapshot": {
+      "post": {
+        "tags": [
+          "Drives"
+        ],
+        "summary": "Save a transient drive's changes as a snapshot",
+        "description": "Captures the current copy-on-write scratch as a snapshot of the master image, without touching the master.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Snapshot saved"
+          },
+          "400": {
+            "description": "Invalid drive ID or drive is not transient-backed"
           }
         }
       }
@@ -2981,6 +3390,39 @@
         }
       }
     },
+    "/api/config/shutdown": {
+      "post": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Gracefully stop the daemon (systemd leaves it down)",
+        "description": "Requires `?confirm=1`. Exits with a code the unit's\n`RestartPreventExitStatus` treats as \"do not relaunch\", so the\nservice stops instead of restarting. Returns 501 when the process\nisn't systemd-managed (dev / docker); the UI should render a\ncopy-paste command in that case. Starting it again is a manual\n`systemctl start` from the host.\n",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "confirm",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Shutdown scheduled — the daemon will stop and not relaunch"
+          },
+          "400": {
+            "description": "Missing confirm flag"
+          },
+          "501": {
+            "description": "Not systemd-managed; stop manually"
+          }
+        }
+      }
+    },
     "/api/config/reload": {
       "post": {
         "tags": [
@@ -3040,6 +3482,15 @@
         "description": "Persists `enableMcpHttp` and flips the runtime guard immediately —\nno daemon restart. Refuses to enable when no API key is set (400).\nDisabling drops any live MCP sessions.\n"
       }
     },
+    "/api/config/disk-serving": {
+      "put": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Toggle TCP-based (WebSocket) disk serving",
+        "description": "Persists `enableWsTransport` and applies it live — no daemon\nrestart. When disabled, the /fdc-ws upgrade endpoint stops\naccepting virtual FDC clients (403) and any client currently\nconnected is dropped. On by default: an absent field is treated\nas enabled.\n"
+      }
+    },
     "/api/config/web": {
       "put": {
         "tags": [
@@ -3047,6 +3498,307 @@
         ],
         "summary": "Update the Web & API section (includes apiKey and adminPassword)",
         "description": "Same shape as the other section PUTs, but two fields need\nspecial handling:\n\n- `apiKey` is a machine token; when non-null the value is\n  written verbatim. Change is applied live (no restart) — the\n  auth middleware reads apiKey via a runtime callback.\n- `adminPassword` is bcrypt-hashed here before the write. Only\n  the hash reaches disk; the plaintext never persists. Sending\n  `null` clears the hash; omitting the key leaves it unchanged.\n  Change is applied live (no restart).\n\nFields that still require a daemon restart (webPort, webHost,\nenabling/disabling the web listener) are surfaced via\n`restartRequired: true` in the response. When the patch only\ntouched auth fields, `restartRequired: false`.\n"
+      }
+    },
+    "/api/clients": {
+      "get": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "List known + connected clients with their effective drive bays",
+        "responses": {
+          "200": {
+            "description": "Clients with per-drive effective mounts"
+          }
+        }
+      }
+    },
+    "/api/clients/{clientId}/name": {
+      "put": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Set a client's friendly name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Name updated"
+          }
+        }
+      }
+    },
+    "/api/clients/{clientId}/drives/{drive}": {
+      "put": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Set a client's per-drive mount override",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "drive",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "filename"
+                ],
+                "properties": {
+                  "filename": {
+                    "type": "string"
+                  },
+                  "readonly": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Override set"
+          },
+          "404": {
+            "description": "Image not found"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Clear a client's per-drive override (inherit global)",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "drive",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Override cleared"
+          }
+        }
+      }
+    },
+    "/api/clients/{clientId}": {
+      "delete": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Forget a client (clear its overrides, splinters, and name)",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Client forgotten"
+          }
+        }
+      }
+    },
+    "/api/clients/{clientId}/drives/{drive}/splinter/commit": {
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Commit a client's splinter back onto its master image (hot-swap)",
+        "description": "Writes the client's private copy-on-write splinter for this drive back onto the shared master image, then hot-reloads every open handle (operator drives via a swap window, client sessions via resync) so live readers pick up the new contents. Client splinters re-attach by base name, keeping their own writes. Refused only when the base is held read-write by a live master-write path (an operator drive mounted read-write, or the connected master-write client), whose in-flight write would be clobbered.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "drive",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Splinter committed to the master; response includes hotSwapped and the reloadedDrives list"
+          },
+          "404": {
+            "description": "No splinter for this client/drive",
+            "or master missing": null
+          },
+          "409": {
+            "description": "Base is held read-write by a live master-write path"
+          }
+        }
+      }
+    },
+    "/api/clients/{clientId}/drives/{drive}/splinter/save-snapshot": {
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Save a client's splinter as a snapshot of its master",
+        "description": "Captures the client's current copy-on-write splinter for this drive as a snapshot of the master image, without touching the master or the splinter.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "drive",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Snapshot saved"
+          },
+          "404": {
+            "description": "No splinter for this client/drive"
+          }
+        }
+      }
+    },
+    "/api/clients/{clientId}/drives/{drive}/splinter/save-as-disk": {
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Save a client's splinter as a new named disk image",
+        "description": "Non-destructive publish — copies the client's copy-on-write splinter for this drive to a new named image in the disk library, without touching the live master. The name is suffixed (-2, -3, …) on collision; the extension defaults to the master's if omitted.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "drive",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Saved; response includes the new filename"
+          },
+          "400": {
+            "description": "Invalid filename or extension"
+          },
+          "404": {
+            "description": "No splinter for this client/drive"
+          }
+        }
       }
     },
     "/api/cassettes/details": {

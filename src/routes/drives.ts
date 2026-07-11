@@ -4,6 +4,8 @@ import { Dependencies } from '../types';
 import { safeResolvePath, safeErrorMessage } from '../utils/safe-path';
 import { getDrivesStatus } from '../services/status';
 import { broadcastStatus } from '../services/disk-serving';
+import { commitTransientDrive, saveTransientSnapshot } from '../services/transient-service';
+import { ServiceError } from '../services/service-error';
 import { MAX_DRIVES } from '../protocol';
 
 export function registerDriveRoutes(router: Router, deps: Dependencies): void {
@@ -285,6 +287,76 @@ export function registerDriveRoutes(router: Router, deps: Dependencies): void {
 
       res.json({ success: true, drive: driveId, readonly });
     } catch (error) {
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/drives/{id}/transient/commit:
+   *   post:
+   *     tags: [Drives]
+   *     summary: Commit a transient drive's changes to its master image
+   *     description: Writes the copy-on-write scratch back onto the read-only master image. The drive stays mounted and transient. Fails if the drive is not transient-backed or the master is mounted on another drive.
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     responses:
+   *       200:
+   *         description: Changes committed to the master
+   *       400:
+   *         description: Invalid drive ID or drive is not transient-backed
+   *       409:
+   *         description: Master image is mounted on another drive
+   */
+  router.post('/api/drives/:id/transient/commit', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const result = await commitTransientDrive(deps, parseInt(req.params.id));
+      broadcastStatus(deps);
+      res.json({ success: true, ...result });
+    } catch (error) {
+      if (error instanceof ServiceError) { res.status(error.statusCode).json({ error: error.message }); return; }
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/drives/{id}/transient/save-snapshot:
+   *   post:
+   *     tags: [Drives]
+   *     summary: Save a transient drive's changes as a snapshot
+   *     description: Captures the current copy-on-write scratch as a snapshot of the master image, without touching the master.
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               label:
+   *                 type: string
+   *     responses:
+   *       200:
+   *         description: Snapshot saved
+   *       400:
+   *         description: Invalid drive ID or drive is not transient-backed
+   */
+  router.post('/api/drives/:id/transient/save-snapshot', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const label = typeof req.body?.label === 'string' ? req.body.label : '';
+      const snapshot = await saveTransientSnapshot(deps, parseInt(req.params.id), label);
+      res.json({ success: true, snapshot });
+    } catch (error) {
+      if (error instanceof ServiceError) { res.status(error.statusCode).json({ error: error.message }); return; }
       res.status(500).json({ error: safeErrorMessage(error) });
     }
   });

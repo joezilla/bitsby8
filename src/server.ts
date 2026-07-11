@@ -12,16 +12,16 @@ import {
   ByteUtils,
   TIMEOUT_BUFFER,
 } from './protocol';
-import { DriveManager } from './drive';
-import { SerialPortManager } from './serial';
+import { IDriveEngine } from './drive-engine';
+import { IFdcTransport } from './transport';
 import { getGpioLedController } from './gpio';
 
 /**
  * FDC+ Server
  */
 export class FdcServer {
-  private driveManager: DriveManager;
-  private serialManager: SerialPortManager;
+  private driveManager: IDriveEngine;
+  private transport: IFdcTransport;
   private running: boolean;
   private verbose: boolean;
   private debug: boolean;
@@ -29,12 +29,12 @@ export class FdcServer {
   private serialUnavailableNotified: boolean;
 
   constructor(
-    driveManager: DriveManager,
-    serialManager: SerialPortManager,
+    driveManager: IDriveEngine,
+    transport: IFdcTransport,
     config: Config
   ) {
     this.driveManager = driveManager;
-    this.serialManager = serialManager;
+    this.transport = transport;
     this.running = false;
     this.verbose = config.verbose;
     this.debug = config.debug;
@@ -58,7 +58,7 @@ export class FdcServer {
         await new Promise(resolve => setTimeout(resolve, 50));
         continue;
       }
-      if (!this.serialManager.isOpen()) {
+      if (!this.transport.isOpen()) {
         if (!this.serialUnavailableNotified) {
           this.serialUnavailableNotified = true;
         }
@@ -69,7 +69,7 @@ export class FdcServer {
       }
       try {
         // Wait for command from FDC+ (1 second timeout per iteration)
-        const cmdBuffer = await this.serialManager.receiveBuffer(8, 1000);
+        const cmdBuffer = await this.transport.receiveBuffer(8, 1000);
 
         // Parse command
         const cmd = CommandResponseBlock.fromBuffer(cmdBuffer);
@@ -211,7 +211,7 @@ export class FdcServer {
     cmd.param2 = statusData;
 
     // Send response
-    await this.serialManager.sendBuffer(cmd.toBuffer(), TIMEOUT_BUFFER);
+    await this.transport.sendBuffer(cmd.toBuffer(), TIMEOUT_BUFFER);
   }
 
   /**
@@ -258,7 +258,7 @@ export class FdcServer {
       }
 
       // Send track data
-      await this.serialManager.sendBuffer(trackData, TIMEOUT_BUFFER);
+      await this.transport.sendBuffer(trackData, TIMEOUT_BUFFER);
     } catch (error) {
       console.error(`Read track error - Drive ${drive}, Track ${track}:`, error);
     }
@@ -317,7 +317,7 @@ export class FdcServer {
 
     try {
       // Wait for track data
-      const trackData = await this.serialManager.receiveBuffer(
+      const trackData = await this.transport.receiveBuffer(
         length,
         TIMEOUT_BUFFER
       );
@@ -358,6 +358,6 @@ export class FdcServer {
     cmd.param1 = response;
 
     // Send response
-    await this.serialManager.sendBuffer(cmd.toBuffer(), TIMEOUT_BUFFER);
+    await this.transport.sendBuffer(cmd.toBuffer(), TIMEOUT_BUFFER);
   }
 }

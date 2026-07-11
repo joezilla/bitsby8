@@ -14,7 +14,11 @@ import {
   createDefaultConfig,
   Config,
 } from './protocol';
-import { getDriveManager } from './drive';
+import { getDriveManager, TRANSIENT_DIRNAME } from './drive';
+import { getMountRegistry } from './mount-registry';
+import { getClientMountRegistry } from './client-mount-registry';
+import { safeResolvePath } from './utils/safe-path';
+import type { ReadonlyWritePolicy } from './database';
 import { getSerialPortManager } from './serial';
 import { getTerminalSerialManager } from './terminal-serial';
 import { FdcServer } from './server';
@@ -358,6 +362,8 @@ async function main(): Promise<void> {
 
   // Get singleton instances
   const driveManager = getDriveManager();
+  // Keep the shared operator mount table in sync as drives mount/unmount.
+  driveManager.setMountRegistry(getMountRegistry());
   const serialManager = getSerialPortManager();
   const terminalManager = getTerminalSerialManager();
   const gpioController = getGpioLedController();
@@ -367,6 +373,14 @@ async function main(): Promise<void> {
   if (config.debug) {
     driveManager.setDebug(true);
     console.log('Debug mode enabled - all serial drive operations will be logged');
+  }
+
+  // Sweep any transient (copy-on-write) scratch files left behind by a crash.
+  // They are mount-scoped and never valid across restarts.
+  try {
+    await fs.rm(path.join(dataDir, 'disks', TRANSIENT_DIRNAME), { recursive: true, force: true });
+  } catch (error) {
+    console.error('Failed to sweep leftover transient scratch files:', error);
   }
 
   // Initialize file-based logging if requested
@@ -471,6 +485,38 @@ async function main(): Promise<void> {
     database = db;
     console.log('Database initialized successfully');
 
+    // Teach the drive manager how to resolve the effective read-only-write
+    // policy: per-image (DB) overrides the global default, 'inherit' falls
+    // through. Set before the restore loop so DB-restored read-only mounts
+    // pick up transient backing. Reads runtimeConfig live via mergedOptions.
+    driveManager.setTransientPolicyResolver(async (master) => {
+      const globalPolicy =
+        (mergedOptions as { readonlyWritePolicy?: 'error' | 'transient' }).readonlyWritePolicy ?? 'error';
+      let perImage: ReadonlyWritePolicy = 'inherit';
+      try {
+        perImage = await db.getDiskPolicy(master);
+      } catch {
+        perImage = 'inherit';
+      }
+      const effective = perImage !== 'inherit' ? perImage : globalPolicy;
+      return effective === 'transient';
+    });
+
+    // Load per-client drive-bay overrides into the in-memory registry so
+    // connecting clients resolve their own mounts. The registry holds absolute
+    // paths (what a session opens); the DB stores the image basename. A stale
+    // override (image since deleted) resolves to null and is skipped.
+    try {
+      const clientReg = getClientMountRegistry();
+      const clientDisksDir = path.join(dataDir, 'disks');
+      for (const m of await db.listClientMounts()) {
+        const full = safeResolvePath(clientDisksDir, m.filename);
+        if (full) clientReg.set(m.client_id, m.drive, full, m.readonly === 1);
+      }
+    } catch (error) {
+      console.error('Failed to load per-client mount overrides:', error);
+    }
+
     // Load saved drive assignments (only if web server will be enabled)
     if (mergedOptions.web) {
       try {
@@ -572,6 +618,8 @@ async function main(): Promise<void> {
       baselineConfig,
       startupEpoch,
       configReadonly,
+      multiClientServing: false,
+      writeMaster: 'serial',
       server: server,
       diskServingEnabled: server !== null,
       serverTask: null,

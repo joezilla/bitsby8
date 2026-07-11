@@ -12,6 +12,11 @@ export interface ServerStatus {
     enabled: boolean;
     running: boolean;
   };
+  multiClient?: {
+    enabled: boolean;
+    writeMaster: string;
+    clients: ConnectedClient[];
+  };
   drives: DriveState[];
   system: {
     version: string;                // "2.0.0" — upstream semver
@@ -37,6 +42,10 @@ export interface DriveState {
   headLoaded: boolean;
   track: number;
   lastIo: number | null; // epoch ms of most recent successful r/w; null if never
+  // Copy-on-write backing for a read-only image: writes go to a throwaway
+  // scratch (master untouched); `dirty` flips once the guest has written.
+  transient?: boolean;
+  dirty?: boolean;
 }
 
 export interface TerminalStatus {
@@ -62,6 +71,42 @@ export interface DiskImageInfo {
   size: number;
   description: string;
   notes: string;
+}
+
+export interface SnapshotInfo {
+  id: string;
+  disk_filename: string;
+  label: string;
+  size_bytes: number;
+  created_at: string;
+}
+
+/** Per-image behavior when the guest writes to a read-only mount. */
+export type ReadonlyWritePolicy = 'inherit' | 'error' | 'transient';
+
+export interface ConnectedClient {
+  id: string;
+  clientId: string | null;
+  transport: 'websocket';
+  connectedAt: number;
+}
+
+export interface ClientDrive {
+  drive: number;
+  filename: string | null;
+  readonly: boolean;
+  source: 'override' | 'global' | 'none';
+  dirty: boolean;
+}
+
+export interface ClientBay {
+  clientId: string;
+  name: string;
+  connected: boolean;
+  connectedAt: number | null;
+  isMaster: boolean;
+  hasSplinters: boolean;
+  drives: ClientDrive[];
 }
 
 export interface CassetteInfo {
@@ -123,6 +168,9 @@ export interface SerialSection {
   drive2?: string | null;
   drive3?: string | null;
   readonly?: number[];
+  // Global default for guest writes to a read-only image (per-image policy
+  // overrides it). Restart-required, like the rest of the Serial section.
+  readonlyWritePolicy?: ReadonlyWritePolicy;
 }
 
 export interface WebSection {
@@ -138,6 +186,12 @@ export interface WebSection {
 
 export interface McpSection {
   enableMcpHttp?: boolean;
+}
+
+export interface DiskServingSection {
+  // TCP-based (WebSocket) FDC transport. On by default — absent means
+  // enabled; only an explicit false disables it.
+  enableWsTransport?: boolean;
 }
 
 export interface TerminalSection {
@@ -189,6 +243,7 @@ export interface ConfigDoc
   extends SerialSection,
     WebSection,
     McpSection,
+    DiskServingSection,
     TerminalSection,
     LoggingSection,
     DataSection {
@@ -213,6 +268,9 @@ export interface ConfigStatus {
   mcpHttpEnabled: boolean;
   mcpHttpLive: boolean;
   mcpHttpSessions: number;
+  // TCP-based disk serving (WebSocket FDC transport) — on by default.
+  wsTransportEnabled: boolean;
+  wsTransportConnected: boolean;
   configReadonly: boolean;
   etag?: string;
 }

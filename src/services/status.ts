@@ -39,6 +39,7 @@ export function getStatus(deps: Dependencies) {
       enabled: deps.diskServingEnabled,
       running: deps.server !== null && deps.serverTask !== null,
     },
+    multiClient: getMultiClientStatus(deps),
     drives: getDrivesStatus(deps),
     system: {
       version: buildInfo?.upstream ?? pkg.version,
@@ -87,10 +88,22 @@ export function getDrivesStatus(deps: Dependencies) {
         headLoaded: state.hdld,
         track: state.track,
         lastIo: state.lastIo,
+        // Copy-on-write backing: `transient` means writes go to a throwaway
+        // scratch (master untouched); `dirty` means the guest has written.
+        transient: state.transient,
+        dirty: state.dirty,
       });
     }
   }
   return drives;
+}
+
+export function getMultiClientStatus(deps: Dependencies) {
+  return {
+    enabled: deps.multiClientServing ?? false,
+    writeMaster: deps.writeMaster ?? 'serial',
+    clients: deps.connectionManager?.list() ?? [],
+  };
 }
 
 export function getTerminalStatus(deps: Dependencies) {

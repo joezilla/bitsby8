@@ -11,10 +11,10 @@
   import Input from '$lib/components/shared/Input.svelte';
   import Select from '$lib/components/shared/Select.svelte';
   import TextArea from '$lib/components/shared/TextArea.svelte';
-  import Led from '$lib/components/shared/Led.svelte';
   import PageHeader from '$lib/components/shared/PageHeader.svelte';
   import LabelStrip from '$lib/components/shared/LabelStrip.svelte';
-  import type { DiskImageInfo, DriveState, CpmFileInfo } from '$lib/types/api';
+  import DriveCard from '$lib/components/shared/DriveCard.svelte';
+  import type { DiskImageInfo, DriveState, CpmFileInfo, SnapshotInfo, ReadonlyWritePolicy } from '$lib/types/api';
 
   let images = $state<DiskImageInfo[]>([]);
   let searchQuery = $state('');
@@ -37,11 +37,32 @@
   let editFilename = $state('');
   let editDescription = $state('');
   let editNotesText = $state('');
+  let editPolicy = $state<ReadonlyWritePolicy>('inherit');
   let savingEdit = $state(false);
   let showCreateDialog = $state(false);
   let newDiskName = $state('');
   let newDiskFormat = $state('8inch');
   let newDiskExtension = $state('.img');
+
+  // Disk-wide settings (global default for write-on-read-only). Backed by the
+  // Serial config section — restart-required, an install-time default.
+  let showSettings = $state(false);
+  let settingsPolicy = $state<'error' | 'transient'>('error');
+  let settingsEtag = $state<string | undefined>(undefined);
+  let settingsLoading = $state(false);
+  let settingsSaving = $state(false);
+
+  // Snapshots
+  let snapshotDisk = $state<DiskImageInfo | null>(null);
+  let snapshots = $state<SnapshotInfo[]>([]);
+  let snapshotsLoading = $state(false);
+  let newSnapshotLabel = $state('');
+  let creatingSnapshot = $state(false);
+  let snapshotBusyId = $state<string | null>(null);
+  // Rollback overwrites the image file, so it's refused while mounted.
+  let snapshotDiskMounted = $derived(
+    snapshotDisk ? isImageMounted(snapshotDisk.name) : false
+  );
 
   let fileInputRef = $state<HTMLInputElement | null>(null);
 
@@ -63,10 +84,17 @@
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
-  function driveLed(drive: DriveState): { color: 'amber' | 'green' | 'off'; pulse: boolean } {
-    if (!drive.mounted) return { color: 'off', pulse: false };
-    if (drive.headLoaded) return { color: 'amber', pulse: true };
-    return { color: 'green', pulse: false };
+  function driveStatus(
+    drive: DriveState
+  ): { color: 'amber' | 'green' | 'off'; pulse?: boolean; text: string } {
+    if (!drive.mounted) return { color: 'off', text: 'Empty' };
+    if (drive.headLoaded) return { color: 'amber', pulse: true, text: 'Reading' };
+    return { color: 'green', text: 'Online' };
+  }
+
+  function togglePicker(id: number) {
+    mountingDrive = mountingDrive === id ? null : id;
+    mountingImage = null;
   }
 
   function emptyDrive(id: number): DriveState {
@@ -106,12 +134,50 @@
     }
   }
 
+  // Ejecting a transient drive that has unsaved writes prompts the operator to
+  // discard / save-as-snapshot / commit before the scratch is thrown away.
+  let transientEjectDrive = $state<DriveState | null>(null);
+  let transientSaveLabel = $state('');
+  let transientBusy = $state(false);
+
   async function unmountDisk(driveId: number) {
+    const d = drives.find((x) => x.id === driveId);
+    if (d && d.transient && d.dirty) {
+      transientEjectDrive = d;
+      transientSaveLabel = '';
+      return; // defer the actual eject to the keep-or-discard dialog
+    }
+    await doUnmount(driveId);
+  }
+
+  async function doUnmount(driveId: number) {
     try {
       await api.unmountDrive(driveId);
       showToast(`Drive ${driveId} unmounted`, 'success');
     } catch (err: any) {
       showToast(`Unmount failed: ${err.message}`, 'error');
+    }
+  }
+
+  async function transientEject(action: 'discard' | 'snapshot' | 'commit') {
+    if (!transientEjectDrive) return;
+    const driveId = transientEjectDrive.id;
+    transientBusy = true;
+    try {
+      if (action === 'snapshot') {
+        await api.saveTransientSnapshot(driveId, transientSaveLabel.trim());
+        showToast('Saved changes as a snapshot', 'success');
+      } else if (action === 'commit') {
+        await api.commitTransient(driveId);
+        showToast('Committed changes to the master image', 'success');
+      }
+      await doUnmount(driveId);
+      transientEjectDrive = null;
+      await loadImages();
+    } catch (err: any) {
+      showToast(`Eject failed: ${err.message}`, 'error');
+    } finally {
+      transientBusy = false;
     }
   }
 
@@ -142,6 +208,115 @@
       await loadImages();
     } catch (err: any) {
       showToast(`Delete failed: ${err.message}`, 'error');
+    }
+  }
+
+  /** True when the named image is mounted on any drive (matches on basename). */
+  function isImageMounted(name: string): boolean {
+    return drives.some(
+      (d) => d.mounted && !!d.filename && d.filename.split(/[\\/]/).pop() === name
+    );
+  }
+
+  function formatTimestamp(sqlTs: string): string {
+    // SQLite CURRENT_TIMESTAMP is UTC "YYYY-MM-DD HH:MM:SS" with no zone.
+    const parsed = new Date(sqlTs.replace(' ', 'T') + 'Z');
+    return isNaN(parsed.getTime()) ? sqlTs : parsed.toLocaleString();
+  }
+
+  async function openSettings() {
+    showSettings = true;
+    settingsLoading = true;
+    try {
+      const [cfg, status] = await Promise.all([
+        api.getConfig(),
+        api.getConfigStatus(),
+      ]);
+      settingsPolicy = cfg.readonlyWritePolicy === 'transient' ? 'transient' : 'error';
+      settingsEtag = status.etag;
+    } catch (err: any) {
+      showToast(`Failed to load settings: ${err.message}`, 'error');
+    } finally {
+      settingsLoading = false;
+    }
+  }
+
+  async function saveSettings() {
+    settingsSaving = true;
+    try {
+      await api.putSerialConfig({ readonlyWritePolicy: settingsPolicy }, settingsEtag);
+      showToast('Saved. Restart the daemon for the new default to take effect.', 'success');
+      showSettings = false;
+    } catch (err: any) {
+      showToast(`Save failed: ${err.message}`, 'error');
+    } finally {
+      settingsSaving = false;
+    }
+  }
+
+  async function openSnapshots(image: DiskImageInfo) {
+    snapshotDisk = image;
+    newSnapshotLabel = '';
+    await loadSnapshots();
+  }
+
+  async function loadSnapshots() {
+    if (!snapshotDisk) return;
+    try {
+      snapshotsLoading = true;
+      const result = await api.listSnapshots(snapshotDisk.name);
+      snapshots = result.snapshots;
+    } catch (err: any) {
+      showToast(`Failed to load snapshots: ${err.message}`, 'error');
+    } finally {
+      snapshotsLoading = false;
+    }
+  }
+
+  async function createSnapshotForDisk() {
+    if (!snapshotDisk) return;
+    try {
+      creatingSnapshot = true;
+      await api.createSnapshot(snapshotDisk.name, newSnapshotLabel.trim());
+      showToast(`Snapshot of ${snapshotDisk.name} created`, 'success');
+      newSnapshotLabel = '';
+      await loadSnapshots();
+    } catch (err: any) {
+      showToast(`Snapshot failed: ${err.message}`, 'error');
+    } finally {
+      creatingSnapshot = false;
+    }
+  }
+
+  async function restoreSnapshotForDisk(snap: SnapshotInfo) {
+    if (!snapshotDisk) return;
+    const label = snap.label || formatTimestamp(snap.created_at);
+    if (!confirm(`Roll ${snapshotDisk.name} back to "${label}"? Current contents will be overwritten.`)) return;
+    try {
+      snapshotBusyId = snap.id;
+      await api.restoreSnapshot(snapshotDisk.name, snap.id);
+      showToast(`Rolled ${snapshotDisk.name} back to snapshot`, 'success');
+      await loadImages();
+    } catch (err: any) {
+      showToast(`Rollback failed: ${err.message}`, 'error');
+    } finally {
+      snapshotBusyId = null;
+    }
+  }
+
+  async function deleteSnapshotForDisk(snap: SnapshotInfo) {
+    if (!snapshotDisk) return;
+    const label = snap.label || formatTimestamp(snap.created_at);
+    if (!confirm(`Delete snapshot "${label}"? This cannot be undone.`)) return;
+    try {
+      snapshotBusyId = snap.id;
+      await api.deleteSnapshot(snapshotDisk.name, snap.id);
+      showToast('Snapshot deleted', 'success');
+      await loadSnapshots();
+    } catch (err: any) {
+      showToast(`Delete failed: ${err.message}`, 'error');
+    } finally {
+      snapshotBusyId = null;
     }
   }
 
@@ -209,6 +384,7 @@
         showToast(`Renamed ${oldName} → ${resolvedName}`, 'success');
       }
       await api.updateImageNotes(resolvedName, editDescription, editNotesText);
+      await api.setDiskPolicy(resolvedName, editPolicy);
       if (newName === oldName) {
         showToast(`Notes updated for ${resolvedName}`, 'success');
       }
@@ -221,11 +397,18 @@
     }
   }
 
-  function openEditNotes(image: DiskImageInfo) {
+  async function openEditNotes(image: DiskImageInfo) {
     editingNotes = image;
     editFilename = image.name;
     editDescription = image.description ?? '';
     editNotesText = image.notes ?? '';
+    editPolicy = 'inherit';
+    try {
+      const res = await api.getDiskPolicy(image.name);
+      editPolicy = res.onReadonlyWrite;
+    } catch {
+      editPolicy = 'inherit';
+    }
   }
 
   async function createBlankDisk() {
@@ -410,6 +593,7 @@
 </script>
 
 {#snippet headerActions()}
+  <Button variant="ghost" icon="settings" onclick={openSettings}>Settings</Button>
   <Button variant="ghost" icon="refresh" onclick={loadImages}>Refresh</Button>
   <Button variant="ghost" icon="upload" disabled={uploading} onclick={() => fileInputRef?.click()}>
     {uploading ? 'Uploading…' : 'Upload'}
@@ -445,131 +629,77 @@
     >
       {#each [0, 1, 2, 3] as id}
         {@const drive = drives.find((d) => d.id === id) ?? emptyDrive(id)}
-        {@const ledState = driveLed(drive)}
-        <Card>
-          <div style="padding: 16px; display: flex; flex-direction: column; gap: 10px;">
-            <div style="display: flex; align-items: center; justify-content: space-between;">
-              <div style="display: flex; align-items: baseline; gap: 8px;">
-                <span class="fdc-label-strip">Drive</span>
-                <span class="fdc-mono" style="font-size: 18px; color: var(--accent); font-weight: 600;">{id}</span>
-              </div>
-              <Led color={ledState.color} pulse={ledState.pulse} size="md" />
-            </div>
+        <div style="position: relative;" data-mount-picker>
+          <DriveCard
+            num={id}
+            track={drive.mounted ? drive.track : null}
+            hasDisk={drive.mounted}
+            filename={drive.filename}
+            protectedRo={drive.readonly}
+            dirty={!!(drive.transient && drive.dirty)}
+            status={driveStatus(drive)}
+            emptyText="No disk mounted"
+            onEject={() => unmountDisk(id)}
+            onSwap={() => togglePicker(id)}
+            onToggleRo={() => toggleReadonly(id, drive.readonly)}
+            onInsert={() => togglePicker(id)}
+          />
 
-            <div style="flex: 1; min-height: 40px;">
-              {#if drive.mounted}
-                <div
-                  class="fdc-mono"
-                  style="font-size: 12px; color: var(--fg-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
-                  title={drive.filename ?? ''}
-                >
-                  {drive.filename}
-                </div>
-                <div style="display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap;">
-                  <Chip>TRK {drive.track}</Chip>
-                  {#if drive.readonly}
-                    <Chip color="amber">RO</Chip>
-                  {:else}
-                    <Chip color="green">R/W</Chip>
-                  {/if}
-                </div>
-              {:else}
-                <div style="font: var(--text-body-sm); color: var(--fg-3); font-style: italic;">Empty bay</div>
-              {/if}
-            </div>
-
+          {#if mountingDrive === id}
             <div
               style="
-                display: flex;
-                align-items: center;
-                gap: 6px;
-                padding-top: 8px;
-                border-top: 1px solid var(--border-1);
+                position: absolute;
+                top: calc(100% + 4px);
+                left: 0;
+                right: 0;
+                z-index: 30;
+                max-height: 280px;
+                overflow-y: auto;
+                background: var(--surface-raised);
+                border: 1px solid var(--border-2);
+                border-radius: var(--radius-md);
+                box-shadow: var(--elev-3);
               "
             >
-              {#if drive.mounted}
-                <Button variant="ghost" size="sm" icon="eject" onclick={() => unmountDisk(id)}>Eject</Button>
-                <Button
-                  variant={drive.readonly ? 'tonal' : 'outline'}
-                  size="sm"
-                  onclick={() => toggleReadonly(id, drive.readonly)}
-                  title={drive.readonly ? 'Set read-write' : 'Set read-only'}
-                >
-                  {drive.readonly ? 'RO' : 'RW'}
-                </Button>
-              {:else}
-                <div style="position: relative;" data-mount-picker>
-                  <Button
-                    variant="tonal"
-                    size="sm"
-                    icon="save"
-                    onclick={(e: MouseEvent) => {
-                      e.stopPropagation();
-                      mountingDrive = mountingDrive === id ? null : id;
-                      mountingImage = null;
-                    }}
-                  >
-                    Mount…
-                  </Button>
-                  {#if mountingDrive === id}
-                    <div
-                      style="
-                        position: absolute;
-                        top: calc(100% + 4px);
-                        left: 0;
-                        z-index: 30;
-                        width: 260px;
-                        max-height: 280px;
-                        overflow-y: auto;
-                        background: var(--surface-raised);
-                        border: 1px solid var(--border-2);
-                        border-radius: var(--radius-md);
-                        box-shadow: var(--elev-3);
-                      "
-                    >
-                      {#if images.length === 0}
-                        <div style="padding: 10px 12px; font: var(--text-body-sm); color: var(--fg-3);">
-                          No disk images available
-                        </div>
-                      {:else}
-                        {#each images as img (img.name)}
-                          <button
-                            type="button"
-                            onclick={() => mountDisk(id, img.name)}
-                            style="
-                              width: 100%;
-                              text-align: left;
-                              padding: 8px 12px;
-                              background: transparent;
-                              border: none;
-                              border-bottom: 1px solid var(--border-1);
-                              color: var(--fg-1);
-                              cursor: pointer;
-                              display: flex;
-                              align-items: center;
-                              justify-content: space-between;
-                              gap: 8px;
-                            "
-                          >
-                            <span
-                              class="fdc-mono"
-                              style="font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
-                            >
-                              {img.name}
-                            </span>
-                            <span class="fdc-mono" style="font-size: 11px; color: var(--fg-3); flex: 0 0 auto;">
-                              {formatSize(img.size)}
-                            </span>
-                          </button>
-                        {/each}
-                      {/if}
-                    </div>
-                  {/if}
+              {#if images.length === 0}
+                <div style="padding: 10px 12px; font: var(--text-body-sm); color: var(--fg-3);">
+                  No disk images available
                 </div>
+              {:else}
+                {#each images as img (img.name)}
+                  <button
+                    type="button"
+                    onclick={() => mountDisk(id, img.name)}
+                    style="
+                      width: 100%;
+                      text-align: left;
+                      padding: 8px 12px;
+                      background: transparent;
+                      border: none;
+                      border-bottom: 1px solid var(--border-1);
+                      color: var(--fg-1);
+                      cursor: pointer;
+                      display: flex;
+                      align-items: center;
+                      justify-content: space-between;
+                      gap: 8px;
+                    "
+                  >
+                    <span
+                      class="fdc-mono"
+                      style="font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                    >
+                      {img.name}
+                    </span>
+                    <span class="fdc-mono" style="font-size: 11px; color: var(--fg-3); flex: 0 0 auto;">
+                      {formatSize(img.size)}
+                    </span>
+                  </button>
+                {/each}
               {/if}
             </div>
-          </div>
-        </Card>
+          {/if}
+        </div>
       {/each}
     </div>
   </div>
@@ -741,6 +871,7 @@
                         {/if}
                       </div>
                       <IconButton icon="folder_open" size={16} title="Browse CP/M files (experimental)" onclick={() => openCpmBrowser(img)} />
+                      <IconButton icon="history" size={18} title="Snapshots" onclick={() => openSnapshots(img)} />
                       <IconButton icon="content_copy" size={16} title="Clone image" onclick={() => cloneDisk(img.name)} />
                       <IconButton icon="edit_note" size={18} title="Edit notes" onclick={() => openEditNotes(img)} />
                       <IconButton icon="delete" size={16} title="Delete image" onclick={() => deleteDisk(img.name)} />
@@ -821,11 +952,231 @@
         <label class="fdc-label-strip" for="edit-notes" style="display: block; margin-bottom: 4px;">Notes</label>
         <TextArea id="edit-notes" rows={4} placeholder="Additional notes…" bind:value={editNotesText} />
       </div>
+      <div>
+        <label class="fdc-label-strip" for="edit-policy" style="display: block; margin-bottom: 4px;">On write to read-only</label>
+        <Select id="edit-policy" bind:value={editPolicy}>
+          <option value="inherit">Inherit (use global default)</option>
+          <option value="error">Error — refuse writes (write-protect)</option>
+          <option value="transient">Transient — copy-on-write, changes discarded on unmount</option>
+        </Select>
+        <div class="fdc-label-strip" style="margin-top: 4px; text-transform: none; letter-spacing: 0; color: var(--fg-3);">
+          "Transient" lets the guest write to a throwaway copy while this image stays pristine.
+        </div>
+      </div>
       <div style="display: flex; justify-content: flex-end; gap: 8px;">
         <Button variant="ghost" disabled={savingEdit} onclick={() => (editingNotes = null)}>Cancel</Button>
         <Button variant="filled" icon="check" disabled={savingEdit} onclick={saveEdit}>
           {savingEdit ? 'Saving…' : 'Save'}
         </Button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Disk settings modal (global defaults) -->
+{#if showSettings}
+  <div
+    role="dialog"
+    aria-modal="true"
+    aria-label="Disk settings"
+    tabindex="-1"
+    onkeydown={(e: KeyboardEvent) => { if (e.key === 'Escape' && !settingsSaving) showSettings = false; }}
+    style="position: fixed; inset: 0; z-index: 50; background: var(--surface-overlay); display: flex; align-items: center; justify-content: center; padding: 16px;"
+  >
+    <button
+      type="button"
+      onclick={() => { if (!settingsSaving) showSettings = false; }}
+      aria-label="Close"
+      style="position: absolute; inset: 0; background: transparent; border: none; cursor: default;"
+    ></button>
+    <div
+      role="document"
+      style="position: relative; background: var(--surface-raised); border: 1px solid var(--border-2); border-radius: var(--radius-lg); box-shadow: var(--elev-4); width: 100%; max-width: 520px; padding: 20px; display: flex; flex-direction: column; gap: 14px;"
+    >
+      <div>
+        <LabelStrip>Disk settings</LabelStrip>
+        <p class="fdc-label-strip" style="color: var(--fg-3); margin: 4px 0 0; text-transform: none; letter-spacing: 0;">
+          Global defaults for all disks. A per-image setting (in each disk's Edit dialog) overrides these.
+        </p>
+      </div>
+      <div>
+        <label class="fdc-label-strip" for="settings-policy" style="display: block; margin-bottom: 4px;">Default: on write to read-only image</label>
+        <Select id="settings-policy" bind:value={settingsPolicy} disabled={settingsLoading || settingsSaving}>
+          <option value="error">Error — refuse writes (write-protect)</option>
+          <option value="transient">Transient — copy-on-write, changes discarded on eject</option>
+        </Select>
+        <div class="fdc-label-strip" style="margin-top: 4px; text-transform: none; letter-spacing: 0; color: var(--fg-3);">
+          Applies to disks with no per-image override. Restart-required — this is an install-time default.
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 8px;">
+        <Button variant="ghost" disabled={settingsSaving} onclick={() => (showSettings = false)}>Close</Button>
+        <Button variant="filled" icon="check" disabled={settingsLoading || settingsSaving} onclick={saveSettings}>
+          {settingsSaving ? 'Saving…' : 'Save defaults'}
+        </Button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Snapshots modal -->
+{#if snapshotDisk}
+  <div
+    role="dialog"
+    aria-modal="true"
+    aria-label="Disk image snapshots"
+    tabindex="-1"
+    onkeydown={(e: KeyboardEvent) => { if (e.key === 'Escape') snapshotDisk = null; }}
+    style="
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      background: var(--surface-overlay);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    "
+  >
+    <button
+      type="button"
+      onclick={() => (snapshotDisk = null)}
+      aria-label="Close"
+      style="position: absolute; inset: 0; background: transparent; border: none; cursor: default;"
+    ></button>
+    <div
+      role="document"
+      style="
+        position: relative;
+        background: var(--surface-raised);
+        border: 1px solid var(--border-2);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--elev-4);
+        width: 100%;
+        max-width: 560px;
+        max-height: 85vh;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        overflow: hidden;
+      "
+    >
+      <div>
+        <LabelStrip>Snapshots</LabelStrip>
+        <h3 class="fdc-mono" style="font-size: 16px; color: var(--accent); margin: 4px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title={snapshotDisk.name}>
+          {snapshotDisk.name}
+        </h3>
+      </div>
+
+      <!-- Create -->
+      <div style="display: flex; gap: 8px; align-items: flex-end;">
+        <div style="flex: 1; min-width: 0;">
+          <label class="fdc-label-strip" for="snap-label" style="display: block; margin-bottom: 4px;">New snapshot label (optional)</label>
+          <Input id="snap-label" placeholder="e.g. before format" bind:value={newSnapshotLabel} />
+        </div>
+        <Button variant="filled" icon="photo_camera" disabled={creatingSnapshot} onclick={createSnapshotForDisk}>
+          {creatingSnapshot ? 'Saving…' : 'Snapshot'}
+        </Button>
+      </div>
+
+      {#if snapshotDiskMounted}
+        <div class="fdc-label-strip" style="text-transform: none; letter-spacing: 0; color: var(--fg-3); display: flex; align-items: center; gap: 6px;">
+          <Icon name="info" size={14} />
+          Mounted on a drive — rollback is disabled. Unmount to roll back.
+        </div>
+      {/if}
+
+      <!-- List -->
+      <div style="overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
+        {#if snapshotsLoading}
+          <div class="fdc-label-strip" style="text-transform: none; letter-spacing: 0; color: var(--fg-3);">Loading…</div>
+        {:else if snapshots.length === 0}
+          <div class="fdc-label-strip" style="text-transform: none; letter-spacing: 0; color: var(--fg-3);">
+            No snapshots yet. Create one above.
+          </div>
+        {:else}
+          {#each snapshots as snap (snap.id)}
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--border-1); border-radius: var(--radius-md);">
+              <div style="min-width: 0;">
+                <div style="color: var(--fg-1); font: var(--text-body-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  {snap.label || 'Untitled snapshot'}
+                </div>
+                <div class="fdc-mono" style="font-size: 10px; color: var(--fg-3);">
+                  {formatTimestamp(snap.created_at)} · {formatSize(snap.size_bytes)}
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 4px; flex: 0 0 auto;">
+                <IconButton
+                  icon="restore"
+                  size={18}
+                  title={snapshotDiskMounted ? 'Unmount to roll back' : 'Roll back to this snapshot'}
+                  disabled={snapshotDiskMounted || snapshotBusyId === snap.id}
+                  onclick={() => restoreSnapshotForDisk(snap)}
+                />
+                <IconButton
+                  icon="delete"
+                  size={16}
+                  title="Delete snapshot"
+                  disabled={snapshotBusyId === snap.id}
+                  onclick={() => deleteSnapshotForDisk(snap)}
+                />
+              </div>
+            </div>
+          {/each}
+        {/if}
+      </div>
+
+      <div style="display: flex; justify-content: flex-end;">
+        <Button variant="ghost" onclick={() => (snapshotDisk = null)}>Close</Button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Transient eject: keep-or-discard dialog -->
+{#if transientEjectDrive}
+  <div
+    role="dialog"
+    aria-modal="true"
+    aria-label="Eject transient drive"
+    tabindex="-1"
+    onkeydown={(e: KeyboardEvent) => { if (e.key === 'Escape' && !transientBusy) transientEjectDrive = null; }}
+    style="position: fixed; inset: 0; z-index: 55; background: var(--surface-overlay); display: flex; align-items: center; justify-content: center; padding: 16px;"
+  >
+    <button
+      type="button"
+      onclick={() => { if (!transientBusy) transientEjectDrive = null; }}
+      aria-label="Close"
+      style="position: absolute; inset: 0; background: transparent; border: none; cursor: default;"
+    ></button>
+    <div
+      role="document"
+      style="position: relative; background: var(--surface-raised); border: 1px solid var(--border-2); border-radius: var(--radius-lg); box-shadow: var(--elev-4); width: 100%; max-width: 480px; padding: 20px; display: flex; flex-direction: column; gap: 14px;"
+    >
+      <div>
+        <LabelStrip>Eject transient drive {transientEjectDrive.id}</LabelStrip>
+        <p class="fdc-label-strip" style="color: var(--fg-3); margin: 6px 0 0; text-transform: none; letter-spacing: 0;">
+          <span class="fdc-mono" style="color: var(--accent);">{transientEjectDrive.filename}</span> has
+          unsaved changes on its copy-on-write scratch. Ejecting discards them unless you keep them.
+        </p>
+      </div>
+      <div>
+        <label class="fdc-label-strip" for="transient-save-label" style="display: block; margin-bottom: 4px;">Snapshot label (optional)</label>
+        <Input id="transient-save-label" placeholder="e.g. session save" bind:value={transientSaveLabel} disabled={transientBusy} />
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <Button variant="filled" icon="photo_camera" disabled={transientBusy} onclick={() => transientEject('snapshot')}>
+          Save as snapshot &amp; eject
+        </Button>
+        <Button variant="tonal" icon="save" disabled={transientBusy} onclick={() => transientEject('commit')}>
+          Commit to master &amp; eject
+        </Button>
+        <Button variant="outline" icon="delete_forever" disabled={transientBusy} onclick={() => transientEject('discard')}>
+          Discard changes &amp; eject
+        </Button>
+        <Button variant="ghost" disabled={transientBusy} onclick={() => (transientEjectDrive = null)}>Cancel</Button>
       </div>
     </div>
   </div>

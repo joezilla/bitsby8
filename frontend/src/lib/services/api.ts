@@ -3,6 +3,9 @@
 import type {
   ServerStatus,
   DiskImageInfo,
+  SnapshotInfo,
+  ReadonlyWritePolicy,
+  ClientBay,
   CassetteInfo,
   ScriptInfo,
   SerialPortInfo,
@@ -12,6 +15,7 @@ import type {
   SerialSection,
   WebSection,
   McpSection,
+  DiskServingSection,
   TerminalSection,
   LoggingSection,
   DataSection,
@@ -188,6 +192,87 @@ export const api = {
       }
     ),
 
+  // Snapshots
+  listSnapshots: (filename: string) =>
+    request<{ snapshots: SnapshotInfo[] }>(
+      `/api/images/${encodeURIComponent(filename)}/snapshots`,
+    ),
+  createSnapshot: (filename: string, label?: string) =>
+    request<{ success: boolean; snapshot: SnapshotInfo }>(
+      `/api/images/${encodeURIComponent(filename)}/snapshots`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ label: label ?? '' }),
+      },
+    ),
+  restoreSnapshot: (filename: string, id: string) =>
+    request(
+      `/api/images/${encodeURIComponent(filename)}/snapshots/${encodeURIComponent(id)}/restore`,
+      { method: 'POST' },
+    ),
+  deleteSnapshot: (filename: string, id: string) =>
+    request(
+      `/api/images/${encodeURIComponent(filename)}/snapshots/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+    ),
+
+  // Read-only-write policy (transient copy-on-write)
+  getDiskPolicy: (filename: string) =>
+    request<{ filename: string; onReadonlyWrite: ReadonlyWritePolicy }>(
+      `/api/images/${encodeURIComponent(filename)}/policy`,
+    ),
+  setDiskPolicy: (filename: string, onReadonlyWrite: ReadonlyWritePolicy) =>
+    request(`/api/images/${encodeURIComponent(filename)}/policy`, {
+      method: 'PUT',
+      body: JSON.stringify({ onReadonlyWrite }),
+    }),
+  // Runtime feature settings (DB-backed, live)
+  getSettings: () => request<{ multiClientServing: boolean; writeMaster: string }>('/api/settings'),
+  putSettings: (patch: { multiClientServing?: boolean; writeMaster?: string }) =>
+    request<{ success: boolean; multiClientServing: boolean; writeMaster: string }>('/api/settings', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    }),
+  // Per-client drive bays
+  getClients: () =>
+    request<{ clients: ClientBay[]; anonymous: { id: string; connectedAt: number }[] }>('/api/clients'),
+  setClientName: (clientId: string, name: string) =>
+    request(`/api/clients/${encodeURIComponent(clientId)}/name`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    }),
+  setClientDrive: (clientId: string, drive: number, filename: string, readonly: boolean) =>
+    request(`/api/clients/${encodeURIComponent(clientId)}/drives/${drive}`, {
+      method: 'PUT',
+      body: JSON.stringify({ filename, readonly }),
+    }),
+  clearClientDrive: (clientId: string, drive: number) =>
+    request(`/api/clients/${encodeURIComponent(clientId)}/drives/${drive}`, { method: 'DELETE' }),
+  forgetClient: (clientId: string) =>
+    request(`/api/clients/${encodeURIComponent(clientId)}`, { method: 'DELETE' }),
+  commitClientSplinter: (clientId: string, drive: number) =>
+    request<{ success: boolean; clientId: string; drive: number; filename: string; hotSwapped: boolean; reloadedDrives: number[] }>(
+      `/api/clients/${encodeURIComponent(clientId)}/drives/${drive}/splinter/commit`,
+      { method: 'POST' },
+    ),
+  saveClientSplinterSnapshot: (clientId: string, drive: number, label?: string) =>
+    request<{ success: boolean; snapshot: SnapshotInfo }>(
+      `/api/clients/${encodeURIComponent(clientId)}/drives/${drive}/splinter/save-snapshot`,
+      { method: 'POST', body: JSON.stringify({ label: label ?? '' }) },
+    ),
+  saveClientSplinterAsDisk: (clientId: string, drive: number, name: string) =>
+    request<{ success: boolean; filename: string }>(
+      `/api/clients/${encodeURIComponent(clientId)}/drives/${drive}/splinter/save-as-disk`,
+      { method: 'POST', body: JSON.stringify({ name }) },
+    ),
+  commitTransient: (driveId: number) =>
+    request(`/api/drives/${driveId}/transient/commit`, { method: 'POST' }),
+  saveTransientSnapshot: (driveId: number, label?: string) =>
+    request<{ success: boolean; snapshot: SnapshotInfo }>(
+      `/api/drives/${driveId}/transient/save-snapshot`,
+      { method: 'POST', body: JSON.stringify({ label: label ?? '' }) },
+    ),
+
   // CP/M
   getCpmInfo: (filename: string) =>
     request<{
@@ -317,6 +402,15 @@ export const api = {
         headers: ifMatch ? { 'If-Match': ifMatch } : {},
       },
     ),
+  putDiskServingConfig: (patch: Partial<DiskServingSection>, ifMatch?: string) =>
+    request<{ success: true; config: ConfigDoc; mtimeMs: number; restartRequired: false }>(
+      '/api/config/disk-serving',
+      {
+        method: 'PUT',
+        body: JSON.stringify(patch),
+        headers: ifMatch ? { 'If-Match': ifMatch } : {},
+      },
+    ),
   putTerminalConfig: (patch: Partial<TerminalSection>, ifMatch?: string) =>
     request<{ success: true; config: ConfigDoc; mtimeMs: number }>('/api/config/terminal', {
       method: 'PUT',
@@ -348,6 +442,13 @@ export const api = {
       manualCommand?: string;
       systemdManaged?: boolean;
     }>('/api/config/restart?confirm=1', { method: 'POST' }),
+  shutdownDaemon: () =>
+    request<{
+      success?: boolean;
+      message?: string;
+      manualCommand?: string;
+      systemdManaged?: boolean;
+    }>('/api/config/shutdown?confirm=1', { method: 'POST' }),
   reloadConfig: () =>
     request<{ success: boolean; applied: string[] }>('/api/config/reload', { method: 'POST' }),
   rollbackConfig: () =>

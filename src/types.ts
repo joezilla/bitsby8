@@ -12,6 +12,7 @@ import { Database } from './database';
 import { ReplayEngine } from './replay-engine';
 import { XmodemSender } from './xmodem-sender';
 import { SessionStore } from './services/session-store';
+import { WsTransportManager } from './ws-transport';
 
 export interface WebServerConfig {
   port: number;
@@ -74,6 +75,18 @@ export interface Dependencies {
   // interface so unit-test route stubs don't have to provide one when
   // they're not exercising auth-cookie paths.
   sessionStore?: SessionStore;
+
+  wsTransport: WsTransportManager;
+
+  // Multi-client disk serving (feature-flagged). Cached from the DB settings
+  // store at startup and updated live by PUT /api/settings. When true, extra
+  // virtual clients are served via the ConnectionManager (per-connection
+  // copy-on-write sessions); when false, the legacy single-client path runs.
+  multiClientServing: boolean;
+  // Which client writes the base image directly (others splinter): a clientId,
+  // 'serial' (default), or 'none'. Cached from the DB; updated live by PUT.
+  writeMaster: string;
+  connectionManager?: import('./services/connection-manager').ConnectionManager;
 
   // Mutable server state
   server: FdcServer | null;

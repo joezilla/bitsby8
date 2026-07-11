@@ -7,8 +7,9 @@
  */
 
 import express from 'express';
-import { createServer } from 'http';
+import { createServer, IncomingMessage } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
+import { WebSocketServer } from 'ws';
 import * as path from 'path';
 import { DriveManager } from './drive';
 import { SerialPortManager } from './serial';
@@ -22,6 +23,7 @@ import { setupStaticMiddleware } from './middleware/static';
 import { MAX_DISK_IMAGE_SIZE } from './utils/disk-image-validation';
 import { setupWebSocket } from './websocket/handlers';
 import { broadcastStatus } from './services/disk-serving';
+import { getWsTransportManager } from './ws-transport';
 import { startReleaseChecker } from './services/release-check';
 
 // Route modules
@@ -31,6 +33,11 @@ import { registerSerialRoutes } from './routes/serial';
 import { registerDiskServingRoutes } from './routes/disk-serving';
 import { registerDriveRoutes } from './routes/drives';
 import { registerImageRoutes } from './routes/images';
+import { registerSnapshotRoutes } from './routes/snapshots';
+import { registerSettingsRoutes } from './routes/settings';
+import { registerClientRoutes } from './routes/clients';
+import { ConnectionManager } from './services/connection-manager';
+import { getMultiClientServing, getWriteMaster } from './services/feature-flags';
 import { registerCpmRoutes } from './routes/cpm';
 import { registerCassetteRoutes } from './routes/cassettes';
 import { registerTerminalRoutes } from './routes/terminal';
@@ -115,6 +122,9 @@ export class WebServer {
       startupEpoch: options?.startupEpoch ?? Date.now(),
       configReadonly: options?.configReadonly ?? false,
       sessionStore,
+      wsTransport: getWsTransportManager(),
+      multiClientServing: false,
+      writeMaster: 'serial',
       server: options?.server || null,
       diskServingEnabled: options?.server !== null && options?.server !== undefined,
       serverTask: null,
@@ -141,6 +151,9 @@ export class WebServer {
       this.deps.terminalManager.setVerbose(true);
     }
 
+    // Owns the extra per-connection loops used when multi-client serving is on.
+    this.deps.connectionManager = new ConnectionManager(this.deps);
+
     this.setup();
   }
 
@@ -163,6 +176,9 @@ export class WebServer {
     registerDiskServingRoutes(router, this.deps);
     registerDriveRoutes(router, this.deps);
     registerImageRoutes(router, this.deps);
+    registerSnapshotRoutes(router, this.deps);
+    registerSettingsRoutes(router, this.deps);
+    registerClientRoutes(router, this.deps);
     registerCpmRoutes(router, this.deps);
     registerCassetteRoutes(router, this.deps);
     registerTerminalRoutes(router, this.deps);
@@ -193,6 +209,69 @@ export class WebServer {
 
     // WebSocket handlers
     setupWebSocket(this.io, this.deps);
+
+    // FDC WebSocket transport endpoint
+    this.setupFdcWebSocket();
+  }
+
+  /**
+   * Attach a raw WebSocket server at /fdc-ws for virtual FDC clients.
+   *
+   * Socket.IO also registers an 'upgrade' listener (to handle /socket.io paths).
+   * We capture Socket.IO's listeners and replace them with a routing handler
+   * that steers /fdc-ws upgrades to our ws server and everything else to Socket.IO.
+   * This is the recommended pattern from the ws README for sharing an HTTP server.
+   */
+  private setupFdcWebSocket(): void {
+    const wss = new WebSocketServer({ noServer: true });
+    const log = require('./logger').createLogger('fdc-ws');
+
+    // Capture existing upgrade listeners (Socket.IO's) before replacing them.
+    const existingListeners = this.httpServer.rawListeners('upgrade').slice();
+    this.httpServer.removeAllListeners('upgrade');
+
+    this.httpServer.on('upgrade', (req: IncomingMessage, socket: any, head: Buffer) => {
+      const rawUrl = req.url || '';
+      const urlPath = rawUrl.split('?')[0];
+
+      if (urlPath === '/fdc-ws') {
+        // TCP-based disk serving is on by default; only an explicit
+        // `false` disables it. Refuse the upgrade when turned off.
+        if (this.deps.runtimeConfig?.enableWsTransport === false) {
+          socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+          socket.destroy();
+          return;
+        }
+        const apiKey = this.deps.runtimeConfig?.apiKey ?? null;
+        if (apiKey && !isFdcWsAuthorized(req, apiKey)) {
+          socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+          socket.destroy();
+          return;
+        }
+        wss.handleUpgrade(req, socket, head, (client) => {
+          // Multi-client ON: each virtual client gets its own served loop +
+          // copy-on-write session via the ConnectionManager. OFF: legacy
+          // single shared transport (a new client replaces the prior one).
+          if (this.deps.multiClientServing && this.deps.connectionManager) {
+            const clientId = new URL(rawUrl, 'http://localhost').searchParams.get('clientId');
+            log.info({ clientId }, 'Virtual FDC client connected (multi-client)');
+            this.deps.connectionManager.addWsClient(client, clientId).catch((err) => {
+              log.error({ err }, 'failed to start multi-client FDC connection');
+            });
+          } else {
+            log.info('Virtual FDC client connected');
+            this.deps.wsTransport.acceptConnection(client);
+            this.broadcastStatus();
+          }
+        });
+        return;
+      }
+
+      // Delegate everything else to Socket.IO's listener(s).
+      for (const listener of existingListeners) {
+        (listener as Function).call(this.httpServer, req, socket, head);
+      }
+    });
   }
 
   /**
@@ -226,6 +305,15 @@ export class WebServer {
         console.error(`Failed to initialize database at ${this.deps.database.getPath()}:`, error);
         console.log('Continuing without database support');
       }
+    }
+
+    // Cache the multi-client settings (updated live by PUT /api/settings).
+    try {
+      this.deps.multiClientServing = await getMultiClientServing(this.deps.database);
+      this.deps.writeMaster = await getWriteMaster(this.deps.database);
+    } catch {
+      this.deps.multiClientServing = false;
+      this.deps.writeMaster = 'serial';
     }
 
     return new Promise((resolve, reject) => {
@@ -308,4 +396,20 @@ export class WebServer {
       });
     });
   }
+}
+
+/**
+ * Check whether an /fdc-ws upgrade request carries a valid API key.
+ * Accepts: Authorization: Bearer <key>  OR  ?token=<key> query param.
+ */
+function isFdcWsAuthorized(req: IncomingMessage, apiKey: string): boolean {
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.slice(7) === apiKey;
+  }
+  const tokenMatch = (req.url || '').match(/[?&]token=([^&]+)/);
+  if (tokenMatch) {
+    return decodeURIComponent(tokenMatch[1]) === apiKey;
+  }
+  return false;
 }

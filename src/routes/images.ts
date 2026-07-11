@@ -14,6 +14,8 @@ import {
 } from '../utils/disk-image-validation';
 import { MAX_DRIVES } from '../protocol';
 import { CpmFilesystem, paramsForFormat, inferFormatFromSize } from '../cpm-filesystem';
+import { deleteSnapshotsForDisk, renameSnapshotsForDisk } from '../services/disk-snapshots';
+import { getClientMountRegistry } from '../client-mount-registry';
 
 export function registerImageRoutes(router: Router, deps: Dependencies): void {
   /**
@@ -579,6 +581,22 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
       // Also delete notes from database
       await deps.database.deleteDiskNote(filename);
 
+      // Drop any snapshots of this image so they don't orphan.
+      await deleteSnapshotsForDisk(deps, filename);
+
+      // Drop any per-image write policy.
+      await deps.database.deleteDiskPolicy(filename);
+
+      // Drop any persistent per-client splinters forked from this image.
+      const splinterPaths = await deps.database.deleteClientSplintersForBase(filename);
+      await Promise.all(splinterPaths.map((p) => fs.unlink(p).catch(() => { /* best-effort */ })));
+
+      // Drop any per-client drive-bay overrides pointing at this image, in the
+      // DB and the in-memory registry, then re-sync live sessions.
+      await deps.database.deleteClientMountsForBase(filename);
+      getClientMountRegistry().clearByBasename(filename);
+      await deps.connectionManager?.syncAll();
+
       res.json({ success: true, filename });
     } catch (error) {
       res.status(500).json({ error: safeErrorMessage(error) });
@@ -814,7 +832,96 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
       // Migrate the notes record (no-op if no row existed).
       await deps.database.renameDiskNote(filename, newFilename);
 
+      // Keep snapshots attached to the renamed image.
+      await renameSnapshotsForDisk(deps, filename, newFilename);
+
+      // Keep the per-image write policy attached to the renamed image.
+      await deps.database.renameDiskPolicy(filename, newFilename);
+
+      // Keep persistent client splinters attached (content unchanged by rename).
+      await deps.database.renameClientSplintersBase(filename, newFilename);
+
+      // Keep per-client drive-bay overrides attached to the renamed image.
+      await deps.database.renameClientMountsBase(filename, newFilename);
+      getClientMountRegistry().renameByBasename(filename, destPath);
+      await deps.connectionManager?.syncAll();
+
       res.json({ success: true, filename: newFilename });
+    } catch (error) {
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/images/{filename}/policy:
+   *   get:
+   *     tags: [Images]
+   *     summary: Get a disk image's read-only-write policy
+   *     description: "Returns onReadonlyWrite: inherit (follow the global default), error (fail writes), or transient (back with copy-on-write scratch)."
+   *     parameters:
+   *       - in: path
+   *         name: filename
+   *         required: true
+   *         schema:
+   *           type: string
+   *     responses:
+   *       200:
+   *         description: Current per-image policy
+   *   put:
+   *     tags: [Images]
+   *     summary: Set a disk image's read-only-write policy
+   *     parameters:
+   *       - in: path
+   *         name: filename
+   *         required: true
+   *         schema:
+   *           type: string
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [onReadonlyWrite]
+   *             properties:
+   *               onReadonlyWrite:
+   *                 type: string
+   *                 enum: [inherit, error, transient]
+   *     responses:
+   *       200:
+   *         description: Policy updated
+   *       400:
+   *         description: Invalid filename or policy value
+   */
+  router.get('/api/images/:filename/policy', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const filename = req.params.filename;
+      if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+        res.status(400).json({ error: 'Invalid filename' });
+        return;
+      }
+      const onReadonlyWrite = await deps.database.getDiskPolicy(filename);
+      res.json({ filename, onReadonlyWrite });
+    } catch (error) {
+      res.status(500).json({ error: safeErrorMessage(error) });
+    }
+  });
+
+  router.put('/api/images/:filename/policy', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const filename = req.params.filename;
+      if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+        res.status(400).json({ error: 'Invalid filename' });
+        return;
+      }
+      const value = req.body?.onReadonlyWrite;
+      if (value !== 'inherit' && value !== 'error' && value !== 'transient') {
+        res.status(400).json({ error: 'Invalid policy. Must be inherit, error, or transient.' });
+        return;
+      }
+      await deps.database.setDiskPolicy(filename, value);
+      res.json({ success: true, filename, onReadonlyWrite: value });
     } catch (error) {
       res.status(500).json({ error: safeErrorMessage(error) });
     }
