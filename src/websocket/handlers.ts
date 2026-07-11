@@ -41,6 +41,17 @@ export function setupWebSocket(io: SocketIOServer, deps: Dependencies): void {
       try {
         if (!deps.instanceManager) throw new Error('virtual instances are not available');
         if (consoleUnsubs.has(instanceId)) return; // idempotent
+        // Replay the buffered scrollback (boot sign-on, prior output) first, so a
+        // console opened AFTER the machine printed isn't blank. The read and the
+        // live subscribe are synchronous with no yield between them, so no bytes
+        // are dropped or duplicated at the seam.
+        const history = deps.instanceManager.readConsole(instanceId);
+        if (history.data) {
+          socket.emit('instance:console:data', {
+            instanceId,
+            data: Array.from(history.data, (ch) => ch.charCodeAt(0) & 0xff),
+          });
+        }
         const off = deps.instanceManager.subscribeConsole(instanceId, {
           onOutput: (bytes) => socket.emit('instance:console:data', { instanceId, data: Array.from(bytes) }),
         });
