@@ -93,6 +93,7 @@ export function generateSkills(card: CardDefinitionDoc, footprint: CardFootprint
   if (card.summary) lines.push(`> ${card.summary}`);
   lines.push('');
   lines.push(`- **Identity:** \`${card.id}\``);
+  lines.push(`- **Kind:** ${card.kind === 'chip' ? 'chip (component)' : 'card (S-100 board)'}`);
   lines.push(`- **Type:** ${card.type}`);
   if (card.maker) lines.push(`- **Maker:** ${card.maker}`);
   if (card.capabilities.length) lines.push(`- **Capabilities:** ${card.capabilities.join(', ')}`);

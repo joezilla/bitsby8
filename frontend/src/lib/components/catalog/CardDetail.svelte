@@ -97,6 +97,10 @@
           <dl class="kv">
             <dt>Identity</dt>
             <dd class="fdc-mono">{c.id}</dd>
+            <dt>Kind</dt>
+            <dd>{c.kind === 'chip' ? 'Chip (component)' : 'Card (S-100 board)'}</dd>
+            <dt>Type</dt>
+            <dd style="text-transform: capitalize;">{c.type}</dd>
             <dt>Digest</dt>
             <dd class="fdc-mono digest" title={c.digest}>{c.digest}</dd>
             {#if c.capabilities.length}

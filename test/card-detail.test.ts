@@ -105,6 +105,7 @@ describe('card-detail: generateSkills', () => {
       version: '1.0.0',
       digest: 'sha256:abc',
       type: 'serial',
+      kind: 'card' as const,
       maker: 'MITS',
       summary: 'Dual serial interface.',
       capabilities: ['serial-io'],

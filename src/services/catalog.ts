@@ -13,11 +13,16 @@ import { Dependencies } from '../types';
 import { CardDefinitionRecord } from '../database';
 import { ServiceError } from './service-error';
 
+/** Bus-ontology kind: an S-100 board vs. a component chip that lives on a card. */
+export type PrimitiveKind = 'card' | 'chip';
+
 /** The declarative surface of a card (mirrors 8sim's CardManifest). */
 export interface CardManifestInput {
   name: string;
   version: string;
   type: string;
+  /** 'card' (S-100 board) | 'chip' (component). Absent on older bundles → 'card'. */
+  kind?: PrimitiveKind;
   maker?: string;
   summary?: string;
   configSchema: Record<string, unknown>;
@@ -38,6 +43,8 @@ export interface CardDefinitionDoc {
   version: string;
   digest: string;
   type: string;
+  /** Bus-ontology kind: 'card' (S-100 board) | 'chip' (component). */
+  kind: PrimitiveKind;
   maker: string | null;
   summary: string | null;
   /** Derived capability tags (from the manifest) — a browse/filter facet. */
@@ -50,6 +57,8 @@ export interface CardDefinitionDoc {
 
 /** Filter for browsing the Catalog (all optional, case-insensitive). */
 export interface CatalogFilter {
+  /** Primitive kind (card | chip). */
+  kind?: string;
   /** Exact card type (serial | floppy | memory | panel | other). */
   type?: string;
   /** Exact maker (e.g. MITS, IMSAI). */
@@ -61,10 +70,11 @@ export interface CatalogFilter {
 }
 
 /** The Catalog listing plus the facet options present across the full set,
- * so the UI can render type/maker/capability filters without a second call. */
+ * so the UI can render kind/type/maker/capability filters without a second call. */
 export interface CatalogListing {
   cards: CardDefinitionDoc[];
   facets: {
+    kinds: string[];
     types: string[];
     makers: string[];
     capabilities: string[];
@@ -123,6 +133,7 @@ function toDoc(rec: CardDefinitionRecord): CardDefinitionDoc {
     version: rec.version,
     digest: rec.digest,
     type: rec.type,
+    kind: manifest.kind === 'chip' ? 'chip' : 'card',
     maker: rec.maker,
     summary: rec.summary,
     capabilities: deriveCapabilities(manifest),
@@ -135,6 +146,7 @@ function toDoc(rec: CardDefinitionRecord): CardDefinitionDoc {
 
 /** True if a card matches every provided filter facet (case-insensitive). */
 function matchesFilter(doc: CardDefinitionDoc, f: CatalogFilter): boolean {
+  if (f.kind && doc.kind.toLowerCase() !== f.kind.toLowerCase()) return false;
   if (f.type && doc.type.toLowerCase() !== f.type.toLowerCase()) return false;
   if (f.maker && (doc.maker ?? '').toLowerCase() !== f.maker.toLowerCase()) return false;
   if (f.capability && !doc.capabilities.some((c) => c.toLowerCase() === f.capability!.toLowerCase())) {
@@ -202,6 +214,7 @@ export async function browseCatalog(
   return {
     cards: all.filter((doc) => matchesFilter(doc, filter)),
     facets: {
+      kinds: uniqSorted(all.map((c) => c.kind)),
       types: uniqSorted(all.map((c) => c.type)),
       makers: uniqSorted(all.map((c) => c.maker).filter((m): m is string => !!m)),
       capabilities: uniqSorted(all.flatMap((c) => c.capabilities)),

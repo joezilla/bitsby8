@@ -145,12 +145,15 @@ describe('catalog: capabilities (derived from manifest)', () => {
 
 describe('catalog: browse (filter + facets)', () => {
   async function seed(deps: Dependencies) {
-    await registerCardDefinition(deps, sample); // mits-88-2sio, serial, MITS
+    await registerCardDefinition(deps, sample); // mits-88-2sio, serial, MITS, card
     await registerCardDefinition(deps, {
-      manifest: { ...sample.manifest, name: 'imsai-sio2', type: 'serial', maker: 'IMSAI' },
+      manifest: { ...sample.manifest, name: 'imsai-sio2', type: 'serial', kind: 'card', maker: 'IMSAI' },
     });
     await registerCardDefinition(deps, {
-      manifest: { ...sample.manifest, name: 'mits-88-dcdd', type: 'floppy', maker: 'MITS' },
+      manifest: { ...sample.manifest, name: 'mits-88-dcdd', type: 'floppy', kind: 'card', maker: 'MITS' },
+    });
+    await registerCardDefinition(deps, {
+      manifest: { ...sample.manifest, name: 'motorola-6850', type: 'serial', kind: 'chip', maker: 'Motorola' },
     });
   }
 
@@ -158,9 +161,21 @@ describe('catalog: browse (filter + facets)', () => {
     const deps = await makeDeps();
     await seed(deps);
     const { facets } = await browseCatalog(deps, { type: 'floppy' });
+    expect(facets.kinds).toEqual(['card', 'chip']);
     expect(facets.types).toEqual(['floppy', 'serial']);
-    expect(facets.makers).toEqual(['IMSAI', 'MITS']);
+    expect(facets.makers).toEqual(['IMSAI', 'MITS', 'Motorola']);
     expect(facets.capabilities).toEqual(['disk-controller', 'serial-io']);
+  });
+
+  test('kind classification: absent → card; explicit chip is preserved and filterable', async () => {
+    const deps = await makeDeps();
+    await seed(deps);
+    const chips = await browseCatalog(deps, { kind: 'chip' });
+    expect(chips.cards.map((c) => c.name)).toEqual(['motorola-6850']);
+    const cards = await browseCatalog(deps, { kind: 'card' });
+    expect(cards.cards.map((c) => c.name).sort()).toEqual(['imsai-sio2', 'mits-88-2sio', 'mits-88-dcdd']);
+    // sample manifest carries no `kind` → defaults to 'card'
+    expect(cards.cards.find((c) => c.name === 'mits-88-2sio')!.kind).toBe('card');
   });
 
   test('filters by type, maker, capability, and free-text q (case-insensitive)', async () => {
@@ -170,6 +185,7 @@ describe('catalog: browse (filter + facets)', () => {
     expect((await browseCatalog(deps, { type: 'serial' })).cards.map((c) => c.name).sort()).toEqual([
       'imsai-sio2',
       'mits-88-2sio',
+      'motorola-6850',
     ]);
     expect((await browseCatalog(deps, { maker: 'imsai' })).cards.map((c) => c.name)).toEqual(['imsai-sio2']);
     expect(

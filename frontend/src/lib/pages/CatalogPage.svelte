@@ -10,7 +10,7 @@
   import CardDetail from '$lib/components/catalog/CardDetail.svelte';
 
   let cards = $state<CardDefinition[]>([]);
-  let facets = $state<CatalogFacets>({ types: [], makers: [], capabilities: [] });
+  let facets = $state<CatalogFacets>({ kinds: [], types: [], makers: [], capabilities: [] });
   let loading = $state(true);
   let selectedId = $state<string | null>(null);
 
@@ -37,12 +37,18 @@
     }),
   );
 
-  // Group the filtered cards by type, in facet order, for the "grouped like the
-  // assembly rail" browse layout (UX-DR2).
-  let groups = $derived(
-    facets.types
-      .map((t) => ({ type: t, items: filtered.filter((c) => c.type === t) }))
-      .filter((g) => g.items.length > 0),
+  // Primary grouping is by KIND — an S-100 machine is assembled from cards; a
+  // chip is a component that lives on a card. Keeping them in separate, labeled
+  // zones stops the two levels of primitive reading as undifferentiated peers.
+  const KIND_META: Record<string, { label: string; icon: string; desc: string }> = {
+    card: { label: 'Cards', icon: 'developer_board', desc: 'S-100 boards you assemble a machine from.' },
+    chip: { label: 'Chips', icon: 'memory', desc: 'Components that live on a card — building blocks, not standalone boards.' },
+  };
+  const KIND_ORDER = ['card', 'chip'];
+  let sections = $derived(
+    KIND_ORDER.filter((k) => facets.kinds.includes(k))
+      .map((k) => ({ kind: k, items: filtered.filter((c) => c.kind === k) }))
+      .filter((s) => s.items.length > 0),
   );
 
   const TYPE_ICON: Record<string, string> = {
@@ -193,15 +199,17 @@
       {filtered.length}
       {filtered.length === 1 ? 'card' : 'cards'}{hasFilter ? ` of ${cards.length}` : ''}
     </p>
-    {#each groups as group (group.type)}
-      <section class="group" aria-label="{group.type} cards">
-        <h2 class="group-head">
-          <Icon name={typeIcon(group.type)} size={18} />
-          <span class="fdc-overline">{group.type}</span>
-          <span class="group-count">{group.items.length}</span>
-        </h2>
+    {#each sections as section (section.kind)}
+      {@const meta = KIND_META[section.kind]}
+      <section class="group" aria-label="{meta?.label ?? section.kind}">
+        <div class="group-head">
+          <Icon name={meta?.icon ?? 'developer_board'} size={18} />
+          <h2 class="fdc-overline">{meta?.label ?? section.kind}</h2>
+          <span class="group-count">{section.items.length}</span>
+          {#if meta?.desc}<span class="group-desc">{meta.desc}</span>{/if}
+        </div>
         <div class="grid">
-          {#each group.items as card (card.id)}
+          {#each section.items as card (card.id)}
             <button
               class="card-btn"
               onclick={() => (selectedId = card.id)}
@@ -211,6 +219,10 @@
                 <div class="card-top">
                   <span class="card-id fdc-mono" title={card.id}>{card.id}</span>
                   {#if card.maker}<Chip size="sm" color="cyan">{card.maker}</Chip>{/if}
+                </div>
+                <div class="card-tags">
+                  <span class="type-tag"><Icon name={typeIcon(card.type)} size={14} />{card.type}</span>
+                  {#if card.kind === 'chip'}<span class="kind-tag">component</span>{/if}
                 </div>
                 {#if card.summary}
                   <p class="card-summary">{card.summary}</p>
@@ -371,10 +383,16 @@
     align-items: center;
     gap: var(--space-2);
     margin: 0;
-    color: var(--fg-2);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--border-1);
+    color: var(--fg-1);
   }
-  .group-head .fdc-overline {
+  .group-head h2 {
+    margin: 0;
+    font: var(--text-overline);
     letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--fg-1);
   }
   .group-count {
     font: var(--text-overline);
@@ -382,6 +400,39 @@
     background: var(--surface-variant);
     border-radius: var(--radius-full);
     padding: 1px 8px;
+  }
+  .group-desc {
+    font: var(--text-body-sm);
+    color: var(--fg-3);
+  }
+  @media (max-width: 620px) {
+    .group-desc {
+      display: none;
+    }
+  }
+
+  .card-tags {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .type-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font: var(--text-overline);
+    text-transform: capitalize;
+    letter-spacing: 0.02em;
+    color: var(--fg-3);
+  }
+  .kind-tag {
+    font: var(--text-overline);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--info);
+    background: color-mix(in srgb, var(--info) 14%, transparent);
+    border-radius: var(--radius-xs);
+    padding: 1px 6px;
   }
 
   .grid {

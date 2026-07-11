@@ -29,6 +29,10 @@ export function registerCatalogRoutes(router: Router, deps: Dependencies): void 
    *       set so a UI can render its filters from one call.
    *     parameters:
    *       - in: query
+   *         name: kind
+   *         schema: { type: string }
+   *         description: Filter by primitive kind (card | chip).
+   *       - in: query
    *         name: type
    *         schema: { type: string }
    *         description: Filter by card type (serial | floppy | memory | panel | other).
@@ -59,6 +63,7 @@ export function registerCatalogRoutes(router: Router, deps: Dependencies): void 
    *                 facets:
    *                   type: object
    *                   properties:
+   *                     kinds: { type: array, items: { type: string } }
    *                     types: { type: array, items: { type: string } }
    *                     makers: { type: array, items: { type: string } }
    *                     capabilities: { type: array, items: { type: string } }
@@ -66,6 +71,7 @@ export function registerCatalogRoutes(router: Router, deps: Dependencies): void 
   router.get('/api/catalog/cards', async (req: Request, res: Response): Promise<void> => {
     try {
       const filter: CatalogFilter = {
+        kind: typeof req.query.kind === 'string' ? req.query.kind : undefined,
         type: typeof req.query.type === 'string' ? req.query.type : undefined,
         maker: typeof req.query.maker === 'string' ? req.query.maker : undefined,
         capability: typeof req.query.capability === 'string' ? req.query.capability : undefined,

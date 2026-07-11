@@ -101,6 +101,7 @@ export const openapiDefinition: Options = {
             version: { type: 'string', example: '1.0.0' },
             digest: { type: 'string', example: 'sha256:…', description: 'Content digest (basic sha256; full rule in a later release).' },
             type: { type: 'string', example: 'serial' },
+            kind: { type: 'string', enum: ['card', 'chip'], example: 'card', description: 'Bus-ontology kind: S-100 board vs. component chip.' },
             maker: { type: 'string', nullable: true, example: 'MITS' },
             summary: { type: 'string', nullable: true },
             capabilities: {

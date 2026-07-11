@@ -121,13 +121,16 @@ export interface ScriptInfo {
   size: number;
 }
 
-/** A Catalog Card Definition (Bitsby8) — a versioned S-100 card Primitive. */
+export type PrimitiveKind = 'card' | 'chip';
+
+/** A Catalog Card Definition (Bitsby8) — a versioned S-100 primitive. */
 export interface CardDefinition {
   id: string; // name@version
   name: string;
   version: string;
   digest: string;
   type: string;
+  kind: PrimitiveKind;
   maker: string | null;
   summary: string | null;
   capabilities: string[];
@@ -138,6 +141,7 @@ export interface CardDefinition {
 }
 
 export interface CatalogFacets {
+  kinds: string[];
   types: string[];
   makers: string[];
   capabilities: string[];

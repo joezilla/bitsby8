@@ -157,6 +157,15 @@
             "type": "string",
             "example": "serial"
           },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "card",
+              "chip"
+            ],
+            "example": "card",
+            "description": "Bus-ontology kind: S-100 board vs. component chip."
+          },
           "maker": {
             "type": "string",
             "nullable": true,
@@ -4379,6 +4388,14 @@
         "parameters": [
           {
             "in": "query",
+            "name": "kind",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by primitive kind (card | chip)."
+          },
+          {
+            "in": "query",
             "name": "type",
             "schema": {
               "type": "string"
@@ -4427,6 +4444,12 @@
                     "facets": {
                       "type": "object",
                       "properties": {
+                        "kinds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
                         "types": {
                           "type": "array",
                           "items": {

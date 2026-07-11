@@ -1972,14 +1972,15 @@ export function createMcpServer(deps: Dependencies): McpServer {
     'List Card Definitions in the Catalog (Bitsby8) — seed S-100 cards with Identity, type, maker, ' +
       'derived capabilities, and manifest. Optional filters (all case-insensitive) narrow the list.',
     {
+      kind: z.string().optional().describe('Primitive kind: card (S-100 board) | chip (component)'),
       type: z.string().optional().describe('Card type: serial | floppy | memory | panel | other'),
       maker: z.string().optional().describe('Maker, e.g. MITS or IMSAI'),
       capability: z.string().optional().describe('A derived capability tag the card must carry'),
       q: z.string().optional().describe('Free-text search over id/name/summary/maker/type'),
     },
-    async ({ type, maker, capability, q }) => {
+    async ({ kind, type, maker, capability, q }) => {
       try {
-        const cards = await listCardDefinitions(deps, { type, maker, capability, q });
+        const cards = await listCardDefinitions(deps, { kind, type, maker, capability, q });
         return { content: [{ type: 'text', text: JSON.stringify(cards, null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
