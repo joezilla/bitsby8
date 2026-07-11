@@ -2,6 +2,7 @@
   import type { CardDefinition, ProfileCardInstance } from '$lib/types/api';
   import Icon from '$lib/components/shared/Icon.svelte';
   import Button from '$lib/components/shared/Button.svelte';
+  import HexInput from '$lib/components/shared/HexInput.svelte';
 
   interface ParamSpec {
     type: string;
@@ -82,8 +83,7 @@
     emit(next);
   }
 
-  function setConfig(i: number, param: string, raw: string, spec: ParamSpec) {
-    const value: number | string = spec.type === 'enum' ? raw : Number(raw);
+  function setConfig(i: number, param: string, value: number | string) {
     const next = cards.map((c, idx) =>
       idx === i ? { ...c, config: { ...(c.config ?? {}), [param]: value } } : c,
     );
@@ -141,18 +141,22 @@
                     </label>
                     {#if spec.type === 'enum'}
                       <select id="{card.id}-{param}" class="inp mono" class:invalid={!!err}
-                        value={String(val)} onchange={(e) => setConfig(i, param, e.currentTarget.value, spec)}>
+                        value={String(val)} onchange={(e) => setConfig(i, param, e.currentTarget.value)}>
                         {#each spec.enum ?? [] as opt (opt)}<option value={String(opt)}>{opt}</option>{/each}
                       </select>
                     {:else}
-                      <input id="{card.id}-{param}" class="inp mono" class:invalid={!!err} type="number"
-                        value={val as number} min={spec.min ?? 0} max={spec.max ?? (spec.type === 'u16' ? 0xffff : 0xff)}
-                        onchange={(e) => setConfig(i, param, e.currentTarget.value, spec)} />
+                      <HexInput
+                        id="{card.id}-{param}"
+                        value={typeof val === 'number' ? val : 0}
+                        min={spec.min ?? 0}
+                        max={spec.max ?? (spec.type === 'u16' ? 0xffff : 0xff)}
+                        invalid={!!err}
+                        ariaLabel="{param} (hex)"
+                        onchange={(n) => setConfig(i, param, n)}
+                      />
                     {/if}
                     {#if err}
                       <span class="perr" role="alert">{param} {err}</span>
-                    {:else if isByte(spec) && typeof val === 'number'}
-                      <span class="pval fdc-mono">{hex(val)}</span>
                     {/if}
                   </div>
                 {/each}
@@ -329,10 +333,6 @@
   }
   .param .inp {
     width: 150px;
-  }
-  .pval {
-    font-size: 11px;
-    color: var(--fg-4);
   }
   .perr {
     font-size: 11px;

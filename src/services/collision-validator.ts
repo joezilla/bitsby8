@@ -52,7 +52,9 @@ async function claimsOf(cards: ProfileContent['cards']): Promise<CardClaim[]> {
     out.push({
       cardId: c.id,
       ref: c.ref,
-      ports: [...new Set((claim.ports ?? []).map((p) => p & 0xff))].sort((a, b) => a - b),
+      // RAW ports (not deduped) so a card whose own config makes two of its
+      // ports coincide (an intra-card self-overlap) is visible to validation.
+      ports: (claim.ports ?? []).map((p) => p & 0xff).sort((a, b) => a - b),
       irq: claim.irq ?? null,
     });
   }
@@ -88,9 +90,22 @@ export async function validateProfile(
 
   const collisions: Collision[] = [];
 
-  // Port collisions: any port claimed by 2+ cards.
+  // Intra-card self-overlap: a single card whose config makes two of its own
+  // ports coincide (e.g. an SIO whose channel and board-control ports collide).
+  // buildMachine reports this confusingly as `"card" and "card"`; catch it here.
+  for (const c of claims) {
+    const seen = new Set<number>();
+    const dupes = new Set<number>();
+    for (const p of c.ports) (seen.has(p) ? dupes : seen).add(p);
+    for (const p of [...dupes].sort((a, b) => a - b)) {
+      collisions.push({ kind: 'port', resource: `I/O port ${hex(p)}`, offenders: [c.cardId] });
+    }
+  }
+
+  // Cross-card port collisions: any port claimed by 2+ distinct cards (each
+  // card counted once per port, so self-overlap above isn't double-reported).
   const portMap = new Map<number, string[]>();
-  for (const c of claims) for (const p of c.ports) portMap.set(p, [...(portMap.get(p) ?? []), c.cardId]);
+  for (const c of claims) for (const p of new Set(c.ports)) portMap.set(p, [...(portMap.get(p) ?? []), c.cardId]);
   for (const [port, ids] of [...portMap.entries()].sort((a, b) => a[0] - b[0])) {
     if (ids.length > 1) collisions.push({ kind: 'port', resource: `I/O port ${hex(port)}`, offenders: ids });
   }
@@ -104,7 +119,9 @@ export async function validateProfile(
 
   collisions.push(...memoryCollisions(content.memory));
 
-  return { ok: collisions.length === 0, collisions, claims };
+  // Report footprints deduped (raw dups were only needed for self-overlap detection).
+  const displayClaims = claims.map((c) => ({ ...c, ports: [...new Set(c.ports)].sort((a, b) => a - b) }));
+  return { ok: collisions.length === 0, collisions, claims: displayClaims };
 }
 
 export interface AutoAssignResult {
@@ -145,7 +162,8 @@ export async function autoAssign(deps: Dependencies, content: ProfileContent): P
     const bundle = await getSeedBundle(card.ref);
     if (!bundle) continue;
     const ports = (bundle.claims(card.config).ports ?? []).map((p) => p & 0xff);
-    if (!ports.some((p) => occupied.has(p))) {
+    const selfOverlap = new Set(ports).size !== ports.length;
+    if (!selfOverlap && !ports.some((p) => occupied.has(p))) {
       ports.forEach((p) => occupied.add(p));
       continue;
     }
@@ -156,7 +174,9 @@ export async function autoAssign(deps: Dependencies, content: ProfileContent): P
       const max = param.spec.max ?? (param.spec.type === 'u16' ? 0xffff : 0xff);
       for (let cand = min; cand <= max; cand++) {
         const tports = (bundle.claims({ ...card.config, [param.name]: cand }).ports ?? []).map((p) => p & 0xff);
-        if (tports.length && !tports.some((p) => occupied.has(p))) {
+        const tset = new Set(tports);
+        // A good candidate has no internal self-overlap AND no clash with placed cards.
+        if (tports.length && tset.size === tports.length && ![...tset].some((p) => occupied.has(p))) {
           const from = card.config[param.name];
           card.config[param.name] = cand;
           changes.push({ cardId: card.id, param: param.name, from, to: cand });

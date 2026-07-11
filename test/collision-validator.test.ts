@@ -33,6 +33,18 @@ const fakeSim = {
       cardFactory: (id: string) => ({ id, reset() {}, attach() {} }),
       claims: (cfg: Record<string, unknown>) => ({ ports: [((cfg.basePort as number) ?? 0x08) & 0xff] }),
     },
+    {
+      // SIO-like card with two channels + a ctrl port — its config can make its
+      // own ports overlap (an intra-card self-collision), like imsai-sio2.
+      manifest: { name: 'sio', version: '1.0.0', type: 'serial', configSchema: { basePortA: { type: 'u8', default: 0x02, min: 0, max: 0xfe }, basePortB: { type: 'u8', default: 0x04, min: 0, max: 0xfe }, boardCtrlPort: { type: 'u8', default: 0x08, min: 0, max: 0xff } } },
+      cardFactory: (id: string) => ({ id, reset() {}, attach() {} }),
+      claims: (cfg: Record<string, unknown>) => {
+        const a = ((cfg.basePortA as number) ?? 0x02) & 0xff;
+        const b = ((cfg.basePortB as number) ?? 0x04) & 0xff;
+        const c = ((cfg.boardCtrlPort as number) ?? 0x08) & 0xff;
+        return { ports: [a, a + 1, b, b + 1, c] };
+      },
+    },
   ],
   withDefaults: (_m: unknown, c: Record<string, unknown> = {}) => ({ ...c }),
 } as unknown as SimModule;
@@ -49,6 +61,10 @@ async function makeDeps(): Promise<Dependencies> {
   });
   await registerCardDefinition(deps, {
     manifest: { name: 'mono', version: '1.0.0', type: 'other', configSchema: { basePort: { type: 'u8', default: 0x08, min: 0, max: 0xff } } },
+    source: 'seed',
+  });
+  await registerCardDefinition(deps, {
+    manifest: { name: 'sio', version: '1.0.0', type: 'serial', configSchema: { basePortA: { type: 'u8', default: 0x02, min: 0, max: 0xfe }, basePortB: { type: 'u8', default: 0x04, min: 0, max: 0xfe }, boardCtrlPort: { type: 'u8', default: 0x08, min: 0, max: 0xff } } },
     source: 'seed',
   });
   return deps;
@@ -84,6 +100,24 @@ describe('validateProfile — collisions', () => {
     const port = v.collisions.find((c) => c.kind === 'port');
     expect(port?.resource).toBe('I/O port 0x12');
     expect(port?.offenders.sort()).toEqual(['a', 'b']);
+  });
+
+  test('an intra-card self-overlap (one card whose own ports collide) is caught', async () => {
+    const deps = await makeDeps();
+    // channel A at 0x0C → 0xC/0xD, board-ctrl at 0x0D → 0xD claimed twice by one card.
+    const v = await validateProfile(deps, profile([
+      { id: 'sio', ref: 'sio@1.0.0', config: { basePortA: 0x0c, basePortB: 0x04, boardCtrlPort: 0x0d } },
+    ]));
+    expect(v.ok).toBe(false);
+    const port = v.collisions.find((c) => c.kind === 'port');
+    expect(port).toMatchObject({ resource: 'I/O port 0x0D', offenders: ['sio'] });
+    // Footprint is reported deduped even though the raw claim had a dup.
+    expect(v.claims[0].ports).toEqual([0x04, 0x05, 0x0c, 0x0d]);
+    // Auto-assign repairs the self-overlap.
+    const aa = await autoAssign(deps, profile([
+      { id: 'sio', ref: 'sio@1.0.0', config: { basePortA: 0x0c, basePortB: 0x04, boardCtrlPort: 0x0d } },
+    ]));
+    expect((await validateProfile(deps, aa.content)).ok).toBe(true);
   });
 
   test('a shared IRQ and overlapping memory are each collisions', async () => {

@@ -7,6 +7,7 @@
   import Card from '$lib/components/shared/Card.svelte';
   import Chip from '$lib/components/shared/Chip.svelte';
   import Icon from '$lib/components/shared/Icon.svelte';
+  import HexInput from '$lib/components/shared/HexInput.svelte';
   import Backplane from '$lib/components/profiles/Backplane.svelte';
 
   interface Props {
@@ -235,8 +236,15 @@
         <div class="vb-body">
           <strong>{validation.collisions.length} bus collision{validation.collisions.length === 1 ? '' : 's'} — not runnable</strong>
           <ul class="vb-list">
-            {#each validation.collisions as col (col.kind + col.resource)}
-              <li><span class="fdc-mono">{col.resource}</span> — {col.offenders.join(' ✕ ')}</li>
+            {#each validation.collisions as col (col.kind + col.resource + col.offenders.join())}
+              <li>
+                <span class="fdc-mono">{col.resource}</span> —
+                {#if col.offenders.length === 1}
+                  <span class="fdc-mono">{col.offenders[0]}</span> claims it more than once (check its port settings)
+                {:else}
+                  {col.offenders.join(' ✕ ')}
+                {/if}
+              </li>
             {/each}
           </ul>
         </div>
@@ -269,8 +277,13 @@
             </dd>
             <dt>Reset vector</dt>
             <dd>
-              <input class="inp sm fdc-mono" type="number" bind:value={resetVector} min="0" max="65535" />
-              <span class="unit fdc-mono">{hex(resetVector)}</span>
+              <HexInput
+                value={resetVector}
+                min={0}
+                max={0xffff}
+                ariaLabel="reset vector (hex)"
+                onchange={(n) => (resetVector = n)}
+              />
             </dd>
             <dt>Console card</dt>
             <dd class="fdc-mono">{p.consoleCardId ?? '—'}</dd>
