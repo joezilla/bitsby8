@@ -40,13 +40,61 @@ export interface CardDefinitionDoc {
   type: string;
   maker: string | null;
   summary: string | null;
+  /** Derived capability tags (from the manifest) — a browse/filter facet. */
+  capabilities: string[];
   manifest: CardManifestInput;
   entry: string | null;
   source: string;
   createdAt: string;
 }
 
+/** Filter for browsing the Catalog (all optional, case-insensitive). */
+export interface CatalogFilter {
+  /** Exact card type (serial | floppy | memory | panel | other). */
+  type?: string;
+  /** Exact maker (e.g. MITS, IMSAI). */
+  maker?: string;
+  /** A derived capability tag the card must have. */
+  capability?: string;
+  /** Free-text query over id/name/summary/maker/type. */
+  q?: string;
+}
+
+/** The Catalog listing plus the facet options present across the full set,
+ * so the UI can render type/maker/capability filters without a second call. */
+export interface CatalogListing {
+  cards: CardDefinitionDoc[];
+  facets: {
+    types: string[];
+    makers: string[];
+    capabilities: string[];
+  };
+}
+
 const SEMVER = /^\d+\.\d+\.\d+$/;
+
+/**
+ * Derive capability tags from a card manifest (synchronous, manifest-only — no
+ * bundle/claims/sim dependency, so the REST/jest path stays fast). Tags are the
+ * browse facet the UX calls for (has-rom, interrupt-capable, memory-mapped),
+ * plus a type-derived capability so the facet is meaningful for the seed set.
+ */
+export function deriveCapabilities(manifest: CardManifestInput): string[] {
+  const caps = new Set<string>();
+  const type = (manifest.type ?? '').toLowerCase();
+  if (type === 'serial') caps.add('serial-io');
+  else if (type === 'floppy') caps.add('disk-controller');
+  else if (type === 'memory') {
+    caps.add('memory-mapped');
+    caps.add('has-rom');
+  } else if (type === 'panel') caps.add('front-panel');
+
+  const hay = `${manifest.name ?? ''} ${manifest.summary ?? ''}`.toLowerCase();
+  if (/\b(rom|prom|eprom)\b/.test(hay)) caps.add('has-rom');
+  if (/\b(irq|interrupt)/.test(hay)) caps.add('interrupt-capable');
+  if (/memory[- ]mapped|mmio/.test(hay)) caps.add('memory-mapped');
+  return Array.from(caps).sort();
+}
 
 /** Stable key ordering for a basic canonical JSON (deep). */
 function canonicalize(value: unknown): unknown {
@@ -68,6 +116,7 @@ function digestOf(manifest: CardManifestInput, entry?: string | null): string {
 }
 
 function toDoc(rec: CardDefinitionRecord): CardDefinitionDoc {
+  const manifest = JSON.parse(rec.manifest) as CardManifestInput;
   return {
     id: rec.id,
     name: rec.name,
@@ -76,11 +125,27 @@ function toDoc(rec: CardDefinitionRecord): CardDefinitionDoc {
     type: rec.type,
     maker: rec.maker,
     summary: rec.summary,
-    manifest: JSON.parse(rec.manifest) as CardManifestInput,
+    capabilities: deriveCapabilities(manifest),
+    manifest,
     entry: rec.entry,
     source: rec.source,
     createdAt: rec.created_at,
   };
+}
+
+/** True if a card matches every provided filter facet (case-insensitive). */
+function matchesFilter(doc: CardDefinitionDoc, f: CatalogFilter): boolean {
+  if (f.type && doc.type.toLowerCase() !== f.type.toLowerCase()) return false;
+  if (f.maker && (doc.maker ?? '').toLowerCase() !== f.maker.toLowerCase()) return false;
+  if (f.capability && !doc.capabilities.some((c) => c.toLowerCase() === f.capability!.toLowerCase())) {
+    return false;
+  }
+  if (f.q && f.q.trim()) {
+    const q = f.q.trim().toLowerCase();
+    const hay = `${doc.id} ${doc.name} ${doc.summary ?? ''} ${doc.maker ?? ''} ${doc.type}`.toLowerCase();
+    if (!hay.includes(q)) return false;
+  }
+  return true;
 }
 
 /** Register (or re-register, idempotently) a Card Definition into the Catalog. */
@@ -117,10 +182,31 @@ export async function registerCardDefinition(
   return toDoc(rec);
 }
 
-/** List all Card Definitions in the Catalog. */
-export async function listCardDefinitions(deps: Dependencies): Promise<CardDefinitionDoc[]> {
+/** List Card Definitions in the Catalog, optionally filtered (REST + MCP). */
+export async function listCardDefinitions(
+  deps: Dependencies,
+  filter: CatalogFilter = {},
+): Promise<CardDefinitionDoc[]> {
   const rows = await deps.database.listCardDefinitions();
-  return rows.map(toDoc);
+  return rows.map(toDoc).filter((doc) => matchesFilter(doc, filter));
+}
+
+/** Browse the Catalog: filtered cards + the facet options across the full set
+ * (so the UI renders type/maker/capability filters from one call). */
+export async function browseCatalog(
+  deps: Dependencies,
+  filter: CatalogFilter = {},
+): Promise<CatalogListing> {
+  const all = (await deps.database.listCardDefinitions()).map(toDoc);
+  const uniqSorted = (xs: string[]) => Array.from(new Set(xs)).sort();
+  return {
+    cards: all.filter((doc) => matchesFilter(doc, filter)),
+    facets: {
+      types: uniqSorted(all.map((c) => c.type)),
+      makers: uniqSorted(all.map((c) => c.maker).filter((m): m is string => !!m)),
+      capabilities: uniqSorted(all.flatMap((c) => c.capabilities)),
+    },
+  };
 }
 
 /** Get one Card Definition by Identity (`name@version`). */

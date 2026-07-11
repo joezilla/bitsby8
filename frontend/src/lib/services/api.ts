@@ -12,6 +12,7 @@ import type {
   CpmFileInfo,
   ConfigDoc,
   ConfigStatus,
+  CatalogListing,
   SerialSection,
   WebSection,
   McpSection,
@@ -456,4 +457,15 @@ export const api = {
       '/api/config/rollback?confirm=1',
       { method: 'POST' },
     ),
+
+  // Catalog (Bitsby8) — browse Card Definitions with optional facet filters.
+  browseCatalog: (filter: { type?: string; maker?: string; capability?: string; q?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (filter.type) qs.set('type', filter.type);
+    if (filter.maker) qs.set('maker', filter.maker);
+    if (filter.capability) qs.set('capability', filter.capability);
+    if (filter.q) qs.set('q', filter.q);
+    const suffix = qs.toString() ? `?${qs}` : '';
+    return request<CatalogListing>(`/api/catalog/cards${suffix}`);
+  },
 };

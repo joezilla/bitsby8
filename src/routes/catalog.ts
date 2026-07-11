@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { Dependencies } from '../types';
 import { safeErrorMessage } from '../utils/safe-path';
 import { ServiceError } from '../services/service-error';
-import { listCardDefinitions, getCardDefinition } from '../services/catalog';
+import { browseCatalog, getCardDefinition, CatalogFilter } from '../services/catalog';
 
 /** Map a thrown error to an HTTP response: ServiceError carries a status;
  * anything else is a sanitized 500. */
@@ -20,11 +20,32 @@ export function registerCatalogRoutes(router: Router, deps: Dependencies): void 
    * /api/catalog/cards:
    *   get:
    *     tags: [Catalog]
-   *     summary: List Card Definitions
-   *     description: Returns every Card Definition in the Catalog (seed cards in Tier-1), with Identity, type, and manifest.
+   *     summary: Browse Card Definitions
+   *     description: >-
+   *       Returns Card Definitions in the Catalog (seed cards in Tier-1), each with Identity,
+   *       type, maker, derived capabilities, and manifest — optionally filtered. The `facets`
+   *       object lists the type/maker/capability values present across the full (unfiltered)
+   *       set so a UI can render its filters from one call.
+   *     parameters:
+   *       - in: query
+   *         name: type
+   *         schema: { type: string }
+   *         description: Filter by card type (serial | floppy | memory | panel | other).
+   *       - in: query
+   *         name: maker
+   *         schema: { type: string }
+   *         description: Filter by maker (e.g. MITS, IMSAI).
+   *       - in: query
+   *         name: capability
+   *         schema: { type: string }
+   *         description: Filter to cards carrying this derived capability tag.
+   *       - in: query
+   *         name: q
+   *         schema: { type: string }
+   *         description: Free-text search over id/name/summary/maker/type.
    *     responses:
    *       200:
-   *         description: Array of Card Definitions
+   *         description: Filtered Card Definitions plus facet options
    *         content:
    *           application/json:
    *             schema:
@@ -34,10 +55,22 @@ export function registerCatalogRoutes(router: Router, deps: Dependencies): void 
    *                   type: array
    *                   items:
    *                     $ref: '#/components/schemas/CardDefinition'
+   *                 facets:
+   *                   type: object
+   *                   properties:
+   *                     types: { type: array, items: { type: string } }
+   *                     makers: { type: array, items: { type: string } }
+   *                     capabilities: { type: array, items: { type: string } }
    */
-  router.get('/api/catalog/cards', async (_req: Request, res: Response): Promise<void> => {
+  router.get('/api/catalog/cards', async (req: Request, res: Response): Promise<void> => {
     try {
-      res.json({ cards: await listCardDefinitions(deps) });
+      const filter: CatalogFilter = {
+        type: typeof req.query.type === 'string' ? req.query.type : undefined,
+        maker: typeof req.query.maker === 'string' ? req.query.maker : undefined,
+        capability: typeof req.query.capability === 'string' ? req.query.capability : undefined,
+        q: typeof req.query.q === 'string' ? req.query.q : undefined,
+      };
+      res.json(await browseCatalog(deps, filter));
     } catch (error) {
       sendError(res, error);
     }

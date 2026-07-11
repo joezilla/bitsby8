@@ -121,6 +121,33 @@ export interface ScriptInfo {
   size: number;
 }
 
+/** A Catalog Card Definition (Bitsby8) — a versioned S-100 card Primitive. */
+export interface CardDefinition {
+  id: string; // name@version
+  name: string;
+  version: string;
+  digest: string;
+  type: string;
+  maker: string | null;
+  summary: string | null;
+  capabilities: string[];
+  manifest: Record<string, unknown>;
+  entry: string | null;
+  source: string;
+  createdAt: string;
+}
+
+export interface CatalogFacets {
+  types: string[];
+  makers: string[];
+  capabilities: string[];
+}
+
+export interface CatalogListing {
+  cards: CardDefinition[];
+  facets: CatalogFacets;
+}
+
 export interface SerialPortInfo {
   path: string;
   resolvedPath: string;

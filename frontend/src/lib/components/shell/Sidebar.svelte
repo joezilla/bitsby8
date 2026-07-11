@@ -27,7 +27,7 @@
     });
   }
 
-  type NavId = 'terminal' | 'disks' | 'clients' | 'cassettes' | 'scripts' | 'config';
+  type NavId = 'terminal' | 'disks' | 'clients' | 'cassettes' | 'catalog' | 'scripts' | 'config';
 
   interface Props {
     active: NavId;
@@ -52,6 +52,7 @@
       ? [{ id: 'clients' as NavId, label: 'Clients', icon: 'devices', badge: () => (clientCount > 0 ? String(clientCount) : null) }]
       : []),
     { id: 'cassettes', label: 'Cassettes', icon: 'album',    badge: () => null },
+    { id: 'catalog',   label: 'Catalog',   icon: 'developer_board', badge: () => null },
     { id: 'scripts',   label: 'Scripts',   icon: 'terminal', badge: () => null },
     { id: 'config',    label: 'Config',    icon: 'tune',     badge: () => null },
   ]);

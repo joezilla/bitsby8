@@ -166,6 +166,16 @@
             "type": "string",
             "nullable": true
           },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "serial-io"
+            ],
+            "description": "Derived capability tags (from the manifest) — a browse/filter facet."
+          },
           "manifest": {
             "type": "object",
             "description": "The CardManifest (config schema, etc.).",
@@ -4298,11 +4308,45 @@
         "tags": [
           "Catalog"
         ],
-        "summary": "List Card Definitions",
-        "description": "Returns every Card Definition in the Catalog (seed cards in Tier-1), with Identity, type, and manifest.",
+        "summary": "Browse Card Definitions",
+        "description": "Returns Card Definitions in the Catalog (seed cards in Tier-1), each with Identity, type, maker, derived capabilities, and manifest — optionally filtered. The `facets` object lists the type/maker/capability values present across the full (unfiltered) set so a UI can render its filters from one call.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "type",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by card type (serial | floppy | memory | panel | other)."
+          },
+          {
+            "in": "query",
+            "name": "maker",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by maker (e.g. MITS, IMSAI)."
+          },
+          {
+            "in": "query",
+            "name": "capability",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter to cards carrying this derived capability tag."
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Free-text search over id/name/summary/maker/type."
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Array of Card Definitions",
+            "description": "Filtered Card Definitions plus facet options",
             "content": {
               "application/json": {
                 "schema": {
@@ -4312,6 +4356,29 @@
                       "type": "array",
                       "items": {
                         "$ref": "#/components/schemas/CardDefinition"
+                      }
+                    },
+                    "facets": {
+                      "type": "object",
+                      "properties": {
+                        "types": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "makers": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "capabilities": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
                       }
                     }
                   }

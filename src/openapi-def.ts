@@ -103,6 +103,12 @@ export const openapiDefinition: Options = {
             type: { type: 'string', example: 'serial' },
             maker: { type: 'string', nullable: true, example: 'MITS' },
             summary: { type: 'string', nullable: true },
+            capabilities: {
+              type: 'array',
+              items: { type: 'string' },
+              example: ['serial-io'],
+              description: 'Derived capability tags (from the manifest) — a browse/filter facet.',
+            },
             manifest: { type: 'object', description: 'The CardManifest (config schema, etc.).', additionalProperties: true },
             entry: { type: 'string', nullable: true, description: 'Reference to the pre-built behavior module.' },
             source: { type: 'string', example: 'seed', description: "Provenance: 'seed' | 'imported' | 'signed'." },
