@@ -10,8 +10,8 @@ import * as path from 'path';
 import { Database } from '../src/database';
 import { Dependencies } from '../src/types';
 import { registerCardDefinition } from '../src/services/catalog';
-import { createProfile, createProfileFromPreset } from '../src/services/profile-service';
-import { exportProfile, bundleFilename } from '../src/services/bundle-service';
+import { createProfile, createProfileFromPreset, getProfile } from '../src/services/profile-service';
+import { exportProfile, bundleFilename, importBundle } from '../src/services/bundle-service';
 
 async function makeDeps(): Promise<Dependencies> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fdcsds-bundle-'));
@@ -27,7 +27,38 @@ async function makeDeps(): Promise<Dependencies> {
     },
     source: 'seed',
   });
+  // Preset cards (imsai-cpm), so createProfileFromPreset resolves + fills them.
+  await registerCardDefinition(deps, {
+    manifest: {
+      name: 'imsai-sio2',
+      version: '1.0.0',
+      type: 'serial',
+      configSchema: {
+        basePortA: { type: 'u8', default: 0x02, min: 0, max: 0xfe },
+        basePortB: { type: 'u8', default: 0x04, min: 0, max: 0xfe },
+        boardCtrlPort: { type: 'u8', default: 0x08, min: 0, max: 0xff },
+      },
+    },
+    source: 'seed',
+  });
+  await registerCardDefinition(deps, {
+    manifest: {
+      name: 'mits-88-dcdd',
+      version: '1.0.0',
+      type: 'floppy',
+      configSchema: { basePort: { type: 'u8', default: 0x08, min: 0, max: 0xfd } },
+    },
+    source: 'seed',
+  });
   return deps;
+}
+
+/** A fresh install with NO cards registered. */
+async function makeBareDeps(): Promise<Dependencies> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fdcsds-bare-'));
+  const db = new Database(path.join(dir, 'test.db'));
+  await db.initialize();
+  return { database: db } as unknown as Dependencies;
 }
 
 const content = {
@@ -87,5 +118,54 @@ describe('exportProfile', () => {
         cards: [],
       }),
     ).toBe('My_Machine_-1.0.0.b8.json');
+  });
+});
+
+describe('importBundle (round-trip)', () => {
+  test('export → import re-registers the profile with the SAME content digest', async () => {
+    const src = await makeDeps();
+    const p = await createProfile(src, { name: 'shared', ...content });
+    const bundle = await exportProfile(src, p.id);
+
+    // Import on a fresh install that has the same seed card.
+    const target = await makeDeps();
+    const res = await importBundle(target, bundle);
+    expect(res.profile.name).toBe('shared');
+    // AD-8 is install-independent: the imported content digest matches the pinned Identity.
+    expect(res.profile.digest).toBe(bundle.identity.digest);
+    expect(res.warnings).toEqual([]);
+    expect((await getProfile(target, res.profile.id)).digest).toBe(bundle.identity.digest);
+  });
+
+  test('an already-present Identity is reported (no silent overwrite)', async () => {
+    const deps = await makeDeps();
+    const p = await createProfile(deps, { name: 'once', ...content });
+    const bundle = await exportProfile(deps, p.id);
+    // Same content already here → reported by digest, even under a different name.
+    await expect(importBundle(deps, bundle)).rejects.toMatchObject({ statusCode: 409 });
+    await expect(importBundle(deps, bundle, { name: 'twice' })).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  test('a taken name (different content) is reported', async () => {
+    const deps = await makeDeps();
+    await createProfile(deps, { name: 'taken', ...content });
+    // A different-content bundle that wants the same name.
+    const other = await makeDeps();
+    const p = await createProfile(other, { name: 'taken', ...content, resetVector: 0xff00 });
+    const bundle = await exportProfile(other, p.id);
+    await expect(importBundle(deps, bundle)).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  test('a referenced card missing on the target is reported (422)', async () => {
+    const src = await makeDeps();
+    const p = await createProfile(src, { name: 'needs-sio', ...content });
+    const bundle = await exportProfile(src, p.id);
+    await expect(importBundle(await makeBareDeps(), bundle)).rejects.toMatchObject({ statusCode: 422 });
+  });
+
+  test('rejects a non-bundle (400)', async () => {
+    const deps = await makeDeps();
+    await expect(importBundle(deps, { hello: 'world' })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(importBundle(deps, null)).rejects.toMatchObject({ statusCode: 400 });
   });
 });

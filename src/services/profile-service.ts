@@ -226,7 +226,12 @@ export async function createProfileFromPreset(
   if ((await deps.database.listMachineProfileVersions(trimmed)).length > 0) {
     throw new ServiceError(`A profile named "${trimmed}" already exists`, 409);
   }
-  return persist(deps, trimmed, '1.0.0', fromMachineProfile(preset.build()), 'preset', notes ?? null);
+  const content = fromMachineProfile(preset.build());
+  // Resolve + fill card configs against the Catalog, exactly as createProfile
+  // does — so a preset-derived profile is byte-identical (and content-addresses
+  // the same) as the same machine created or imported any other way.
+  content.cards = await resolveProfileCards(deps, content.cards);
+  return persist(deps, trimmed, '1.0.0', content, 'preset', notes ?? null);
 }
 
 export async function getProfile(deps: Dependencies, id: string): Promise<ProfileDoc> {

@@ -42,6 +42,29 @@ async function makeDeps(): Promise<Dependencies> {
     },
     source: 'seed',
   });
+  // The imsai-cpm preset's cards — createProfileFromPreset now resolves them.
+  await registerCardDefinition(deps, {
+    manifest: {
+      name: 'imsai-sio2',
+      version: '1.0.0',
+      type: 'serial',
+      configSchema: {
+        basePortA: { type: 'u8', default: 0x02, min: 0, max: 0xfe },
+        basePortB: { type: 'u8', default: 0x04, min: 0, max: 0xfe },
+        boardCtrlPort: { type: 'u8', default: 0x08, min: 0, max: 0xff },
+      },
+    },
+    source: 'seed',
+  });
+  await registerCardDefinition(deps, {
+    manifest: {
+      name: 'mits-88-dcdd',
+      version: '1.0.0',
+      type: 'floppy',
+      configSchema: { basePort: { type: 'u8', default: 0x08, min: 0, max: 0xfd } },
+    },
+    source: 'seed',
+  });
   return deps;
 }
 

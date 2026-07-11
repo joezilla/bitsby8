@@ -31,7 +31,7 @@ import {
   listInstanceSnapshots,
   restoreInstanceSnapshot,
 } from './services/instance-snapshot-service';
-import { exportProfile } from './services/bundle-service';
+import { exportProfile, importBundle } from './services/bundle-service';
 import {
   createProfile,
   createProfileFromPreset,
@@ -2157,6 +2157,24 @@ export function createMcpServer(deps: Dependencies): McpServer {
     async ({ id }) => {
       try {
         return { content: [{ type: 'text', text: JSON.stringify(await exportProfile(deps, id), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'import_machine_profile_bundle',
+    'Import a Bitsby8 bundle (from export_machine_profile) into the Catalog (FR-24). Registers the ' +
+      'Machine Profile resolvable by Identity; requires its referenced cards present; REPORTS (never ' +
+      'overwrites) an already-present Identity. Pass the `bundle` object and an optional `name`.',
+    {
+      bundle: z.record(z.string(), z.any()).describe('A Bitsby8 bundle object'),
+      name: z.string().optional().describe('Optional import name (defaults to the bundle name)'),
+    },
+    async ({ bundle, name }) => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(await importBundle(deps, bundle, { name }), null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
       }

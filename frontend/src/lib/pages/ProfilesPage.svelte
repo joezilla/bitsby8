@@ -19,6 +19,28 @@
   let newName = $state('');
   let newPreset = $state('');
   let busy = $state(false);
+  let fileInput = $state<HTMLInputElement>();
+
+  async function onImportFile(e: Event) {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    (e.target as HTMLInputElement).value = ''; // allow re-selecting the same file
+    if (!file) return;
+    try {
+      busy = true;
+      const bundle = JSON.parse(await file.text());
+      const { profile, warnings } = await api.importProfileBundle(bundle);
+      showToast(
+        warnings.length ? `Imported ${profile.id} (${warnings.length} warning)` : `Imported ${profile.id}`,
+        warnings.length ? 'warning' : 'success',
+      );
+      await load();
+      selectedId = profile.id;
+    } catch (err) {
+      showToast(`Import failed: ${(err as Error).message}`, 'error');
+    } finally {
+      busy = false;
+    }
+  }
 
   const hex = (n: number) => `0x${n.toString(16).toUpperCase()}`;
   const clockLabel = (c: MachineProfile['clock']) => (c === 'max' ? 'max' : `${c.hz} Hz`);
@@ -75,8 +97,17 @@
 {:else}
   {#snippet headerActions()}
     <Button variant="ghost" icon="refresh" onclick={load}>Refresh</Button>
+    <Button variant="ghost" icon="upload" onclick={() => fileInput?.click()} disabled={busy}>Import</Button>
     <Button variant="filled" icon="add" onclick={openCreate}>New profile</Button>
   {/snippet}
+
+  <input
+    bind:this={fileInput}
+    type="file"
+    accept=".json,.b8.json,application/json"
+    style="display:none"
+    onchange={onImportFile}
+  />
 
   <PageHeader
     eyebrow="Build · Profiles"

@@ -500,6 +500,11 @@ export const api = {
     request(`/api/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   exportProfile: (id: string) =>
     request<Record<string, unknown>>(`/api/profiles/${encodeURIComponent(id)}/export`),
+  importProfileBundle: (bundle: unknown, name?: string) =>
+    request<{ profile: MachineProfile; cards: unknown[]; warnings: string[] }>('/api/profiles/import', {
+      method: 'POST',
+      body: JSON.stringify({ bundle, name }),
+    }),
 
   validateProfileBody: (body: { memory?: unknown[]; cards?: unknown[] }) =>
     request<ProfileValidation>('/api/profiles/validate', { method: 'POST', body: JSON.stringify(body) }),

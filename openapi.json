@@ -2271,6 +2271,73 @@
         }
       }
     },
+    "/api/profiles/import": {
+      "post": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Import a Bitsby8 bundle into the Catalog (FR-24)",
+        "description": "Registers the bundle's Machine Profile resolvable by Identity; requires its referenced cards to be present; reports (never overwrites) an already-present Identity.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "bundle"
+                ],
+                "properties": {
+                  "bundle": {
+                    "type": "object",
+                    "description": "A Bitsby8 bundle (from export)."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Optional import name (defaults to the bundle name)."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Imported — the new profile + card/warning report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "profile": {
+                      "$ref": "#/components/schemas/MachineProfile"
+                    },
+                    "cards": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Identity already present (no overwrite)"
+          },
+          "422": {
+            "description": "Referenced card(s) missing"
+          }
+        }
+      }
+    },
     "/api/profiles/{id}": {
       "get": {
         "tags": [

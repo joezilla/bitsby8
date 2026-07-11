@@ -14,7 +14,7 @@ import {
   ProfileContent,
 } from '../services/profile-service';
 import { validateProfile, autoAssign } from '../services/collision-validator';
-import { exportProfile, bundleFilename } from '../services/bundle-service';
+import { exportProfile, bundleFilename, importBundle } from '../services/bundle-service';
 
 /** Normalize a request body into a ProfileContent for collision checks
  * (only memory + cards affect collisions; the rest is defaulted). */
@@ -169,6 +169,46 @@ export function registerProfileRoutes(router: Router, deps: Dependencies): void 
         ? await createProfileFromPreset(deps, body.preset, body.name, body.notes)
         : await createProfile(deps, body);
       res.json({ profile });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/profiles/import:
+   *   post:
+   *     tags: [Profiles]
+   *     summary: Import a Bitsby8 bundle into the Catalog (FR-24)
+   *     description: Registers the bundle's Machine Profile resolvable by Identity; requires its referenced cards to be present; reports (never overwrites) an already-present Identity.
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [bundle]
+   *             properties:
+   *               bundle: { type: object, description: 'A Bitsby8 bundle (from export).' }
+   *               name: { type: string, description: 'Optional import name (defaults to the bundle name).' }
+   *     responses:
+   *       200:
+   *         description: Imported — the new profile + card/warning report
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 profile: { $ref: '#/components/schemas/MachineProfile' }
+   *                 cards: { type: array, items: { type: object } }
+   *                 warnings: { type: array, items: { type: string } }
+   *       409: { description: Identity already present (no overwrite) }
+   *       422: { description: Referenced card(s) missing }
+   */
+  router.post('/api/profiles/import', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const body = req.body ?? {};
+      res.json(await importBundle(deps, body.bundle, { name: body.name }));
     } catch (error) {
       sendError(res, error);
     }
