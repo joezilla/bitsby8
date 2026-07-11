@@ -20,6 +20,7 @@ import {
   listInstanceStatus,
   createTransientInstance,
   destroyInstance,
+  setInstanceSpeed,
   writeInstanceConsole,
   readInstanceConsole,
 } from '../src/services/instance-service';
@@ -148,6 +149,20 @@ describe('instance-service', () => {
     await expect(createTransientInstance(deps, { profile, speed: -5 as never }, 'api')).rejects.toMatchObject({
       statusCode: 400,
     });
+  });
+
+  test('setInstanceSpeed changes a running instance live; 400 invalid; 409 when not running', async () => {
+    const deps = await makeDeps();
+    const info = await createTransientInstance(deps, { profile }, 'api');
+    const changed = await setInstanceSpeed(deps, info.id, 4000000);
+    expect(changed.targetHz).toBe(4000000);
+    expect((await setInstanceSpeed(deps, info.id, 'max')).targetHz).toBe('max');
+    await expect(setInstanceSpeed(deps, info.id, 'fast' as never)).rejects.toMatchObject({ statusCode: 400 });
+
+    // A defined-but-not-running instance can't take a live speed change.
+    const defined = await deps.instanceManager!.define(profile, 'inline', 'api');
+    await expect(setInstanceSpeed(deps, defined.id, 2000000)).rejects.toMatchObject({ statusCode: 409 });
+    await destroyInstance(deps, info.id);
   });
 
   test('create-transient records driver provenance and drives the console loop', async () => {

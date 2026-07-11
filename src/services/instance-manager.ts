@@ -119,6 +119,18 @@ export class InstanceManager {
     return this.info(inst);
   }
 
+  /** Change a running instance's speed live (FR-16) — no restart. */
+  async setSpeed(id: string, speed: CpuSpeed): Promise<InstanceInfo> {
+    const inst = this.require(id);
+    if (inst.status !== 'running' || !inst.machine) {
+      throw new ServiceError(`Instance ${id} is not running`, 409);
+    }
+    inst.machine.runner.setHz(speed);
+    inst.speed = speed; // persists across a stop/start within the session
+    log.info({ id, speed }, 'instance speed changed live');
+    return this.info(inst);
+  }
+
   async stop(id: string): Promise<InstanceInfo> {
     const inst = this.require(id);
     if (inst.status === 'running') {

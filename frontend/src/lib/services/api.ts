@@ -514,6 +514,11 @@ export const api = {
     request<{ instance: InstanceStatus }>(`/api/instances/${encodeURIComponent(id)}/start`, { method: 'POST' }),
   stopInstance: (id: string) =>
     request<{ instance: InstanceStatus }>(`/api/instances/${encodeURIComponent(id)}/stop`, { method: 'POST' }),
+  setInstanceSpeed: (id: string, speed: number | 'max') =>
+    request<{ instance: InstanceStatus }>(`/api/instances/${encodeURIComponent(id)}/speed`, {
+      method: 'POST',
+      body: JSON.stringify({ speed }),
+    }),
   destroyInstance: (id: string) =>
     request(`/api/instances/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 

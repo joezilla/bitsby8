@@ -149,6 +149,17 @@ export async function stopInstance(deps: Dependencies, id: string): Promise<Inst
   return manager(deps).stop(id);
 }
 
+/** Change a running instance's speed live (FR-16). */
+export async function setInstanceSpeed(
+  deps: Dependencies,
+  id: string,
+  speed: unknown,
+): Promise<InstanceStatus> {
+  const s = normalizeSpeed(speed);
+  if (s === undefined) throw new ServiceError("A `speed` (Hz number or 'max') is required", 400);
+  return withDisks(deps, await manager(deps).setSpeed(id, s));
+}
+
 export async function destroyInstance(deps: Dependencies, id: string): Promise<void> {
   return manager(deps).destroy(id);
 }

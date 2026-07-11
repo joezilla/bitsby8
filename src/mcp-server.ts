@@ -21,6 +21,7 @@ import {
   defineInstance,
   startInstance as startInstanceSvc,
   stopInstance as stopInstanceSvc,
+  setInstanceSpeed,
   destroyInstance as destroyInstanceSvc,
   writeInstanceConsole,
   readInstanceConsole,
@@ -2338,6 +2339,24 @@ export function createMcpServer(deps: Dependencies): McpServer {
     async ({ id }) => {
       try {
         const info = await stopInstanceSvc(deps, id);
+        return { content: [{ type: 'text', text: JSON.stringify(info, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'set_instance_speed',
+    'Change a RUNNING virtual Machine Instance\'s CPU speed live (Bitsby8, FR-16) — no restart. ' +
+      'Pass Hz (e.g. 2000000 for 2 MHz, 4000000 for 4 MHz) or "max". Returns the instance with its new targetHz.',
+    {
+      id: z.string().describe('Instance id'),
+      speed: z.union([z.number(), z.literal('max')]).describe('Hz or "max"'),
+    },
+    async ({ id, speed }) => {
+      try {
+        const info = await setInstanceSpeed(deps, id, speed);
         return { content: [{ type: 'text', text: JSON.stringify(info, null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };

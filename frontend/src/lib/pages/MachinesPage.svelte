@@ -64,6 +64,17 @@
     }
   }
 
+  const SPEEDS: Array<{ label: string; value: number | 'max' }> = [
+    { label: '2 MHz', value: 2000000 },
+    { label: '4 MHz', value: 4000000 },
+    { label: 'max', value: 'max' },
+  ];
+  const isActiveSpeed = (i: InstanceStatus, v: number | 'max') => i.targetHz === v;
+  function setSpeed(i: InstanceStatus, v: number | 'max') {
+    if (isActiveSpeed(i, v)) return;
+    void act(() => api.setInstanceSpeed(i.id, v), `Speed → ${v === 'max' ? 'max' : v / 1e6 + ' MHz'}`);
+  }
+
   function destroy(i: InstanceStatus) {
     const dirty = i.disks.some((d) => d.dirty);
     const msg = dirty
@@ -142,6 +153,18 @@
               />
             </div>
             <div class="meta"><Icon name="schedule" size={14} /> up {uptimeLabel(i.uptimeSeconds)}</div>
+            <div class="speedctl" role="group" aria-label="CPU speed">
+              {#each SPEEDS as s (s.label)}
+                <button
+                  class="seg"
+                  class:on={isActiveSpeed(i, s.value)}
+                  aria-pressed={isActiveSpeed(i, s.value)}
+                  onclick={() => setSpeed(i, s.value)}
+                >
+                  {s.label}
+                </button>
+              {/each}
+            </div>
           {/if}
 
           {#if i.disks.length}
@@ -321,6 +344,35 @@
     gap: 4px;
     font: var(--text-label);
     color: var(--fg-3);
+  }
+
+  .speedctl {
+    display: inline-flex;
+    align-self: flex-start;
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+  .seg {
+    min-height: 26px;
+    padding: 0 var(--space-2);
+    background: var(--surface-sunken);
+    border: none;
+    border-right: 1px solid var(--border-2);
+    color: var(--fg-3);
+    font: var(--text-label);
+    cursor: pointer;
+  }
+  .seg:last-child {
+    border-right: none;
+  }
+  .seg:hover {
+    color: var(--fg-1);
+  }
+  .seg.on {
+    background: var(--accent-bg);
+    color: var(--accent);
+    font-weight: 600;
   }
 
   .disks {

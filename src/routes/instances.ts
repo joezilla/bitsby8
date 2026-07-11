@@ -10,6 +10,7 @@ import {
   defineInstance,
   startInstance,
   stopInstance,
+  setInstanceSpeed,
   destroyInstance,
   writeInstanceConsole,
   readInstanceConsole,
@@ -249,6 +250,48 @@ export function registerInstanceRoutes(router: Router, deps: Dependencies): void
   router.post('/api/instances/:id/stop', async (req: Request, res: Response): Promise<void> => {
     try {
       res.json({ instance: await stopInstance(deps, req.params.id) });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/instances/{id}/speed:
+   *   post:
+   *     tags: [Instances]
+   *     summary: Change a running instance's speed live (no restart)
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [speed]
+   *             properties:
+   *               speed:
+   *                 oneOf: [{ type: number }, { type: string, enum: ['max'] }]
+   *                 description: Hz (e.g. 2000000, 4000000) or 'max'.
+   *     responses:
+   *       200:
+   *         description: The instance at its new speed
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 instance:
+   *                   $ref: '#/components/schemas/MachineInstance'
+   *       409: { description: Instance is not running }
+   */
+  router.post('/api/instances/:id/speed', async (req: Request, res: Response): Promise<void> => {
+    try {
+      res.json({ instance: await setInstanceSpeed(deps, req.params.id, req.body?.speed) });
     } catch (error) {
       sendError(res, error);
     }
