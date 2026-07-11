@@ -8,7 +8,7 @@
  * never imports a bundle. The trust boundary lives here.
  */
 
-import type { MachineSpec, CardSpec, MemoryRegionSpec, CpuKind, Clock } from '8sim';
+import type { MachineSpec, CardSpec, MemoryRegionSpec, CpuKind, Clock } from '@joezilla/8sim';
 import { Dependencies } from '../types';
 import { ServiceError } from './service-error';
 import { getSim, getSeedBundle } from './bundle-registry';

@@ -16,6 +16,13 @@ jobs:
     name: typecheck + test + build (Node 22)
     runs-on: ubuntu-latest
 
+    # Read the @joezilla/8sim package from GitHub Packages with the built-in
+    # GITHUB_TOKEN (no extra secret). The project .npmrc maps the @joezilla
+    # scope to npm.pkg.github.com and reads NODE_AUTH_TOKEN.
+    permissions:
+      contents: read
+      packages: read
+
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -37,6 +44,8 @@ jobs:
 
       - name: Install (frozen lockfile)
         run: pnpm install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Typecheck (backend)
         run: pnpm run typecheck

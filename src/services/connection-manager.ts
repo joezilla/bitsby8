@@ -11,7 +11,7 @@
  */
 
 import { WebSocket } from 'ws';
-import type { WebSocketLike } from '8sim';
+import type { WebSocketLike } from '@joezilla/8sim';
 import { randomUUID } from 'crypto';
 import { Dependencies } from '../types';
 import { WsTransportManager } from '../ws-transport';

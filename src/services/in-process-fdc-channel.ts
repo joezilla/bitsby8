@@ -15,7 +15,7 @@
  *    receive.
  */
 
-import type { WebSocketLike } from '8sim';
+import type { WebSocketLike } from '@joezilla/8sim';
 import { IFdcTransport } from '../transport';
 
 const OPEN = 1;

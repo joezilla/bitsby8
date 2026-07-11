@@ -13,7 +13,7 @@ import type {
   CardManifest,
   CardFactory,
   ClaimsFn,
-} from '8sim';
+} from '@joezilla/8sim';
 
 /** A seed bundle as exported by 8sim at runtime. */
 export interface SeedBundleRuntime {
@@ -37,7 +37,7 @@ let cached: SimModule | null = null;
 
 /** Load the 8sim engine module once (cached). */
 export async function getSim(): Promise<SimModule> {
-  if (!cached) cached = await dynamicImport('8sim');
+  if (!cached) cached = await dynamicImport('@joezilla/8sim');
   return cached;
 }
 

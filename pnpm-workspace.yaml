@@ -7,3 +7,8 @@ allowBuilds:
   better-sqlite3: true
   epoll: true
   esbuild: true
+
+# Our own GitHub Packages package — exempt from the min-release-age gate
+# (it can be consumed the moment it's published), across all versions.
+minimumReleaseAgeExclude:
+  - '@joezilla/8sim'
