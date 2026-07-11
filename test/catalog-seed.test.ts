@@ -20,7 +20,17 @@ async function makeDeps(): Promise<Dependencies> {
 }
 
 const bundles: SeedBundleLike[] = [
-  { manifest: { name: 'mits-88-2sio', version: '1.0.0', type: 'serial', maker: 'MITS', configSchema: {} } },
+  { manifest: { name: 'mits-88-2sio', version: '1.0.0', type: 'serial', kind: 'card', maker: 'MITS', configSchema: {} } },
+  {
+    manifest: {
+      name: 'motorola-6850',
+      version: '1.0.0',
+      type: 'serial',
+      kind: 'chip',
+      maker: 'Motorola',
+      configSchema: { statusPort: { type: 'u8', default: 16 } },
+    },
+  },
   {
     manifest: {
       name: 'mits-88-dcdd',
@@ -36,9 +46,13 @@ describe('seedCatalogFromBundles', () => {
   test('registers every bundle manifest as a Card Definition', async () => {
     const deps = await makeDeps();
     const n = await seedCatalogFromBundles(deps, bundles);
-    expect(n).toBe(2);
+    expect(n).toBe(3);
     const all = await listCardDefinitions(deps);
-    expect(all.map((d) => d.id).sort()).toEqual(['mits-88-2sio@1.0.0', 'mits-88-dcdd@1.0.0']);
+    expect(all.map((d) => d.id).sort()).toEqual([
+      'mits-88-2sio@1.0.0',
+      'mits-88-dcdd@1.0.0',
+      'motorola-6850@1.0.0',
+    ]);
   });
 
   test('tags provenance and entry ref', async () => {
@@ -51,10 +65,19 @@ describe('seedCatalogFromBundles', () => {
     expect(doc.manifest.configSchema).toHaveProperty('basePort');
   });
 
+  test('passes the primitive kind through (card vs chip)', async () => {
+    const deps = await makeDeps();
+    await seedCatalogFromBundles(deps, bundles);
+    expect((await getCardDefinition(deps, 'mits-88-2sio@1.0.0')).kind).toBe('card');
+    expect((await getCardDefinition(deps, 'motorola-6850@1.0.0')).kind).toBe('chip');
+    // A bundle with no kind defaults to card.
+    expect((await getCardDefinition(deps, 'mits-88-dcdd@1.0.0')).kind).toBe('card');
+  });
+
   test('is idempotent — re-seeding upserts, no duplicates', async () => {
     const deps = await makeDeps();
     await seedCatalogFromBundles(deps, bundles);
     await seedCatalogFromBundles(deps, bundles);
-    expect(await listCardDefinitions(deps)).toHaveLength(2);
+    expect(await listCardDefinitions(deps)).toHaveLength(3);
   });
 });
