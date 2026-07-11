@@ -36,6 +36,7 @@ import { registerImageRoutes } from './routes/images';
 import { registerSnapshotRoutes } from './routes/snapshots';
 import { registerCatalogRoutes } from './routes/catalog';
 import { loadSeedCatalog } from './services/catalog-seed';
+import { INSTANCE_CLIENT_PREFIX } from './services/instance-manager';
 import { registerSettingsRoutes } from './routes/settings';
 import { registerClientRoutes } from './routes/clients';
 import { ConnectionManager } from './services/connection-manager';
@@ -257,6 +258,14 @@ export class WebServer {
           // single shared transport (a new client replaces the prior one).
           if (this.deps.multiClientServing && this.deps.connectionManager) {
             const clientId = new URL(rawUrl, 'http://localhost').searchParams.get('clientId');
+            // The `inst:` clientId namespace is reserved for local virtual
+            // Machine Instances (served in-process). An external client must not
+            // claim it — that would collide with an instance's splinter (AD-7).
+            if (clientId?.startsWith(INSTANCE_CLIENT_PREFIX)) {
+              log.warn({ clientId }, 'rejecting external FDC client claiming reserved inst: prefix');
+              try { client.close(); } catch { /* already closing */ }
+              return;
+            }
             log.info({ clientId }, 'Virtual FDC client connected (multi-client)');
             this.deps.connectionManager.addWsClient(client, clientId).catch((err) => {
               log.error({ err }, 'failed to start multi-client FDC connection');

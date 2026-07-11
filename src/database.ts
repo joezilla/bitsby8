@@ -80,6 +80,17 @@ export interface CardDefinitionRecord {
   created_at: string;
 }
 
+/** A persistent Machine Instance (Bitsby8). Transient instances are memory-only
+ * (never written here). `client_id` is the reserved `inst:<uuid>` serving id. */
+export interface MachineInstanceRecord {
+  id: string;
+  profile_ref: string;
+  client_id: string;
+  cpu_kind: string;
+  status: string; // 'defined' | 'running' | 'stopped'
+  created_at: string;
+}
+
 // Schema migrations, applied in order. Each runs inside a transaction.
 const MIGRATIONS: string[] = [
   // Migration 0: initial schema
@@ -180,6 +191,19 @@ const MIGRATIONS: string[] = [
     UNIQUE (name, version)
   );
   CREATE INDEX IF NOT EXISTS idx_card_definitions_name ON card_definitions(name);`,
+
+  // Migration 7: persistent Machine Instances (Bitsby8). A DB-backed instance
+  // is re-runnable across restarts; transient instances are memory-only in the
+  // InstanceManager and never recorded here. `client_id` is the reserved
+  // `inst:<uuid>` serving identity that keys the instance's copy-on-write splinter.
+  `CREATE TABLE IF NOT EXISTS machine_instances (
+    id TEXT PRIMARY KEY,
+    profile_ref TEXT NOT NULL,
+    client_id TEXT NOT NULL,
+    cpu_kind TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'defined',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );`,
 ];
 
 export class Database {
@@ -694,6 +718,42 @@ export class Database {
     return this.db!.prepare(
       'SELECT * FROM card_definitions ORDER BY type, name, version'
     ).all() as CardDefinitionRecord[];
+  }
+
+  // --- Machine Instances (Bitsby8) ---
+
+  async upsertMachineInstance(rec: Omit<MachineInstanceRecord, 'created_at'>): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare(
+      `INSERT INTO machine_instances (id, profile_ref, client_id, cpu_kind, status, created_at)
+       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(id) DO UPDATE SET
+         profile_ref = excluded.profile_ref, client_id = excluded.client_id,
+         cpu_kind = excluded.cpu_kind, status = excluded.status`
+    ).run(rec.id, rec.profile_ref, rec.client_id, rec.cpu_kind, rec.status);
+  }
+
+  async setMachineInstanceStatus(id: string, status: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('UPDATE machine_instances SET status = ? WHERE id = ?').run(status, id);
+  }
+
+  async getMachineInstance(id: string): Promise<MachineInstanceRecord | undefined> {
+    this.ensureInitialized();
+    return this.db!.prepare('SELECT * FROM machine_instances WHERE id = ?').get(id) as
+      | MachineInstanceRecord
+      | undefined;
+  }
+
+  async listMachineInstances(): Promise<MachineInstanceRecord[]> {
+    this.ensureInitialized();
+    return this.db!.prepare('SELECT * FROM machine_instances ORDER BY created_at DESC').all() as
+      MachineInstanceRecord[];
+  }
+
+  async deleteMachineInstance(id: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM machine_instances WHERE id = ?').run(id);
   }
 
   isInitialized(): boolean {
