@@ -103,7 +103,7 @@
       {:else if currentPage === 'profiles'}
         <ProfilesPage />
       {:else if currentPage === 'machines'}
-        <MachinesPage />
+        <MachinesPage onNavigate={navigateTo} />
       {:else if currentPage === 'scripts'}
         <ScriptsPage />
       {:else if currentPage === 'config'}

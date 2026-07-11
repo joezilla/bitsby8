@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { api } from '$lib/services/api';
   import { showToast } from '$lib/stores/toast';
-  import type { InstanceStatus } from '$lib/types/api';
+  import type { InstanceStatus, ClientBay } from '$lib/types/api';
   import PageHeader from '$lib/components/shared/PageHeader.svelte';
   import Button from '$lib/components/shared/Button.svelte';
   import Icon from '$lib/components/shared/Icon.svelte';
@@ -10,7 +10,13 @@
   import InstanceConsole from '$lib/components/machines/InstanceConsole.svelte';
   import SnapshotsModal from '$lib/components/machines/SnapshotsModal.svelte';
 
+  interface Props {
+    onNavigate?: (page: 'terminal' | 'clients') => void;
+  }
+  let { onNavigate }: Props = $props();
+
   let instances = $state<InstanceStatus[]>([]);
+  let clients = $state<ClientBay[]>([]);
   let loading = $state(true);
   let consoleFor = $state<InstanceStatus | null>(null);
   let snapshotsFor = $state<InstanceStatus | null>(null);
@@ -19,6 +25,8 @@
 
   let running = $derived(instances.filter((i) => i.status === 'running'));
   let aggregateMHz = $derived(running.reduce((s, i) => s + (i.effectiveHz ?? 0), 0) / 1e6);
+  // Physical/external FDC clients — connected clients that aren't virtual instances.
+  let physical = $derived(clients.filter((c) => c.connected && !c.clientId.startsWith('inst:')));
 
   function hzLabel(hz?: number | 'max'): string {
     if (hz === 'max' || hz === undefined) return typeof hz === 'string' ? 'max' : '—';
@@ -35,10 +43,18 @@
   const drivenBy = (d: string) => (d === 'mcp' ? 'Claude Code (MCP)' : d === 'api' ? 'API' : 'Operator');
   const targetLabel = (t?: number | 'max') => (t === 'max' ? 'max' : t ? `${(t / 1e6).toFixed(2)} MHz` : '—');
 
+  const uptimeFrom = (ms: number | null) => (ms == null ? '—' : uptimeLabel(Math.floor((Date.now() - ms) / 1000)));
+
   async function load() {
     try {
       const { instances: next } = await api.listInstances();
       instances = next;
+      // Physical/external clients live in the multi-client registry; tolerate its
+      // absence (single-server mode) without failing the instance view.
+      clients = await api
+        .getClients()
+        .then((r) => r.clients)
+        .catch(() => []);
       const nextSpark: Record<string, number[]> = {};
       for (const i of next) {
         const ring = (sparkData[i.id] ?? []).slice();
@@ -102,7 +118,7 @@
 <PageHeader
   eyebrow="Operate · Machines"
   title="Machines"
-  subtitle="Every running virtual machine at a glance — status, speed, disks, and a live console."
+  subtitle="Everything consuming the disk server, in one view — virtual instances and physical/external clients."
   actions={headerActions}
 />
 
@@ -112,14 +128,17 @@
     <div class="stat"><span class="snum">{instances.length}</span><span class="slabel">instances</span></div>
     <div class="stat"><span class="snum">{running.length}</span><span class="slabel">running</span></div>
     <div class="stat"><span class="snum fdc-mono">{aggregateMHz.toFixed(1)}</span><span class="slabel">aggregate MHz</span></div>
+    {#if physical.length}
+      <div class="stat"><span class="snum">{physical.length}</span><span class="slabel">physical</span></div>
+    {/if}
   </div>
 
   {#if loading}
     <p class="muted">Loading…</p>
-  {:else if instances.length === 0}
+  {:else if instances.length === 0 && physical.length === 0}
     <div class="empty">
       <Icon name="dns" size={24} />
-      <p class="muted">No machine instances running. Launch one from a Profile.</p>
+      <p class="muted">Nothing running. Launch a machine from a Profile, or connect a physical/external FDC client.</p>
     </div>
   {:else}
     <div class="grid">
@@ -193,6 +212,45 @@
               <Button variant="ghost" size="sm" icon="photo_camera" onclick={() => (snapshotsFor = i)}>Snapshots</Button>
             {/if}
             <Button variant="ghost" size="sm" icon="delete" danger onclick={() => destroy(i)}>Destroy</Button>
+          </div>
+        </div>
+      {/each}
+
+      {#each physical as c (c.clientId)}
+        <div class="card running">
+          <div class="top">
+            <span class="target phys">physical · serial</span>
+            <div class="status">
+              <span class="dot running" aria-hidden="true"></span>
+              <span class="stext">connected</span>
+            </div>
+          </div>
+          <div class="idline">
+            <span class="pref fdc-mono" title={c.clientId}>{c.name || c.clientId}</span>
+          </div>
+          <div class="badges">
+            {#if c.isMaster}<span class="badge">master</span>{/if}
+            {#if c.hasSplinters}<span class="badge" title="Has copy-on-write disk writes">splinters</span>{/if}
+            <span class="driven">external FDC client</span>
+          </div>
+          <div class="meta"><Icon name="schedule" size={14} /> up {uptimeFrom(c.connectedAt)}</div>
+
+          {#if c.drives.some((d) => d.filename)}
+            <ul class="disks">
+              {#each c.drives.filter((d) => d.filename) as d (d.drive)}
+                <li>
+                  <span class="dnum fdc-mono">D{d.drive}</span>
+                  <span class="dfile fdc-mono" title={d.filename ?? ''}>{d.filename}</span>
+                  {#if d.readonly}<Icon name="lock" size={16} />{/if}
+                  {#if d.dirty}<span class="dirty" title="Uncommitted disk writes">●</span>{/if}
+                </li>
+              {/each}
+            </ul>
+          {/if}
+
+          <div class="actions">
+            <Button variant="tonal" size="sm" icon="terminal" onclick={() => onNavigate?.('terminal')}>Terminal</Button>
+            <Button variant="ghost" size="sm" icon="tune" onclick={() => onNavigate?.('clients')}>Manage disks</Button>
           </div>
         </div>
       {/each}
@@ -277,6 +335,10 @@
     border: 1px solid var(--border-1);
     border-radius: var(--radius-xs);
     padding: 1px 6px;
+  }
+  .target.phys {
+    color: var(--info);
+    border-color: color-mix(in srgb, var(--info) 35%, transparent);
   }
   .status {
     display: flex;
