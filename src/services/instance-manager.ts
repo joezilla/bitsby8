@@ -185,12 +185,29 @@ export class InstanceManager {
         500,
       );
     }
-    // Wire the operator console to the designated serial card (AD-6).
-    const consoleCard = inst.profile.consoleCardId
-      ? machine.cards.find((c) => c.id === inst.profile.consoleCardId)
-      : machine.cards.find((c) => consoleSourceFromCard(c) !== null);
+    // Wire the operator console to the designated serial card (AD-6). Prefer the
+    // profile's consoleCardId, but if it no longer resolves to a card with a
+    // console channel (e.g. the profile was edited and the card re-created with a
+    // new id), fall back to the first card that exposes one — never silently lose
+    // the console.
+    const designated =
+      inst.profile.consoleCardId != null
+        ? machine.cards.find((c) => c.id === inst.profile.consoleCardId)
+        : undefined;
+    const consoleCard =
+      (designated && consoleSourceFromCard(designated) ? designated : undefined) ??
+      machine.cards.find((c) => consoleSourceFromCard(c) !== null);
+    if (inst.profile.consoleCardId != null && (!designated || !consoleSourceFromCard(designated))) {
+      log.warn(
+        { id: inst.id, consoleCardId: inst.profile.consoleCardId, fellBackTo: consoleCard?.id },
+        'consoleCardId did not resolve to a card with a console channel; using auto-detected console',
+      );
+    }
     const source = consoleCard ? consoleSourceFromCard(consoleCard) : null;
     inst.console = source ? new ConsoleHub(source) : undefined;
+    if (!inst.console) {
+      log.warn({ id: inst.id }, 'instance has no console channel — terminal will be empty');
+    }
 
     machine.runner.start();
     // Launch-time speed override (authentic 2 MHz, 'max', etc.) — applied live
