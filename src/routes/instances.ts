@@ -17,6 +17,8 @@ import {
   listInstanceGpio,
   setInstanceGpioInput,
   listInstanceDisplays,
+  readInstanceFrontPanel,
+  instanceFrontPanelAction,
 } from '../services/instance-service';
 import {
   snapshotInstance,
@@ -594,6 +596,64 @@ export function registerInstanceRoutes(router: Router, deps: Dependencies): void
   router.get('/api/instances/:id/display', (req: Request, res: Response): void => {
     try {
       res.json({ displays: listInstanceDisplays(deps, req.params.id) });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/instances/{id}/frontpanel:
+   *   get:
+   *     tags: [Instances]
+   *     summary: Read a running instance's front-panel state (cockpit Phase 3)
+   *     description: CPU registers/flags, halted/running, and the address+data bus — for the Altair-style front panel.
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *     responses:
+   *       200: { description: Front-panel state }
+   *       409: { description: Instance not running }
+   *   post:
+   *     tags: [Instances]
+   *     summary: Drive the front panel (Altair controls)
+   *     description: run / stop / step / reset / examine / examNext / deposit / depNext. `value` is the switch register (address for examine, data for deposit). Returns the new state.
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [action]
+   *             properties:
+   *               action: { type: string, enum: [run, stop, step, reset, examine, examNext, deposit, depNext] }
+   *               value: { type: integer, description: 'Switch register (0-0xFFFF address / 0-0xFF data)' }
+   *     responses:
+   *       200: { description: New front-panel state }
+   *       400: { description: Unknown action }
+   *       409: { description: Instance not running }
+   */
+  router.get('/api/instances/:id/frontpanel', (req: Request, res: Response): void => {
+    try {
+      res.json(readInstanceFrontPanel(deps, req.params.id));
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.post('/api/instances/:id/frontpanel', (req: Request, res: Response): void => {
+    try {
+      const action = req.body?.action;
+      const value = req.body?.value;
+      if (typeof action !== 'string') throw new ServiceError('`action` is required', 400);
+      res.json(instanceFrontPanelAction(deps, req.params.id, action as never, typeof value === 'number' ? value : 0));
     } catch (error) {
       sendError(res, error);
     }

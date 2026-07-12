@@ -8,7 +8,7 @@
 
 import { Dependencies } from '../types';
 import { ServiceError } from './service-error';
-import type { InstanceInfo, InstanceDriver, InstanceManager } from './instance-manager';
+import type { InstanceInfo, InstanceDriver, InstanceManager, FrontPanelAction } from './instance-manager';
 import { MachineProfile } from './resolver';
 import { getPreset, listPresets, MachinePreset } from './presets';
 import { resolveProfileRef } from './profile-service';
@@ -192,6 +192,21 @@ export function setInstanceGpioInput(
   value: number,
 ): { cardId: string; input: number } {
   return manager(deps).setGpioInput(id, cardId, value);
+}
+
+/** A front-panel snapshot of a running instance (cockpit Phase 3). */
+export function readInstanceFrontPanel(deps: Dependencies, id: string) {
+  return manager(deps).readFrontPanel(id);
+}
+
+/** Drive the front panel (run/stop/step/reset/examine/deposit) on a running instance. */
+export function instanceFrontPanelAction(
+  deps: Dependencies,
+  id: string,
+  action: FrontPanelAction,
+  value = 0,
+) {
+  return manager(deps).frontPanelAction(id, action, value);
 }
 
 /** The display surfaces of a running instance — descriptor + a fresh frame (base64) (5.9). */

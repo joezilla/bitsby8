@@ -8,6 +8,7 @@
   import InstanceConsole from '$lib/components/machines/InstanceConsole.svelte';
   import MonitorPanel from '$lib/components/machines/MonitorPanel.svelte';
   import GpioPanel from '$lib/components/machines/GpioPanel.svelte';
+  import FrontPanel from '$lib/components/machines/FrontPanel.svelte';
 
   interface Props {
     instance: InstanceStatus;
@@ -19,7 +20,6 @@
 
   // Console + monitor layout: both 50/50, or one maximized (the other a rail).
   let duo = $state<'both' | 'cmax' | 'mmax'>('both');
-  let fpOpen = $state(false); // front panel (Phase 3) starts collapsed
   let gpioOpen = $state(true);
   let busy = $state(false);
 
@@ -85,20 +85,8 @@
   </div>
 
   <div class="stack">
-    <!-- Front panel (Phase 3 — not wired to the CPU yet) -->
-    <div class="panel fp">
-      <button class="fphead" onclick={() => (fpOpen = !fpOpen)}>
-        <span class="ptitle"><span class="chev" class:open={fpOpen}>▶</span><Icon name="developer_board" size={16} /> Front panel</span>
-        <span class="pill">Phase 3</span>
-      </button>
-      {#if fpOpen}
-        <div class="fpbody">
-          The Altair-style front panel — sense switches, address/data LEDs, RUN / STOP / SINGLE STEP /
-          EXAMINE / DEPOSIT — lands in Phase 3, once the engine exposes CPU introspection, single-step, and
-          examine/deposit.
-        </div>
-      {/if}
-    </div>
+    <!-- Live Altair-style front panel — CPU introspection + examine/deposit/step -->
+    <FrontPanel instanceId={instance.id} />
 
     <!-- Console | Monitor -->
     <div class="duo {duo}">
@@ -159,19 +147,13 @@
   .stack { display: flex; flex-direction: column; gap: var(--space-3); }
 
   .panel { background: var(--surface); border: 1px solid var(--border-1); border-radius: var(--radius-lg); overflow: hidden; }
-  .phead, .fphead { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  .phead { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
     padding: var(--space-2) var(--space-3); background: var(--surface-raised); border-bottom: 1px solid var(--border-1); }
-  .fphead { width: 100%; cursor: pointer; border: none; border-bottom: 1px solid var(--border-1); text-align: left; }
   .ptitle { display: flex; align-items: center; gap: var(--space-2); font-size: 12px; font-weight: 600; color: var(--fg-1); }
-  .chev { color: var(--fg-3); font-size: 11px; transition: transform 0.15s ease; }
-  .chev.open { transform: rotate(90deg); }
   .psub { font-family: var(--font-mono, monospace); font-size: 10.5px; color: var(--fg-4); text-transform: uppercase; letter-spacing: 0.06em; }
   .hright { display: flex; align-items: center; gap: var(--space-2); }
   .kbd { font-family: var(--font-mono, monospace); font-size: 10px; color: var(--accent); background: var(--accent-bg);
     border: 1px solid rgba(255, 176, 32, 0.3); padding: 2px 7px; border-radius: 5px; }
-  .pill { font-family: var(--font-mono, monospace); font-size: 10px; color: var(--accent); background: var(--accent-bg);
-    border: 1px solid rgba(255, 176, 32, 0.3); padding: 2px 8px; border-radius: 999px; }
-  .fpbody { padding: var(--space-3); color: var(--fg-3); font-size: 13px; max-width: 72ch; }
   .mx { background: none; border: 1px solid var(--border-2); border-radius: 6px; color: var(--fg-3); cursor: pointer; font-size: 12px; padding: 2px 8px; }
   .mx:hover { color: var(--fg-1); border-color: var(--border-3); }
 

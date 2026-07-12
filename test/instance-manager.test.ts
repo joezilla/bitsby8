@@ -38,14 +38,24 @@ const fakeSim = {
     },
   ],
   withDefaults: (_m: unknown, c: Record<string, unknown> = {}) => ({ ...c }),
-  buildMachine: (spec: unknown) => ({
-    cpu: { pc: 0, halted: false, step: () => 1, reset() {} },
-    bus: {},
-    pic: {},
-    cards: [],
-    spec,
-    runner: makeRunner(),
-  }),
+  buildMachine: (spec: unknown) => {
+    const mem = new Uint8Array(0x10000);
+    const reset = (spec as { resetVector?: number }).resetVector ?? 0;
+    const cpu = {
+      pc: reset,
+      halted: false,
+      step() { mem[this.pc]; this.pc = (this.pc + 1) & 0xffff; return 1; }, // NOP-ish: advance PC
+      reset() { this.pc = reset; },
+      state() {
+        return { pc: this.pc, sp: 0, a: 0, f: 0, b: 0, c: 0, d: 0, e: 0, h: 0, l: 0, halted: this.halted };
+      },
+    };
+    const bus = {
+      read: (a: number) => mem[a & 0xffff],
+      write: (a: number, v: number) => { mem[a & 0xffff] = v & 0xff; },
+    };
+    return { cpu, bus, pic: {}, cards: [], spec, runner: makeRunner() };
+  },
 } as unknown as SimModule;
 
 function makeFakeCM() {
@@ -159,5 +169,73 @@ describe('InstanceManager is the sole liveness authority (AD-4)', () => {
     const deps = await makeDeps();
     const im = new InstanceManager(deps);
     await expect(im.start('nope')).rejects.toMatchObject({ statusCode: 404 });
+  });
+});
+
+describe('InstanceManager front panel (cockpit Phase 3)', () => {
+  const fpProfile: MachineProfile = { ...profile, resetVector: 0x0100 };
+
+  test('readFrontPanel reports CPU state, the reset vector, and the data bus at the address', async () => {
+    const deps = await makeDeps();
+    const im = new InstanceManager(deps);
+    const info = await im.createTransient(fpProfile);
+
+    const fp = im.readFrontPanel(info.id);
+    expect(fp.pc).toBe(0x0100); // examine address starts at the reset vector
+    expect(fp.addr).toBe(0x0100);
+    expect(fp.resetVector).toBe(0x0100);
+    expect(fp.running).toBe(true);
+    expect(fp.data).toBe(0); // empty RAM
+  });
+
+  test('deposit writes the data bus; examine + examNext walk the address; the byte reads back', async () => {
+    const deps = await makeDeps();
+    const im = new InstanceManager(deps);
+    const info = await im.createTransient(fpProfile);
+
+    // Point the panel at 0x0200 and drop a byte there.
+    im.frontPanelAction(info.id, 'examine', 0x0200);
+    let fp = im.frontPanelAction(info.id, 'deposit', 0x76); // HLT opcode, arbitrary
+    expect(fp.addr).toBe(0x0200);
+    expect(fp.data).toBe(0x76);
+    expect(fp.running).toBe(false); // any panel op halts the runner
+
+    // Deposit-next advances the address before writing.
+    fp = im.frontPanelAction(info.id, 'depNext', 0xc3);
+    expect(fp.addr).toBe(0x0201);
+    expect(fp.data).toBe(0xc3);
+
+    // Examine back to 0x0200 sees the first byte again.
+    fp = im.frontPanelAction(info.id, 'examine', 0x0200);
+    expect(fp.data).toBe(0x76);
+    fp = im.frontPanelAction(info.id, 'examNext');
+    expect(fp.addr).toBe(0x0201);
+    expect(fp.data).toBe(0xc3);
+  });
+
+  test('step advances PC; reset returns to the reset vector; run flips isRunning', async () => {
+    const deps = await makeDeps();
+    const im = new InstanceManager(deps);
+    const info = await im.createTransient(fpProfile);
+
+    im.frontPanelAction(info.id, 'stop');
+    let fp = im.frontPanelAction(info.id, 'step');
+    expect(fp.pc).toBe(0x0101); // one instruction advanced PC
+    expect(fp.running).toBe(false);
+
+    fp = im.frontPanelAction(info.id, 'reset');
+    expect(fp.pc).toBe(0x0100);
+    expect(fp.addr).toBe(0x0100);
+
+    fp = im.frontPanelAction(info.id, 'run');
+    expect(fp.running).toBe(true);
+  });
+
+  test('front-panel ops on a stopped/absent machine are refused (409)', async () => {
+    const deps = await makeDeps();
+    const im = new InstanceManager(deps);
+    const info = await im.define(fpProfile, 'ref'); // defined, not running → no machine
+    expect(() => im.readFrontPanel(info.id)).toThrow(/not running/);
+    expect(() => im.frontPanelAction(info.id, 'step')).toThrow(/not running/);
   });
 });

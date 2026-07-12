@@ -16,6 +16,8 @@ import type {
   CardDefinition,
   CardDetail,
   CpuInfo,
+  FrontPanelState,
+  FrontPanelAction,
   MachineProfile,
   MachinePresetInfo,
   ProfileValidation,
@@ -580,6 +582,12 @@ export const api = {
     request<{ displays: { cardId: string; descriptor: Record<string, unknown>; state: Record<string, number>; frame: string }[] }>(
       `/api/instances/${encodeURIComponent(id)}/display`,
     ),
+  getFrontPanel: (id: string) => request<FrontPanelState>(`/api/instances/${encodeURIComponent(id)}/frontpanel`),
+  frontPanelAction: (id: string, action: FrontPanelAction, value?: number) =>
+    request<FrontPanelState>(`/api/instances/${encodeURIComponent(id)}/frontpanel`, {
+      method: 'POST',
+      body: JSON.stringify({ action, value }),
+    }),
   restoreInstanceSnapshot: (snapshotId: string) =>
     request<{ instanceId: string; restored: number[] }>(
       `/api/instance-snapshots/${encodeURIComponent(snapshotId)}/restore`,

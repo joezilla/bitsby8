@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@joezilla/8sim':
-        specifier: ^0.6.0
-        version: 0.6.0
+        specifier: ^0.7.0
+        version: 0.7.0
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
@@ -601,8 +601,8 @@ packages:
     resolution: {integrity: sha512-u3UPsIilWKOM3F9CXtrG8LEJmNxwoCQC/XVj4IKYXvvpx7QIi/Kg1LI5uDmDpKlac62NUtX7eLjRh+jVZcLOzw==}
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
 
-  '@joezilla/8sim@0.6.0':
-    resolution: {integrity: sha512-kOtsLVzZE7Tjnut3n+Pk6LRJsHk5DQtbuouji1rAsp5yOYputFbMXPGHTY8ZZ8r5PeqA8QAJy7SHdqV0pqnz1A==, tarball: https://npm.pkg.github.com/download/@joezilla/8sim/0.6.0/c86176458581fed2da91880431579e50626711ab}
+  '@joezilla/8sim@0.7.0':
+    resolution: {integrity: sha512-RVcgzucq8fIL+xVU3DVA9mOppkwa6tzvHsDHNxOWaBpi9kH9eJI8HCD78kEKjNHOfBHQgsUkj19z/hV90mbMyw==, tarball: https://npm.pkg.github.com/download/@joezilla/8sim/0.7.0/2af8955ecc33c3cc886c741154369512a4462684}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -3649,7 +3649,7 @@ snapshots:
       '@types/yargs': 17.0.35
       chalk: 4.1.2
 
-  '@joezilla/8sim@0.6.0': {}
+  '@joezilla/8sim@0.7.0': {}
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:

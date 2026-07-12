@@ -242,6 +242,20 @@ export interface ProfileValidation {
   warnings: string[];
 }
 
+/** A running machine's front-panel state (cockpit Phase 3). */
+export interface FrontPanelState {
+  pc: number; sp: number; a: number; f: number;
+  b: number; c: number; d: number; e: number; h: number; l: number;
+  halted: boolean;
+  running: boolean;
+  addr: number;
+  data: number;
+  resetVector: number;
+}
+
+export type FrontPanelAction =
+  | 'run' | 'stop' | 'step' | 'reset' | 'examine' | 'examNext' | 'deposit' | 'depNext';
+
 /** A CPU available to a Machine Profile (Story 5.3). */
 export interface CpuInfo {
   kind: 'i8080' | 'z80' | string;

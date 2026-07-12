@@ -54,7 +54,27 @@ interface RunningInstance {
   gpio?: Map<string, GpioPort>;
   /** Display surfaces the machine's video cards expose, by card instance id (5.9). */
   display?: Map<string, DisplaySurface>;
+  /** Front-panel examine/deposit address the operator is inspecting (cockpit Phase 3). */
+  panelAddr?: number;
 }
+
+/** A front-panel snapshot for the cockpit (cockpit Phase 3). */
+export interface FrontPanelState {
+  pc: number; sp: number; a: number; f: number;
+  b: number; c: number; d: number; e: number; h: number; l: number;
+  halted: boolean;
+  running: boolean;
+  /** Address bus (PC while running, else the examined address). */
+  addr: number;
+  /** Data bus — the byte at `addr`. */
+  data: number;
+  resetVector: number;
+}
+
+/** Front-panel control actions (Altair-style). */
+export type FrontPanelAction =
+  | 'run' | 'stop' | 'step' | 'reset'
+  | 'examine' | 'examNext' | 'deposit' | 'depNext';
 
 export interface InstanceInfo {
   id: string;
@@ -248,6 +268,7 @@ export class InstanceManager {
     // over whatever clock the profile built with (FR-14; same setHz path 3.3 uses).
     if (inst.speed !== undefined) machine.runner.setHz(inst.speed);
     inst.machine = machine;
+    inst.panelAddr = machine.cpu.pc; // front-panel examine address starts at the reset vector
     inst.channel = channel;
     inst.channelConnId = connId;
     inst.startedAt = Date.now();
@@ -267,6 +288,7 @@ export class InstanceManager {
     inst.console = undefined;
     inst.gpio = undefined;
     inst.display = undefined;
+    inst.panelAddr = undefined;
     inst.startedAt = undefined;
   }
 
@@ -293,6 +315,42 @@ export class InstanceManager {
       direction: p.direction,
       output: p.read() & 0xff,
     }));
+  }
+
+  /** A front-panel snapshot: CPU state + the address/data bus (cockpit Phase 3). */
+  readFrontPanel(id: string): FrontPanelState {
+    const inst = this.require(id);
+    const m = inst.machine;
+    if (!m) throw new ServiceError(`Instance ${id} is not running`, 409);
+    const s = m.cpu.state();
+    const running = m.runner.isRunning;
+    const addr = running ? s.pc : (inst.panelAddr ?? s.pc);
+    return { ...s, running, addr, data: m.bus.read(addr) & 0xff, resetVector: m.spec.resetVector };
+  }
+
+  /** Drive the front panel (Altair controls) on a running instance (Phase 3). */
+  frontPanelAction(id: string, action: FrontPanelAction, value = 0): FrontPanelState {
+    const inst = this.require(id);
+    const m = inst.machine;
+    if (!m) throw new ServiceError(`Instance ${id} is not running`, 409);
+    const { cpu, bus, runner } = m;
+    // EXAMINE-style ops load the address into PC too, so RUN starts from there.
+    const goto = (a: number) => {
+      inst.panelAddr = a & 0xffff;
+      cpu.pc = inst.panelAddr;
+    };
+    switch (action) {
+      case 'run': runner.start(); break;
+      case 'stop': runner.stop(); inst.panelAddr = cpu.pc; break;
+      case 'step': runner.stop(); cpu.step(); inst.panelAddr = cpu.pc; break;
+      case 'reset': runner.stop(); goto(m.spec.resetVector); break;
+      case 'examine': runner.stop(); goto(value); break;
+      case 'examNext': runner.stop(); goto((inst.panelAddr ?? 0) + 1); break;
+      case 'deposit': runner.stop(); bus.write(inst.panelAddr ?? 0, value & 0xff); break;
+      case 'depNext': runner.stop(); goto((inst.panelAddr ?? 0) + 1); bus.write(inst.panelAddr!, value & 0xff); break;
+      default: throw new ServiceError(`Unknown front-panel action: ${action}`, 400);
+    }
+    return this.readFrontPanel(id);
   }
 
   /** Read the display surfaces of a running instance — descriptor + a fresh frame (5.9). */
