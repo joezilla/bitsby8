@@ -17,6 +17,7 @@
   let displays = $state<Display[]>([]);
   let loading = $state(true);
   let canvas = $state<HTMLCanvasElement>();
+  let off: HTMLCanvasElement | undefined; // offscreen native-res buffer (Dazzler)
   let timer: ReturnType<typeof setInterval> | undefined;
 
   // Char cell + pixel scale for the phosphor look.
@@ -25,6 +26,20 @@
   const SCALE = 2;
   const PHOSPHOR = '#7dff9a';
   const PHOSPHOR_DIM = '#0c1f13';
+
+  const videoNote = $derived.by(() => {
+    const d = displays[0];
+    if (!d) return '';
+    if (d.descriptor.mode === 'bitmap') {
+      const fmt = Number(d.state.format ?? 0);
+      const x4 = (fmt & 0x20) !== 0;
+      const color = (fmt & 0x10) !== 0;
+      const w = color ? (x4 ? 64 : 32) : x4 ? 128 : 64;
+      const off = Number(d.state.on ?? 0) ? '' : ' · off';
+      return `${d.cardId} · Dazzler ${w}×${w} ${color ? 'colour' : 'mono'}${off}`;
+    }
+    return `${d.cardId} · ${d.descriptor.cols}×${d.descriptor.rows} chars`;
+  });
 
   function b64ToBytes(b64: string): Uint8Array {
     const bin = atob(b64);
@@ -72,6 +87,76 @@
     }
   }
 
+  // A Dazzler 4-bit nibble → RGB (bit3 = intensity, bit2/1/0 = R/G/B).
+  function nibbleRgb(nib: number): [number, number, number] {
+    const level = nib & 0x8 ? 255 : 140;
+    return [nib & 0x4 ? level : 0, nib & 0x2 ? level : 0, nib & 0x1 ? level : 0];
+  }
+
+  // Cromemco Dazzler: a DMA bitmap. Resolution + colour come from the runtime
+  // format byte; the buffer is quadrant-interleaved (UL, LL, UR, LR).
+  function renderDazzler(ctx: CanvasRenderingContext2D, d: Display) {
+    const bytes = b64ToBytes(d.frame);
+    const on = Number(d.state.on ?? 0);
+    const fmt = Number(d.state.format ?? 0);
+    const x4 = (fmt & 0x20) !== 0; // D5 resolution
+    const color = (fmt & 0x10) !== 0; // D4 colour / monochrome
+    const W = color ? (x4 ? 64 : 32) : x4 ? 128 : 64;
+    const H = W;
+    const scale = Math.max(1, Math.floor(480 / W));
+    const cw = W * scale;
+    const ch = H * scale;
+    if (canvas!.width !== cw || canvas!.height !== ch) {
+      canvas!.width = cw;
+      canvas!.height = ch;
+    }
+
+    if (!off) off = document.createElement('canvas');
+    off.width = W;
+    off.height = H;
+    const octx = off.getContext('2d')!;
+    const img = octx.createImageData(W, H);
+    const px = img.data;
+    const put = (x: number, y: number, r: number, g: number, b: number) => {
+      const i = (y * W + x) * 4;
+      px[i] = r; px[i + 1] = g; px[i + 2] = b; px[i + 3] = 255;
+    };
+
+    if (on) {
+      const qw = W >> 1;
+      const qh = H >> 1;
+      for (let q = 0; q < 4; q++) {
+        const ox = q >= 2 ? qw : 0; // q0/q1 left, q2/q3 right
+        const oy = q & 1 ? qh : 0; //  q0/q2 top,  q1/q3 bottom
+        if (color) {
+          const bpr = qw >> 1; // 2 px/byte
+          const qbase = q * bpr * qh;
+          for (let y = 0; y < qh; y++)
+            for (let x = 0; x < qw; x++) {
+              const byte = bytes[qbase + y * bpr + (x >> 1)] ?? 0;
+              const nib = x & 1 ? (byte >> 4) & 0xf : byte & 0xf;
+              const [r, g, b] = nibbleRgb(nib);
+              put(ox + x, oy + y, r, g, b);
+            }
+        } else {
+          const bpr = qw >> 3; // 8 px/byte
+          const qbase = q * bpr * qh;
+          const [r, g, b] = nibbleRgb((fmt & 0x0f) || 0x0f); // on-colour (white if unset)
+          for (let y = 0; y < qh; y++)
+            for (let x = 0; x < qw; x++) {
+              const byte = bytes[qbase + y * bpr + (x >> 3)] ?? 0;
+              if ((byte >> (x & 7)) & 1) put(ox + x, oy + y, r, g, b);
+            }
+        }
+      }
+    }
+    octx.putImageData(img, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, cw, ch);
+    ctx.drawImage(off, 0, 0, cw, ch);
+  }
+
   async function poll() {
     try {
       displays = (await api.listInstanceDisplays(instanceId)).displays;
@@ -79,6 +164,7 @@
       const d = displays[0];
       const ctx = canvas?.getContext('2d');
       if (d && ctx && d.descriptor.mode === 'charGrid') renderCharGrid(ctx, d);
+      else if (d && ctx && d.descriptor.mode === 'bitmap') renderDazzler(ctx, d);
     } catch {
       /* instance may have stopped */
     }
@@ -107,12 +193,12 @@
     {#if loading}
       <p class="muted">Reading display…</p>
     {:else if displays.length === 0}
-      <p class="muted">No video cards on this machine. Add a “VDM-1 video” card to a profile.</p>
+      <p class="muted">No video cards on this machine. Add a “VDM-1 video” or “Cromemco Dazzler” card to a profile.</p>
     {:else}
       <div class="crt">
         <canvas bind:this={canvas}></canvas>
       </div>
-      <p class="note fdc-mono">{displays[0].cardId} · {displays[0].descriptor.cols}×{displays[0].descriptor.rows} chars</p>
+      <p class="note fdc-mono">{videoNote}</p>
     {/if}
   </div>
 </div>
