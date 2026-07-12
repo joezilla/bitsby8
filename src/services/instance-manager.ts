@@ -247,7 +247,9 @@ export class InstanceManager {
     const { channel, id: connId } = await this.cm().addInProcessClient(inst.clientId);
     let machine: Machine;
     try {
-      machine = sim.buildMachine(spec, { services: { fdc: channel } });
+      // `clock` feeds an RTC card the host wall time (Story 5.10); `fdc` is the
+      // per-instance disk channel.
+      machine = sim.buildMachine(spec, { services: { fdc: channel, clock: () => new Date() } });
     } catch (err) {
       channel.close(); // tear down the served connection we just created
       throw new ServiceError(
