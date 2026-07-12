@@ -170,6 +170,21 @@ describe('validateProfile — collisions', () => {
     expect(one.ok).toBe(true);
   });
 
+  test('returns the resolved memory map (profile + card regions, base-sorted) for the ribbon (Story 5.3)', async () => {
+    const deps = await makeDeps();
+    const v = await validateProfile(
+      deps,
+      profile(
+        [{ id: 'ram0', ref: 'ram@1.0.0', config: { base: 0x0000, size: 0x4000 } }],
+        [{ id: 'rom', base: 0xf800, size: 0x0800, kind: 'rom' }],
+      ),
+    );
+    expect(v.memoryMap).toEqual([
+      { id: 'ram0/ram', base: 0x0000, size: 0x4000, kind: 'ram', source: 'card' },
+      { id: 'rom', base: 0xf800, size: 0x0800, kind: 'rom', source: 'profile' },
+    ]);
+  });
+
   test('a shared IRQ and overlapping memory are each collisions', async () => {
     const deps = await makeDeps();
     const v = await validateProfile(deps, profile(

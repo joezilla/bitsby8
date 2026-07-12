@@ -57,3 +57,37 @@ export async function getSeedBundle(identity: string): Promise<SeedBundleRuntime
 export function _setSimForTests(sim: SimModule | null): void {
   cached = sim;
 }
+
+/** A CPU the engine can run, for the Profile builder's CPU picker (Story 5.3). */
+export interface CpuInfo {
+  kind: CpuKind;
+  /** The seed CPU card that provides it, if any (`name@version`). */
+  ref?: string;
+  name: string;
+  maker?: string;
+}
+
+const CPU_LABELS: Record<string, string> = { i8080: 'Intel 8080', z80: 'Zilog Z80' };
+
+/** List the CPUs available to a Machine Profile — derived from the seed CPU
+ * cards, with the two kinds the engine always supports as a floor. */
+export async function listCpus(): Promise<CpuInfo[]> {
+  const sim = await getSim();
+  const out = new Map<CpuKind, CpuInfo>();
+  for (const b of sim.seedBundles) {
+    if (typeof b.cpu !== 'function') continue;
+    const kind = b.cpu(sim.withDefaults(b.manifest, {})).kind;
+    if (!out.has(kind)) {
+      out.set(kind, {
+        kind,
+        ref: `${b.manifest.name}@${b.manifest.version}`,
+        name: CPU_LABELS[kind] ?? kind,
+        maker: (b.manifest as { maker?: string }).maker,
+      });
+    }
+  }
+  for (const kind of ['i8080', 'z80'] as CpuKind[]) {
+    if (!out.has(kind)) out.set(kind, { kind, name: CPU_LABELS[kind] ?? kind });
+  }
+  return [...out.values()];
+}

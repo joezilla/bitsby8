@@ -14,6 +14,7 @@ import type {
   ConfigStatus,
   CatalogListing,
   CardDetail,
+  CpuInfo,
   MachineProfile,
   MachinePresetInfo,
   ProfileValidation,
@@ -477,6 +478,7 @@ export const api = {
   },
   getCardDetail: (id: string) =>
     request<CardDetail>(`/api/catalog/cards/${encodeURIComponent(id)}/detail`),
+  listCpus: () => request<{ cpus: CpuInfo[] }>('/api/catalog/cpus'),
 
   // Machine Profiles (Bitsby8) — versioned declarative machines.
   listProfiles: () => request<{ profiles: MachineProfile[] }>('/api/profiles'),

@@ -211,7 +211,7 @@ export interface MachinePresetInfo {
 }
 
 export interface Collision {
-  kind: 'port' | 'irq' | 'memory';
+  kind: 'port' | 'irq' | 'memory' | 'cpu';
   resource: string;
   offenders: string[];
   port?: number;
@@ -224,10 +224,28 @@ export interface CardClaim {
   irq: number | null;
 }
 
+/** A resolved memory region for the address-space ribbon (Story 5.3). */
+export interface MemoryBand {
+  id: string;
+  base: number;
+  size: number;
+  kind: 'ram' | 'rom' | 'mmio' | string;
+  source: 'profile' | 'card';
+}
+
 export interface ProfileValidation {
   ok: boolean;
   collisions: Collision[];
   claims: CardClaim[];
+  memoryMap: MemoryBand[];
+}
+
+/** A CPU available to a Machine Profile (Story 5.3). */
+export interface CpuInfo {
+  kind: 'i8080' | 'z80' | string;
+  name: string;
+  maker?: string;
+  ref?: string;
 }
 
 export interface DiskBinding {

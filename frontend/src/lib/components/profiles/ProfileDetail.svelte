@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/services/api';
   import { showToast } from '$lib/stores/toast';
-  import type { MachineProfile, CardDefinition, ProfileCardInstance, ProfileValidation } from '$lib/types/api';
+  import type { MachineProfile, CardDefinition, ProfileCardInstance, ProfileValidation, CpuInfo } from '$lib/types/api';
   import Button from '$lib/components/shared/Button.svelte';
   import Card from '$lib/components/shared/Card.svelte';
   import Chip from '$lib/components/shared/Chip.svelte';
@@ -10,6 +10,7 @@
   import HexInput from '$lib/components/shared/HexInput.svelte';
   import Backplane from '$lib/components/profiles/Backplane.svelte';
   import BurnEpromModal from '$lib/components/profiles/BurnEpromModal.svelte';
+  import MemoryRibbon from '$lib/components/profiles/MemoryRibbon.svelte';
 
   interface Props {
     id: string;
@@ -29,8 +30,16 @@
   let clockMode = $state<'max' | 'hz'>('max');
   let clockHz = $state(2000000);
   let resetVector = $state(0);
+  let cpuKind = $state<string>('i8080');
+  let cpus = $state<CpuInfo[]>([]);
   let notes = $state('');
   let editCards = $state<ProfileCardInstance[]>([]);
+
+  const catalogTypeOf = (ref: string) =>
+    (catalog.find((c) => c.id === ref)?.manifest as { type?: string } | undefined)?.type;
+  // A CPU card seated in the backplane governs the CPU (resolver override), so the
+  // picker defers to it.
+  let cpuCard = $derived(editCards.find((c) => catalogTypeOf(c.ref) === 'cpu'));
   let validation = $state<ProfileValidation | null>(null);
   let validateToken = 0;
   let launchSpeed = $state<'2000000' | '4000000' | 'max'>('2000000');
@@ -82,6 +91,7 @@
     return (
       clockChanged ||
       resetVector !== profile.resetVector ||
+      cpuKind !== profile.cpuKind ||
       (notes ?? '') !== (profile.notes ?? '') ||
       cardsChanged
     );
@@ -91,6 +101,7 @@
     clockMode = p.clock === 'max' ? 'max' : 'hz';
     clockHz = p.clock === 'max' ? 2000000 : p.clock.hz;
     resetVector = p.resetVector;
+    cpuKind = p.cpuKind;
     notes = p.notes ?? '';
     editCards = structuredClone(p.cards);
   }
@@ -101,12 +112,14 @@
       const { profile: p } = await api.getProfile(id);
       profile = p;
       syncEditable(p);
-      const [vers, cat] = await Promise.all([
+      const [vers, cat, cpuList] = await Promise.all([
         api.listProfileVersions(p.name),
         catalog.length ? Promise.resolve({ cards: catalog }) : api.browseCatalog(),
+        cpus.length ? Promise.resolve({ cpus }) : api.listCpus(),
       ]);
       versions = vers.versions;
       catalog = cat.cards;
+      cpus = cpuList.cpus;
     } catch (err) {
       showToast(`Failed to load profile: ${(err as Error).message}`, 'error');
       onBack();
@@ -122,6 +135,7 @@
       const patch: Record<string, unknown> = {
         clock: clockMode === 'max' ? 'max' : { hz: clockHz },
         resetVector,
+        cpuKind,
         notes,
         cards: editCards,
       };
@@ -340,7 +354,17 @@
           <h2 class="sec">Configuration</h2>
           <dl class="kv">
             <dt>CPU</dt>
-            <dd class="fdc-mono">{p.cpuKind}</dd>
+            <dd>
+              {#if cpuCard}
+                {@const ck = cpus.find((c) => c.ref === cpuCard.ref)?.name ?? cpuKind}
+                <span class="fdc-mono">{ck}</span>
+                <span class="cpu-note">set by card <span class="fdc-mono">{cpuCard.id}</span></span>
+              {:else}
+                <select class="inp sm" bind:value={cpuKind} aria-label="CPU">
+                  {#each cpus as c (c.kind)}<option value={c.kind}>{c.name}</option>{/each}
+                </select>
+              {/if}
+            </dd>
             <dt>Clock</dt>
             <dd>
               <div class="clock-edit">
@@ -381,17 +405,23 @@
       <div class="col">
         <Card raised>
           <h2 class="sec">Memory layout</h2>
+          {@const bands = validation?.memoryMap ?? p.memory.map((m) => ({ ...m, source: 'profile' as const }))}
+          <MemoryRibbon map={bands} {resetVector} />
           <div class="table-wrap">
             <table class="tbl">
-              <thead><tr><th>Region</th><th>Kind</th><th>Range</th></tr></thead>
+              <thead><tr><th>Region</th><th>Kind</th><th>Range</th><th>Source</th></tr></thead>
               <tbody>
-                {#each p.memory as m (m.id)}
+                {#each [...bands].sort((a, b) => a.base - b.base) as m (m.id)}
                   <tr>
                     <td class="fdc-mono">{m.id}</td>
-                    <td>{m.kind}{m.image ? ' · ROM image' : ''}</td>
+                    <td>{m.kind}</td>
                     <td class="fdc-mono">{hex(m.base)}–{hex(m.base + m.size - 1)}</td>
+                    <td class="muted">{m.source === 'card' ? 'card' : 'profile'}</td>
                   </tr>
                 {/each}
+                {#if bands.length === 0}
+                  <tr><td colspan="4" class="muted">No memory mapped. Add a RAM or EPROM card.</td></tr>
+                {/if}
               </tbody>
             </table>
           </div>
@@ -670,6 +700,11 @@
     color: var(--fg-3);
     font-size: 12px;
     margin-left: 6px;
+  }
+  .cpu-note {
+    color: var(--fg-3);
+    font-size: 12px;
+    margin-left: 8px;
   }
 
   .save-bar {

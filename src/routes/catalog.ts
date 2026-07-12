@@ -5,6 +5,7 @@ import { ServiceError } from '../services/service-error';
 import { browseCatalog, getCardDefinition, CatalogFilter } from '../services/catalog';
 import { getCardDetail } from '../services/card-detail';
 import { checkCardConfig } from '../services/card-config';
+import { listCpus } from '../services/bundle-registry';
 
 /** Map a thrown error to an HTTP response: ServiceError carries a status;
  * anything else is a sanitized 500. */
@@ -69,6 +70,39 @@ export function registerCatalogRoutes(router: Router, deps: Dependencies): void 
    *                     makers: { type: array, items: { type: string } }
    *                     capabilities: { type: array, items: { type: string } }
    */
+  /**
+   * @openapi
+   * /api/catalog/cpus:
+   *   get:
+   *     tags: [Catalog]
+   *     summary: List the CPUs a Machine Profile can use (Story 5.3)
+   *     description: The processors the engine can run, derived from the seed CPU cards, for the Profile builder's CPU picker.
+   *     responses:
+   *       200:
+   *         description: Available CPUs
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 cpus:
+   *                   type: array
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       kind: { type: string, example: i8080 }
+   *                       name: { type: string, example: Intel 8080 }
+   *                       maker: { type: string }
+   *                       ref: { type: string, description: 'Seed CPU card Identity, if any' }
+   */
+  router.get('/api/catalog/cpus', async (_req: Request, res: Response): Promise<void> => {
+    try {
+      res.json({ cpus: await listCpus() });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
   router.get('/api/catalog/cards', async (req: Request, res: Response): Promise<void> => {
     try {
       const filter: CatalogFilter = {

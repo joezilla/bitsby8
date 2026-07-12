@@ -16,7 +16,7 @@ import { Database } from '../src/database';
 import { Dependencies } from '../src/types';
 import { ServiceError } from '../src/services/service-error';
 import { resolveProfile, MachineProfile } from '../src/services/resolver';
-import { _setSimForTests, SimModule } from '../src/services/bundle-registry';
+import { _setSimForTests, SimModule, listCpus } from '../src/services/bundle-registry';
 import type { CardManifest } from '@joezilla/8sim';
 import { registerCardDefinition } from '../src/services/catalog';
 
@@ -116,6 +116,14 @@ describe('resolver: resolveProfile', () => {
     // Profile ROM + the card's RAM region, namespaced.
     expect(spec.memory.map((m) => m.id)).toEqual(['rom', 'ram0/ram']);
     expect(spec.memory.find((m) => m.id === 'ram0/ram')).toMatchObject({ base: 0x0000, size: 0x8000, kind: 'ram' });
+  });
+
+  test('listCpus surfaces seed CPU cards, with the engine kinds as a floor (Story 5.3)', async () => {
+    const cpus = await listCpus();
+    const kinds = cpus.map((c) => c.kind);
+    expect(kinds).toContain('z80'); // from the z80-cpu seed bundle
+    expect(kinds).toContain('i8080'); // floor, even without a seed card in this fake
+    expect(cpus.find((c) => c.kind === 'z80')).toMatchObject({ ref: 'z80-cpu@1.0.0', name: 'Zilog Z80' });
   });
 
   test('a CPU card sets the machine cpuKind + resetVector (Story 5.1)', async () => {

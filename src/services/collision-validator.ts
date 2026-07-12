@@ -22,7 +22,7 @@ export interface CardClaim {
   ports: number[];
   irq: number | null;
   /** Memory regions this card maps (a RAM/EPROM memory card), namespaced by id. */
-  memory: Array<{ id: string; base: number; size: number }>;
+  memory: Array<{ id: string; base: number; size: number; kind: string }>;
   /** True if this card is a CPU card (the bus master) — a machine has exactly one. */
   isCpu: boolean;
 }
@@ -35,10 +35,22 @@ export interface Collision {
   port?: number;
 }
 
+/** A resolved memory region for the address-space ribbon (Story 5.3). */
+export interface MemoryBand {
+  id: string;
+  base: number;
+  size: number;
+  kind: string; // ram | rom | mmio
+  source: 'profile' | 'card';
+}
+
 export interface ProfileValidation {
   ok: boolean;
   collisions: Collision[];
   claims: CardClaim[];
+  /** The full resolved memory map (profile regions + card-emitted, overrides
+   * applied), sorted by base — what the address-space ribbon draws. */
+  memoryMap: MemoryBand[];
 }
 
 const hex = (n: number) => `0x${n.toString(16).toUpperCase().padStart(2, '0')}`;
@@ -59,6 +71,7 @@ async function claimsOf(cards: ProfileContent['cards']): Promise<CardClaim[]> {
       id: `${c.id}/${r.id}`, // namespaced so two RAM cards don't false-collide on id
       base: r.base,
       size: r.size,
+      kind: r.kind,
     }));
     out.push({
       cardId: c.id,
@@ -149,9 +162,19 @@ export async function validateProfile(
     collisions.push({ kind: 'cpu', resource: 'CPU (bus master)', offenders: cpuCards.sort() });
   }
 
+  // The resolved memory map for the ribbon: profile regions + non-overridden
+  // card emits, sorted by base.
+  const memoryMap: MemoryBand[] = [
+    ...content.memory.map((m) => ({ id: m.id, base: m.base, size: m.size, kind: m.kind, source: 'profile' as const })),
+    ...claims
+      .flatMap((c) => c.memory)
+      .filter((r) => !declaredIds.has(r.id))
+      .map((r) => ({ id: r.id, base: r.base, size: r.size, kind: r.kind, source: 'card' as const })),
+  ].sort((a, b) => a.base - b.base);
+
   // Report footprints deduped (raw dups were only needed for self-overlap detection).
   const displayClaims = claims.map((c) => ({ ...c, ports: [...new Set(c.ports)].sort((a, b) => a - b) }));
-  return { ok: collisions.length === 0, collisions, claims: displayClaims };
+  return { ok: collisions.length === 0, collisions, claims: displayClaims, memoryMap };
 }
 
 export interface AutoAssignResult {

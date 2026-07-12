@@ -5606,6 +5606,52 @@
         }
       }
     },
+    "/api/catalog/cpus": {
+      "get": {
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "List the CPUs a Machine Profile can use (Story 5.3)",
+        "description": "The processors the engine can run, derived from the seed CPU cards, for the Profile builder's CPU picker.",
+        "responses": {
+          "200": {
+            "description": "Available CPUs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "cpus": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "example": "i8080"
+                          },
+                          "name": {
+                            "type": "string",
+                            "example": "Intel 8080"
+                          },
+                          "maker": {
+                            "type": "string"
+                          },
+                          "ref": {
+                            "type": "string",
+                            "description": "Seed CPU card Identity, if any"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/catalog/cards/{id}": {
       "get": {
         "tags": [
