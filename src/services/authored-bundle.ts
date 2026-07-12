@@ -55,6 +55,9 @@ export function synthesizeAuthoredBundle(
       manifest: manifest as unknown as SeedBundleRuntime['manifest'],
       cardFactory: kernel.create,
       claims: kernel.claims,
+      // A video kernel maps RAM (its framebuffer); hoist it like any memory card
+      // so it's overlap-validated and shows on the ribbon (Story 5.9).
+      ...(kernel.memory ? { memory: kernel.memory } : {}),
     };
   }
 

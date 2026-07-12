@@ -41,6 +41,8 @@ export interface CardKernelRuntime {
   configSchema: Record<string, unknown>;
   create: CardFactory;
   claims: ClaimsFn;
+  /** Memory region(s) this kernel's card maps — e.g. a video card's RAM (5.9). */
+  memory?: (config: Record<string, unknown>) => MemoryRegionSpec[];
 }
 
 /** The subset of the 8sim module surface the orchestration layer uses. */
