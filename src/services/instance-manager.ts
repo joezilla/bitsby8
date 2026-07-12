@@ -22,6 +22,7 @@ import { resolveProfile, MachineProfile } from './resolver';
 import { ConsoleHub, ConsoleSubscriber, consoleSourceFromCard } from './console-hub';
 import { GpioPort, gpioSourceFromCard } from './gpio-hub';
 import { DisplaySurface, displaySourceFromCard } from './display-hub';
+import { KeyboardSink, keyboardSourceFromCard } from './keyboard-hub';
 import { createLogger } from '../logger';
 
 const log = createLogger('instance-manager');
@@ -54,6 +55,8 @@ interface RunningInstance {
   gpio?: Map<string, GpioPort>;
   /** Display surfaces the machine's video cards expose, by card instance id (5.9). */
   display?: Map<string, DisplaySurface>;
+  /** Keyboard sinks the machine's keyboard cards expose, by card instance id (5.9). */
+  keyboard?: Map<string, KeyboardSink>;
   /** Front-panel examine/deposit address the operator is inspecting (cockpit Phase 3). */
   panelAddr?: number;
 }
@@ -263,6 +266,14 @@ export class InstanceManager {
     }
     inst.display = display.size ? display : undefined;
 
+    // Collect the keyboard sinks the machine's keyboard cards expose (Story 5.9).
+    const keyboard = new Map<string, KeyboardSink>();
+    for (const c of machine.cards) {
+      const sink = keyboardSourceFromCard(c);
+      if (sink) keyboard.set(c.id, sink);
+    }
+    inst.keyboard = keyboard.size ? keyboard : undefined;
+
     machine.runner.start();
     // Launch-time speed override (authentic 2 MHz, 'max', etc.) — applied live
     // over whatever clock the profile built with (FR-14; same setHz path 3.3 uses).
@@ -288,6 +299,7 @@ export class InstanceManager {
     inst.console = undefined;
     inst.gpio = undefined;
     inst.display = undefined;
+    inst.keyboard = undefined;
     inst.panelAddr = undefined;
     inst.startedAt = undefined;
   }
@@ -315,6 +327,41 @@ export class InstanceManager {
       direction: p.direction,
       output: p.read() & 0xff,
     }));
+  }
+
+  /** The keyboard cards of a running instance, with their pending key count (5.9). */
+  listKeyboards(id: string): Array<{ cardId: string; pending: number }> {
+    const inst = this.require(id);
+    if (!inst.keyboard) return [];
+    return [...inst.keyboard.entries()].map(([cardId, k]) => ({ cardId, pending: k.pending }));
+  }
+
+  /** Inject key bytes into an instance's keyboard card (5.9). Defaults to the
+   * only keyboard card when `cardId` is omitted; throws if the target is absent. */
+  sendKeys(id: string, bytes: Iterable<number>, cardId?: string): { cardId: string; sent: number } {
+    const inst = this.require(id);
+    const map = inst.keyboard;
+    if (!map || map.size === 0) throw new ServiceError(`Instance ${id} has no keyboard card`, 409);
+    let target: KeyboardSink | undefined;
+    let targetId: string;
+    if (cardId) {
+      target = map.get(cardId);
+      if (!target) throw new ServiceError(`Instance ${id} has no keyboard card "${cardId}"`, 404);
+      targetId = cardId;
+    } else if (map.size === 1) {
+      [targetId, target] = [...map.entries()][0];
+    } else {
+      throw new ServiceError(
+        `Instance ${id} has multiple keyboard cards; specify cardId (${[...map.keys()].join(', ')})`,
+        400,
+      );
+    }
+    let sent = 0;
+    for (const b of bytes) {
+      target.press(b & 0xff);
+      sent++;
+    }
+    return { cardId: targetId, sent };
   }
 
   /** A front-panel snapshot: CPU state + the address/data bus (cockpit Phase 3). */

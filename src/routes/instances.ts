@@ -17,6 +17,8 @@ import {
   listInstanceGpio,
   setInstanceGpioInput,
   listInstanceDisplays,
+  listInstanceKeyboards,
+  sendInstanceKeys,
   readInstanceFrontPanel,
   instanceFrontPanelAction,
 } from '../services/instance-service';
@@ -640,6 +642,62 @@ export function registerInstanceRoutes(router: Router, deps: Dependencies): void
    *       400: { description: Unknown action }
    *       409: { description: Instance not running }
    */
+  /**
+   * @openapi
+   * /api/instances/{id}/keyboard:
+   *   get:
+   *     tags: [Instances]
+   *     summary: List a running instance's keyboard cards (5.9)
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *     responses:
+   *       200: { description: Keyboard cards with pending key counts }
+   *   post:
+   *     tags: [Instances]
+   *     summary: Inject keys into a keyboard card (5.9)
+   *     description: Feeds bytes to the guest's keyboard data port. Supply `byte`, `bytes`, or `text`; `cardId` targets one of several keyboard cards.
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               byte: { type: integer, description: 'A single key byte (0-255)' }
+   *               bytes: { type: array, items: { type: integer }, description: 'Several key bytes' }
+   *               text: { type: string, description: 'A string, sent one char at a time' }
+   *               cardId: { type: string, description: 'Target keyboard card (when the machine has more than one)' }
+   *     responses:
+   *       200: { description: Keys queued }
+   *       400: { description: No key data, or ambiguous card }
+   *       404: { description: No such keyboard card }
+   *       409: { description: Instance not running, or has no keyboard card }
+   */
+  router.get('/api/instances/:id/keyboard', (req: Request, res: Response): void => {
+    try {
+      res.json({ keyboards: listInstanceKeyboards(deps, req.params.id) });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.post('/api/instances/:id/keyboard', (req: Request, res: Response): void => {
+    try {
+      const { byte, bytes, text, cardId } = req.body ?? {};
+      res.json(sendInstanceKeys(deps, req.params.id, { byte, bytes, text, cardId }));
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
   router.get('/api/instances/:id/frontpanel', (req: Request, res: Response): void => {
     try {
       res.json(readInstanceFrontPanel(deps, req.params.id));

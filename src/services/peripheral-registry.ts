@@ -12,7 +12,7 @@
 
 import { Dependencies } from '../types';
 
-export type EndpointType = 'terminal' | 'disk' | 'display' | 'gpio' | 'clock' | 'socket';
+export type EndpointType = 'terminal' | 'disk' | 'display' | 'gpio' | 'keyboard' | 'clock' | 'socket';
 
 export interface PeripheralEndpointType {
   type: EndpointType;
@@ -56,6 +56,12 @@ export function listPeripheralEndpoints(_deps: Dependencies): PeripheralEndpoint
       type: 'display',
       label: 'Monitor',
       description: 'A canvas display a memory-mapped video card renders into (geometry + charset/pixel format).',
+      available: true,
+    },
+    {
+      type: 'keyboard',
+      label: 'Keyboard',
+      description: 'The operator’s keyboard, fed into a keyboard input card’s data port — the input half of a video terminal.',
       available: true,
     },
     {

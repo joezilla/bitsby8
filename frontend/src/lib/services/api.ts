@@ -582,6 +582,15 @@ export const api = {
     request<{ displays: { cardId: string; descriptor: Record<string, unknown>; state: Record<string, number>; frame: string }[] }>(
       `/api/instances/${encodeURIComponent(id)}/display`,
     ),
+  listInstanceKeyboards: (id: string) =>
+    request<{ keyboards: { cardId: string; pending: number }[] }>(
+      `/api/instances/${encodeURIComponent(id)}/keyboard`,
+    ),
+  sendInstanceKey: (id: string, body: { byte?: number; bytes?: number[]; text?: string; cardId?: string }) =>
+    request<{ cardId: string; sent: number }>(`/api/instances/${encodeURIComponent(id)}/keyboard`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   getFrontPanel: (id: string) => request<FrontPanelState>(`/api/instances/${encodeURIComponent(id)}/frontpanel`),
   frontPanelAction: (id: string, action: FrontPanelAction, value?: number) =>
     request<FrontPanelState>(`/api/instances/${encodeURIComponent(id)}/frontpanel`, {

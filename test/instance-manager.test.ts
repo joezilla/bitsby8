@@ -54,7 +54,19 @@ const fakeSim = {
       read: (a: number) => mem[a & 0xffff],
       write: (a: number, v: number) => { mem[a & 0xffff] = v & 0xff; },
     };
-    return { cpu, bus, pic: {}, cards: [], spec, runner: makeRunner() };
+    // A keyboard card exposing a `.keyboard` sink, so the manager collects it (5.9).
+    const kbQueue: number[] = [];
+    const kbd = {
+      id: 'kbd',
+      reset() { kbQueue.length = 0; },
+      attach() {},
+      keyboard: {
+        press: (b: number) => kbQueue.push(b & 0xff),
+        type: (t: string) => { for (const ch of t) kbQueue.push(ch.charCodeAt(0)); },
+        get pending() { return kbQueue.length; },
+      },
+    };
+    return { cpu, bus, pic: {}, cards: [kbd], spec, runner: makeRunner() };
   },
 } as unknown as SimModule;
 
@@ -169,6 +181,35 @@ describe('InstanceManager is the sole liveness authority (AD-4)', () => {
     const deps = await makeDeps();
     const im = new InstanceManager(deps);
     await expect(im.start('nope')).rejects.toMatchObject({ statusCode: 404 });
+  });
+});
+
+describe('InstanceManager keyboard cards (Story 5.9)', () => {
+  test('listKeyboards surfaces the machine keyboard card; sendKeys queues bytes and text', async () => {
+    const deps = await makeDeps();
+    const im = new InstanceManager(deps);
+    const info = await im.createTransient(profile);
+
+    expect(im.listKeyboards(info.id)).toEqual([{ cardId: 'kbd', pending: 0 }]);
+
+    const r = im.sendKeys(info.id, [0x48, 0x49]); // "HI"
+    expect(r).toEqual({ cardId: 'kbd', sent: 2 });
+    expect(im.listKeyboards(info.id)[0].pending).toBe(2);
+  });
+
+  test('sendKeys throws 404 for an unknown card id', async () => {
+    const deps = await makeDeps();
+    const im = new InstanceManager(deps);
+    const info = await im.createTransient(profile);
+    expect(() => im.sendKeys(info.id, [0x41], 'nope')).toThrow(/no keyboard card "nope"/);
+  });
+
+  test('listKeyboards is empty and sendKeys 409s when the instance is not running', async () => {
+    const deps = await makeDeps();
+    const im = new InstanceManager(deps);
+    const info = await im.define(profile, 'ref');
+    expect(im.listKeyboards(info.id)).toEqual([]);
+    expect(() => im.sendKeys(info.id, [0x41])).toThrow(/no keyboard card/);
   });
 });
 

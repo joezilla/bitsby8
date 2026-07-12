@@ -194,6 +194,29 @@ export function setInstanceGpioInput(
   return manager(deps).setGpioInput(id, cardId, value);
 }
 
+/** The keyboard cards a running instance exposes, with pending key counts (5.9). */
+export function listInstanceKeyboards(
+  deps: Dependencies,
+  id: string,
+): Array<{ cardId: string; pending: number }> {
+  return manager(deps).listKeyboards(id);
+}
+
+/** Inject keys into a running instance's keyboard card (5.9). Accepts a byte,
+ * an array of bytes, and/or a text string; `cardId` targets a specific card. */
+export function sendInstanceKeys(
+  deps: Dependencies,
+  id: string,
+  input: { byte?: number; bytes?: number[]; text?: string; cardId?: string },
+): { cardId: string; sent: number } {
+  const bytes: number[] = [];
+  if (typeof input.byte === 'number') bytes.push(input.byte);
+  if (Array.isArray(input.bytes)) bytes.push(...input.bytes.filter((b) => typeof b === 'number'));
+  if (typeof input.text === 'string') for (let i = 0; i < input.text.length; i++) bytes.push(input.text.charCodeAt(i));
+  if (bytes.length === 0) throw new ServiceError('A `byte`, `bytes`, or `text` is required', 400);
+  return manager(deps).sendKeys(id, bytes, input.cardId);
+}
+
 /** A front-panel snapshot of a running instance (cockpit Phase 3). */
 export function readInstanceFrontPanel(deps: Dependencies, id: string) {
   return manager(deps).readFrontPanel(id);

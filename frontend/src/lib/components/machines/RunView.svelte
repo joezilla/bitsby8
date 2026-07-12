@@ -9,6 +9,7 @@
   import MonitorPanel from '$lib/components/machines/MonitorPanel.svelte';
   import GpioPanel from '$lib/components/machines/GpioPanel.svelte';
   import FrontPanel from '$lib/components/machines/FrontPanel.svelte';
+  import { onMount } from 'svelte';
 
   interface Props {
     instance: InstanceStatus;
@@ -22,6 +23,18 @@
   let duo = $state<'both' | 'cmax' | 'mmax'>('both');
   let gpioOpen = $state(true);
   let busy = $state(false);
+
+  // Does this machine have a keyboard input card? If so, physical keystrokes
+  // feed the guest's keyboard port (a serial-less video terminal) instead of
+  // the serial console (5.9).
+  let hasKeyboard = $state(false);
+  onMount(async () => {
+    try {
+      hasKeyboard = (await api.listInstanceKeyboards(instance.id)).keyboards.length > 0;
+    } catch {
+      /* not running / no keyboard */
+    }
+  });
 
   async function stop() {
     try {
@@ -37,13 +50,15 @@
     }
   }
 
-  // Keyboard always routes to the serial console — even when the console is
-  // collapsed to a rail and the monitor is maximized. When the console is
-  // visible, its xterm captures input directly; when it's a rail, we forward.
+  // Physical-keyboard routing. When the serial console's xterm is focused it
+  // captures input directly (the TEXTAREA guard below bails). Otherwise: a
+  // machine with a keyboard card gets the keystroke fed into its keyboard port;
+  // a serial-only machine forwards to the console when it's collapsed to a rail.
   function onKey(e: KeyboardEvent) {
-    if (duo !== 'mmax') return; // console visible → its xterm handles input
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const t = e.target as HTMLElement | null;
+    // The console xterm's helper element is a TEXTAREA — when it's focused, let
+    // it handle input; likewise skip any real form field.
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     let data = '';
     if (e.key === 'Enter') data = '\r';
@@ -53,7 +68,13 @@
     else if (e.key.length === 1) data = e.key;
     else return;
     e.preventDefault();
-    socket.emit('instance:console:write', { instanceId: instance.id, data });
+    if (hasKeyboard) {
+      api.sendInstanceKey(instance.id, { byte: data.charCodeAt(0) }).catch(() => {});
+      return;
+    }
+    if (duo === 'mmax') {
+      socket.emit('instance:console:write', { instanceId: instance.id, data });
+    }
   }
 
   const hz = $derived(
@@ -75,7 +96,7 @@
           <span class="chip">D{d.drive}: {d.filename}</span>
         {/each}
         <span class="chip run">running</span>
-        <span class="chip kb">⌨ → serial</span>
+        <span class="chip kb">⌨ → {hasKeyboard ? 'keyboard' : 'serial'}</span>
       </span>
     </div>
     <div class="actions">
@@ -116,7 +137,12 @@
       </div>
     </div>
     <p class="kbcap">
-      <Icon name="keyboard" size={14} /> Keyboard routes to the serial console — typing hits the SIO port even when the monitor is maximized.
+      <Icon name="keyboard" size={14} />
+      {#if hasKeyboard}
+        Keyboard feeds this machine's keyboard card — type anywhere outside the console to hit its data port.
+      {:else}
+        Keyboard routes to the serial console — typing hits the SIO port even when the monitor is maximized.
+      {/if}
     </p>
 
     <!-- GPIO -->
@@ -147,9 +173,12 @@
   .stack { display: flex; flex-direction: column; gap: var(--space-3); }
 
   .panel { background: var(--surface); border: 1px solid var(--border-1); border-radius: var(--radius-lg); overflow: hidden; }
-  .phead { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  .phead, .fphead { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
     padding: var(--space-2) var(--space-3); background: var(--surface-raised); border-bottom: 1px solid var(--border-1); }
+  .fphead { width: 100%; cursor: pointer; border: none; text-align: left; }
   .ptitle { display: flex; align-items: center; gap: var(--space-2); font-size: 12px; font-weight: 600; color: var(--fg-1); }
+  .chev { color: var(--fg-3); font-size: 11px; transition: transform 0.15s ease; }
+  .chev.open { transform: rotate(90deg); }
   .psub { font-family: var(--font-mono, monospace); font-size: 10.5px; color: var(--fg-4); text-transform: uppercase; letter-spacing: 0.06em; }
   .hright { display: flex; align-items: center; gap: var(--space-2); }
   .kbd { font-family: var(--font-mono, monospace); font-size: 10px; color: var(--accent); background: var(--accent-bg);
