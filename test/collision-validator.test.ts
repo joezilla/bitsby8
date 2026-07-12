@@ -34,6 +34,13 @@ const fakeSim = {
       claims: (cfg: Record<string, unknown>) => ({ ports: [((cfg.basePort as number) ?? 0x08) & 0xff] }),
     },
     {
+      // A CPU card — no I/O, resolves to the machine's processor (Story 5.1).
+      manifest: { name: 'cpu', version: '1.0.0', type: 'cpu', configSchema: { resetVector: { type: 'u16', default: 0, min: 0, max: 0xffff } } },
+      cardFactory: (id: string) => ({ id, reset() {}, attach() {} }),
+      claims: () => ({ ports: [] }),
+      cpu: (cfg: Record<string, unknown>) => ({ kind: 'i8080', resetVector: (cfg.resetVector as number) ?? 0 }),
+    },
+    {
       // A memory card (RAM board) — no I/O, resolves to a RAM region (Story 5.1).
       manifest: { name: 'ram', version: '1.0.0', type: 'memory', configSchema: { base: { type: 'u16', default: 0, min: 0, max: 0xffff }, size: { type: 'u16', default: 0x4000, min: 1, max: 0xffff } } },
       cardFactory: (id: string) => ({ id, reset() {}, attach() {} }),
@@ -145,6 +152,22 @@ describe('validateProfile — collisions', () => {
       { id: 'ramB', ref: 'ram@1.0.0', config: { base: 0x4000, size: 0x4000 } },
     ], []));
     expect(ok.ok).toBe(true);
+  });
+
+  test('two CPU cards collide (a machine has exactly one bus master); one is ok (Story 5.1)', async () => {
+    const deps = await makeDeps();
+    const two = await validateProfile(deps, profile([
+      { id: 'cpuA', ref: 'cpu@1.0.0', config: {} },
+      { id: 'cpuB', ref: 'cpu@1.0.0', config: {} },
+    ], []));
+    expect(two.ok).toBe(false);
+    const cpu = two.collisions.find((c) => c.kind === 'cpu');
+    expect(cpu?.offenders.sort()).toEqual(['cpuA', 'cpuB']);
+
+    const one = await validateProfile(deps, profile([
+      { id: 'cpuA', ref: 'cpu@1.0.0', config: { resetVector: 0xff00 } },
+    ], []));
+    expect(one.ok).toBe(true);
   });
 
   test('a shared IRQ and overlapping memory are each collisions', async () => {

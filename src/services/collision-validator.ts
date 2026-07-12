@@ -23,10 +23,12 @@ export interface CardClaim {
   irq: number | null;
   /** Memory regions this card maps (a RAM/EPROM memory card), namespaced by id. */
   memory: Array<{ id: string; base: number; size: number }>;
+  /** True if this card is a CPU card (the bus master) — a machine has exactly one. */
+  isCpu: boolean;
 }
 
 export interface Collision {
-  kind: 'port' | 'irq' | 'memory';
+  kind: 'port' | 'irq' | 'memory' | 'cpu';
   resource: string; // human label, e.g. "I/O port 0x10"
   offenders: string[]; // card instance ids (or memory region ids)
   /** The colliding I/O port (kind 'port' only) — lets the UI highlight it. */
@@ -49,7 +51,7 @@ async function claimsOf(cards: ProfileContent['cards']): Promise<CardClaim[]> {
     if (!bundle) {
       // Unknown card → no claims we can reason about; skip (catalog validation
       // catches unknown refs on save).
-      out.push({ cardId: c.id, ref: c.ref, ports: [], irq: null, memory: [] });
+      out.push({ cardId: c.id, ref: c.ref, ports: [], irq: null, memory: [], isCpu: false });
       continue;
     }
     const claim = bundle.claims(c.config ?? {});
@@ -66,6 +68,7 @@ async function claimsOf(cards: ProfileContent['cards']): Promise<CardClaim[]> {
       ports: (claim.ports ?? []).map((p) => p & 0xff).sort((a, b) => a - b),
       irq: claim.irq ?? null,
       memory,
+      isCpu: typeof bundle.cpu === 'function',
     });
   }
   return out;
@@ -133,6 +136,13 @@ export async function validateProfile(
     ...claims.flatMap((c) => c.memory),
   ];
   collisions.push(...memoryCollisions(allMemory));
+
+  // Exactly one bus master: two CPU cards can't both drive the bus. (Zero is
+  // allowed — the profile's implicit cpuKind stands in.)
+  const cpuCards = claims.filter((c) => c.isCpu).map((c) => c.cardId);
+  if (cpuCards.length > 1) {
+    collisions.push({ kind: 'cpu', resource: 'CPU (bus master)', offenders: cpuCards.sort() });
+  }
 
   // Report footprints deduped (raw dups were only needed for self-overlap detection).
   const displayClaims = claims.map((c) => ({ ...c, ports: [...new Set(c.ports)].sort((a, b) => a - b) }));

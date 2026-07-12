@@ -14,15 +14,18 @@ import type {
   CardFactory,
   ClaimsFn,
   MemoryRegionSpec,
+  CpuKind,
 } from '@joezilla/8sim';
 
 /** A seed bundle as exported by 8sim at runtime. A `memory` card additionally
- * declares the RAM/ROM region(s) it maps (Story 5.1). */
+ * declares the RAM/ROM region(s) it maps; a `cpu` card declares the processor
+ * (Story 5.1). */
 export interface SeedBundleRuntime {
   manifest: CardManifest;
   cardFactory: CardFactory;
   claims: ClaimsFn;
   memory?: (config: Record<string, unknown>) => MemoryRegionSpec[];
+  cpu?: (config: Record<string, unknown>) => { kind: CpuKind; resetVector?: number };
 }
 
 /** The subset of the 8sim module surface the orchestration layer uses. */

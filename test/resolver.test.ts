@@ -17,6 +17,7 @@ import { Dependencies } from '../src/types';
 import { ServiceError } from '../src/services/service-error';
 import { resolveProfile, MachineProfile } from '../src/services/resolver';
 import { _setSimForTests, SimModule } from '../src/services/bundle-registry';
+import type { CardManifest } from '@joezilla/8sim';
 import { registerCardDefinition } from '../src/services/catalog';
 
 async function makeDeps(): Promise<Dependencies> {
@@ -25,6 +26,10 @@ async function makeDeps(): Promise<Dependencies> {
   await db.initialize();
   return { database: db } as unknown as Dependencies;
 }
+
+// `cpu` is a card type the installed 8sim's union predates (gained on 0.3.0);
+// cast the literal so the strictly-typed fake compiles against either.
+const CPU_TYPE = 'cpu' as unknown as CardManifest['type'];
 
 /** A faithful-enough fake of the 8sim module surface the resolver uses. */
 const fakeSim: SimModule = {
@@ -46,6 +51,18 @@ const fakeSim: SimModule = {
       manifest: { name: 'mits-88-dcdd', version: '1.0.0', type: 'floppy', configSchema: {} },
       cardFactory: (id) => ({ id, reset() {}, attach() {} }),
       claims: () => ({ ports: [0x08, 0x09, 0x0a] }),
+    },
+    {
+      manifest: { name: 'ram-card', version: '1.0.0', type: 'memory', configSchema: { base: { type: 'u16', default: 0, min: 0, max: 0xffff }, size: { type: 'u16', default: 0x4000, min: 1, max: 0xffff } } },
+      cardFactory: (id) => ({ id, reset() {}, attach() {} }),
+      claims: () => ({ ports: [] }),
+      memory: (cfg) => [{ id: 'ram', base: Number(cfg.base), size: Number(cfg.size), kind: 'ram' }],
+    },
+    {
+      manifest: { name: 'z80-cpu', version: '1.0.0', type: CPU_TYPE, configSchema: { resetVector: { type: 'u16', default: 0, min: 0, max: 0xffff } } },
+      cardFactory: (id) => ({ id, reset() {}, attach() {} }),
+      claims: () => ({ ports: [] }),
+      cpu: (cfg) => ({ kind: 'z80', resetVector: Number(cfg.resetVector) }),
     },
   ],
   withDefaults: (manifest, config = {}) => {
@@ -85,6 +102,34 @@ describe('resolver: resolveProfile', () => {
     expect(spec.cards[0].claims?.ports).toContain(0x12);
     expect(provenance[0].ref).toBe('imsai-sio2@1.0.0');
     expect(provenance[0].inCatalog).toBe(false);
+  });
+
+  test('hoists a memory card region into spec.memory, namespaced by instance id (Story 5.1)', async () => {
+    const deps = await makeDeps();
+    const { spec } = await resolveProfile(deps, {
+      cpuKind: 'i8080',
+      clock: 'max',
+      resetVector: 0,
+      memory: [{ id: 'rom', base: 0xf000, size: 0x0800, kind: 'rom' }],
+      cards: [{ id: 'ram0', ref: 'ram-card@1.0.0', config: { base: 0x0000, size: 0x8000 } }],
+    });
+    // Profile ROM + the card's RAM region, namespaced.
+    expect(spec.memory.map((m) => m.id)).toEqual(['rom', 'ram0/ram']);
+    expect(spec.memory.find((m) => m.id === 'ram0/ram')).toMatchObject({ base: 0x0000, size: 0x8000, kind: 'ram' });
+  });
+
+  test('a CPU card sets the machine cpuKind + resetVector (Story 5.1)', async () => {
+    const deps = await makeDeps();
+    const { spec } = await resolveProfile(deps, {
+      cpuKind: 'i8080', // profile default...
+      clock: 'max',
+      resetVector: 0x0000,
+      memory: [{ id: 'ram', base: 0, size: 0x10000, kind: 'ram' }],
+      cards: [{ id: 'cpu', ref: 'z80-cpu@1.0.0', config: { resetVector: 0xff00 } }],
+    });
+    // ...overridden by the seated CPU card.
+    expect(spec.cpuKind).toBe('z80');
+    expect(spec.resetVector).toBe(0xff00);
   });
 
   test('records provenance (source, digest) from the Catalog when present', async () => {

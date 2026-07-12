@@ -61,6 +61,11 @@ export async function resolveProfile(
   // map (Story 5.1) — a memory card (RAM/EPROM) resolves to a region, namespaced
   // by its instance id, so buildMachine validates it like any other region.
   const memory: MemoryRegionSpec[] = [...profile.memory];
+  // A CPU card (the processor board) resolves to the machine's CPU. Zero CPU
+  // cards → the profile's implicit CPU (backward compatible); more than one is a
+  // collision the validator rejects. The card also carries the power-on jump.
+  let cpuKind: CpuKind = profile.cpuKind;
+  let resetVector = profile.resetVector;
 
   for (const inst of profile.cards) {
     const bundle = await getSeedBundle(inst.ref);
@@ -91,6 +96,12 @@ export async function resolveProfile(
       }
     }
 
+    if (bundle.cpu) {
+      const c = bundle.cpu(cfg);
+      cpuKind = c.kind;
+      if (c.resetVector != null) resetVector = c.resetVector;
+    }
+
     const rec = await deps.database.getCardDefinitionById(inst.ref);
     provenance.push({
       id: inst.id,
@@ -102,9 +113,9 @@ export async function resolveProfile(
   }
 
   const spec: MachineSpec = {
-    cpuKind: profile.cpuKind,
+    cpuKind,
     clock: profile.clock,
-    resetVector: profile.resetVector,
+    resetVector,
     memory,
     cards,
   };
