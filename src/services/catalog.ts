@@ -25,14 +25,18 @@ export interface CardManifestInput {
   maker?: string;
   summary?: string;
   configSchema: Record<string, unknown>;
+  /** Declarative behavior of an authored card (Story 5.4) — the host synthesizes
+   * its runtime bundle from this; absent on seed/code-backed cards. */
+  behavior?: unknown;
 }
 
 export interface RegisterCardInput {
   manifest: CardManifestInput;
   /** Reference to the bundle's pre-built behavior module (module specifier / path). */
   entry?: string;
-  /** Provenance: 'seed' (built-in), 'imported', or 'signed'. Defaults to 'seed'. */
-  source?: 'seed' | 'imported' | 'signed';
+  /** Provenance: 'seed' (built-in), 'authored' (declarative, Story 5.4),
+   * 'imported', or 'signed'. Defaults to 'seed'. */
+  source?: 'seed' | 'authored' | 'imported' | 'signed';
 }
 
 /** A Card Definition as returned to REST/MCP (manifest parsed, camelCase). */

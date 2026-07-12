@@ -8,11 +8,13 @@
   import Chip from '$lib/components/shared/Chip.svelte';
   import Icon from '$lib/components/shared/Icon.svelte';
   import CardDetail from '$lib/components/catalog/CardDetail.svelte';
+  import NewCardModal from '$lib/components/catalog/NewCardModal.svelte';
 
   let cards = $state<CardDefinition[]>([]);
   let facets = $state<CatalogFacets>({ kinds: [], types: [], makers: [], capabilities: [] });
   let loading = $state(true);
   let selectedId = $state<string | null>(null);
+  let showNew = $state(false);
 
   // Active filters (single-select facets + free text), applied client-side over
   // the fetched set to match the server's /api/catalog/cards filter semantics.
@@ -91,10 +93,18 @@
 
 {#snippet headerActions()}
   <Button variant="ghost" icon="refresh" onclick={load}>Refresh</Button>
+  <Button variant="tonal" icon="add" onclick={() => (showNew = true)}>New card</Button>
 {/snippet}
 
 {#if selectedId}
-  <CardDetail id={selectedId} onBack={() => (selectedId = null)} />
+  <CardDetail
+    id={selectedId}
+    onBack={() => (selectedId = null)}
+    onDeleted={() => {
+      selectedId = null;
+      load();
+    }}
+  />
 {:else}
 <PageHeader
   eyebrow="Build · Catalog"
@@ -243,6 +253,16 @@
     {/each}
   {/if}
 </div>
+{/if}
+
+{#if showNew}
+  <NewCardModal
+    onClose={() => (showNew = false)}
+    onCreated={() => {
+      showNew = false;
+      load();
+    }}
+  />
 {/if}
 
 <style>

@@ -12,7 +12,7 @@
  */
 
 import { Dependencies } from '../types';
-import { getSeedBundle } from './bundle-registry';
+import { getBundle } from './bundle-registry';
 import { ProfileContent } from './profile-service';
 import { ConfigParamSpec } from './card-config';
 
@@ -56,10 +56,10 @@ export interface ProfileValidation {
 const hex = (n: number) => `0x${n.toString(16).toUpperCase().padStart(2, '0')}`;
 
 /** Compute each Card Instance's claimed ports/IRQ at its actual config. */
-async function claimsOf(cards: ProfileContent['cards']): Promise<CardClaim[]> {
+async function claimsOf(deps: Dependencies, cards: ProfileContent['cards']): Promise<CardClaim[]> {
   const out: CardClaim[] = [];
   for (const c of cards) {
-    const bundle = await getSeedBundle(c.ref);
+    const bundle = await getBundle(deps, c.ref);
     if (!bundle) {
       // Unknown card → no claims we can reason about; skip (catalog validation
       // catches unknown refs on save).
@@ -109,10 +109,10 @@ function memoryCollisions(memory: Array<{ id: string; base: number; size: number
 
 /** Validate a Profile body for bus collisions. Returns every collision found. */
 export async function validateProfile(
-  _deps: Dependencies,
+  deps: Dependencies,
   content: ProfileContent,
 ): Promise<ProfileValidation> {
-  const claims = await claimsOf(content.cards);
+  const claims = await claimsOf(deps, content.cards);
 
   const collisions: Collision[] = [];
 
@@ -212,7 +212,7 @@ export async function autoAssign(deps: Dependencies, content: ProfileContent): P
   const changes: AutoAssignResult['changes'] = [];
 
   for (const card of cards) {
-    const bundle = await getSeedBundle(card.ref);
+    const bundle = await getBundle(deps, card.ref);
     if (!bundle) continue;
     const ports = (bundle.claims(card.config).ports ?? []).map((p) => p & 0xff);
     const selfOverlap = new Set(ports).size !== ports.length;

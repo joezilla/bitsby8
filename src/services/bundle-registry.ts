@@ -16,6 +16,8 @@ import type {
   MemoryRegionSpec,
   CpuKind,
 } from '@joezilla/8sim';
+import { Dependencies } from '../types';
+import { synthesizeAuthoredBundle, AuthoredManifest } from './authored-bundle';
 
 /** A seed bundle as exported by 8sim at runtime. A `memory` card additionally
  * declares the RAM/ROM region(s) it maps; a `cpu` card declares the processor
@@ -51,6 +53,25 @@ export async function getSim(): Promise<SimModule> {
 export async function getSeedBundle(identity: string): Promise<SeedBundleRuntime | undefined> {
   const sim = await getSim();
   return sim.seedBundles.find((b) => `${b.manifest.name}@${b.manifest.version}` === identity);
+}
+
+/**
+ * Resolve a card bundle by Identity: a built-in seed bundle, or — falling back —
+ * a synthesized bundle for an authored declarative card (Story 5.4). This is the
+ * single lookup the resolver/validator/burn path use so authored cards run
+ * exactly like seed cards.
+ */
+export async function getBundle(
+  deps: Dependencies,
+  identity: string,
+): Promise<SeedBundleRuntime | undefined> {
+  const seed = await getSeedBundle(identity);
+  if (seed) return seed;
+  const rec = await deps.database.getCardDefinitionById(identity);
+  if (rec && rec.source === 'authored') {
+    return synthesizeAuthoredBundle(JSON.parse(rec.manifest) as AuthoredManifest);
+  }
+  return undefined;
 }
 
 /** Test seam: inject a fake/real SimModule (pass null to reset to lazy load). */

@@ -11,8 +11,26 @@
   interface Props {
     id: string;
     onBack: () => void;
+    /** Called after an authored card is deleted, so the catalog can refresh. */
+    onDeleted?: () => void;
   }
-  let { id, onBack }: Props = $props();
+  let { id, onBack, onDeleted }: Props = $props();
+  let busy = $state(false);
+
+  async function remove() {
+    if (!detail) return;
+    if (!confirm(`Delete authored card "${detail.card.id}"? Profiles using it will fail to resolve.`)) return;
+    try {
+      busy = true;
+      await api.deleteCard(detail.card.id);
+      showToast(`Deleted ${detail.card.id}`, 'success');
+      (onDeleted ?? onBack)();
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      busy = false;
+    }
+  }
 
   let detail = $state<CardDetail | null>(null);
   let loading = $state(true);
@@ -83,9 +101,14 @@
           <span class="source">{c.source}</span>
         </div>
       </div>
-      <Button variant="filled" icon="add" disabled title="Assembly arrives with a later story">
-        Add to a Profile
-      </Button>
+      <div class="head-actions">
+        {#if c.source === 'authored'}
+          <Button variant="ghost" size="sm" icon="delete" danger onclick={remove} disabled={busy}>Delete</Button>
+        {/if}
+        <Button variant="filled" icon="add" disabled title="Assembly arrives with a later story">
+          Add to a Profile
+        </Button>
+      </div>
     </header>
 
     <div class="cols">
@@ -253,6 +276,11 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
+  }
+  .head-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
   }
   .type {
     color: var(--fg-3);

@@ -6,6 +6,7 @@ import { browseCatalog, getCardDefinition, CatalogFilter } from '../services/cat
 import { getCardDetail } from '../services/card-detail';
 import { checkCardConfig } from '../services/card-config';
 import { listCpus } from '../services/bundle-registry';
+import { authorCard, deleteAuthoredCard } from '../services/card-authoring';
 
 /** Map a thrown error to an HTTP response: ServiceError carries a status;
  * anything else is a sanitized 500. */
@@ -98,6 +99,73 @@ export function registerCatalogRoutes(router: Router, deps: Dependencies): void 
   router.get('/api/catalog/cpus', async (_req: Request, res: Response): Promise<void> => {
     try {
       res.json({ cpus: await listCpus() });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/catalog/cards:
+   *   post:
+   *     tags: [Catalog]
+   *     summary: Author a declarative card (no code) (Story 5.4)
+   *     description: Create a Card Definition from a declarative behavior — a memory board (RAM/EPROM) or a CPU board — registered as source 'authored'. The host synthesizes its runtime bundle, so it seats and runs like a seed card.
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [name, behavior]
+   *             properties:
+   *               name: { type: string }
+   *               version: { type: string, description: 'semver; defaults 1.0.0' }
+   *               maker: { type: string }
+   *               summary: { type: string }
+   *               behavior:
+   *                 type: object
+   *                 description: "{ resolvesTo: 'memory', memKind: 'ram'|'rom' } or { resolvesTo: 'cpu', cpuKind: 'i8080'|'z80' }"
+   *               defaults:
+   *                 type: object
+   *                 properties:
+   *                   base: { type: integer }
+   *                   size: { type: integer }
+   *                   resetVector: { type: integer }
+   *     responses:
+   *       200: { description: The authored Card Definition }
+   *       400: { description: Invalid name/behavior/defaults }
+   *       409: { description: Shadows a built-in seed card }
+   */
+  router.post('/api/catalog/cards', async (req: Request, res: Response): Promise<void> => {
+    try {
+      res.json(await authorCard(deps, req.body ?? {}));
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/catalog/cards/{id}:
+   *   delete:
+   *     tags: [Catalog]
+   *     summary: Delete an authored card (Story 5.4)
+   *     description: Removes an authored Card Definition. Refuses to delete built-in seed cards.
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *     responses:
+   *       200: { description: Deleted }
+   *       404: { description: No such card }
+   *       409: { description: Not an authored card }
+   */
+  router.delete('/api/catalog/cards/:id', async (req: Request, res: Response): Promise<void> => {
+    try {
+      await deleteAuthoredCard(deps, req.params.id);
+      res.json({ deleted: true });
     } catch (error) {
       sendError(res, error);
     }

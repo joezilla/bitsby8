@@ -12,6 +12,7 @@ import { Dependencies } from './types';
 import { getStatus, getDrivesStatus, getTerminalStatus } from './services/status';
 import { listCardDefinitions, getCardDefinition } from './services/catalog';
 import { getCardDetail } from './services/card-detail';
+import { authorCard, deleteAuthoredCard } from './services/card-authoring';
 import { checkCardConfig } from './services/card-config';
 import {
   listMachinePresets,
@@ -2049,6 +2050,54 @@ export function createMcpServer(deps: Dependencies): McpServer {
       try {
         const result = await checkCardConfig(deps, id, config ?? {});
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'author_card',
+    'Author a declarative Card Definition with NO code (Bitsby8 Story 5.4) — a memory board or a CPU ' +
+      'board. Registers it into the Catalog as source "authored"; it then seats on a backplane and runs ' +
+      'like a seed card. `behavior` is { resolvesTo:"memory", memKind:"ram"|"rom" } or ' +
+      '{ resolvesTo:"cpu", cpuKind:"i8080"|"z80" }. `defaults` seed the config schema (base/size or resetVector).',
+    {
+      name: z.string().describe('Card name (Identity is name@version)'),
+      version: z.string().optional().describe('semver; defaults 1.0.0'),
+      maker: z.string().optional(),
+      summary: z.string().optional(),
+      behavior: z.record(z.string(), z.any()).describe('Declarative behavior (see description)'),
+      defaults: z
+        .object({ base: z.number().optional(), size: z.number().optional(), resetVector: z.number().optional() })
+        .optional()
+        .describe('Default config values baked into the schema'),
+    },
+    async ({ name, version, maker, summary, behavior, defaults }) => {
+      try {
+        const doc = await authorCard(deps, {
+          name,
+          version,
+          maker,
+          summary,
+          behavior: behavior as never,
+          defaults,
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(doc, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'delete_authored_card',
+    'Delete an authored Card Definition (Bitsby8 Story 5.4). Refuses to delete built-in seed cards.',
+    { id: z.string().describe('Card Identity: name@version') },
+    async ({ id }) => {
+      try {
+        await deleteAuthoredCard(deps, id);
+        return { content: [{ type: 'text', text: JSON.stringify({ deleted: true, id }, null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
       }

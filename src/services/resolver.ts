@@ -11,7 +11,7 @@
 import type { MachineSpec, CardSpec, MemoryRegionSpec, CpuKind, Clock } from '@joezilla/8sim';
 import { Dependencies } from '../types';
 import { ServiceError } from './service-error';
-import { getSim, getSeedBundle } from './bundle-registry';
+import { getSim, getBundle } from './bundle-registry';
 
 /** A card installed in a Profile, referencing a Card Definition by Identity. */
 export interface ProfileCardInstance {
@@ -68,7 +68,7 @@ export async function resolveProfile(
   let resetVector = profile.resetVector;
 
   for (const inst of profile.cards) {
-    const bundle = await getSeedBundle(inst.ref);
+    const bundle = await getBundle(deps, inst.ref);
     if (!bundle) {
       throw new ServiceError(
         `Card bundle not found for ${inst.ref} (instance "${inst.id}")`,

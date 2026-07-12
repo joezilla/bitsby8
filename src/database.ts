@@ -782,6 +782,11 @@ export class Database {
     ).all() as CardDefinitionRecord[];
   }
 
+  async deleteCardDefinition(id: string): Promise<boolean> {
+    this.ensureInitialized();
+    return this.db!.prepare('DELETE FROM card_definitions WHERE id = ?').run(id).changes > 0;
+  }
+
   // --- Machine Instances (Bitsby8) ---
 
   async upsertMachineInstance(rec: Omit<MachineInstanceRecord, 'created_at'>): Promise<void> {

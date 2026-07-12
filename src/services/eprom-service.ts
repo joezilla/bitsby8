@@ -9,7 +9,7 @@
 
 import { Dependencies } from '../types';
 import { ServiceError } from './service-error';
-import { getSim, getSeedBundle } from './bundle-registry';
+import { getSim, getBundle } from './bundle-registry';
 import { getProfile, updateProfile, ProfileDoc, ProfileMemoryRegion } from './profile-service';
 import {
   burnImage,
@@ -42,6 +42,7 @@ export interface BurnOutcome {
 
 /** Resolve an EPROM card instance to its ROM region geometry (base/size/id). */
 async function romRegionOf(
+  deps: Dependencies,
   profile: ProfileDoc,
   cardId: string,
 ): Promise<{ nsId: string; base: number; size: number }> {
@@ -49,7 +50,7 @@ async function romRegionOf(
   if (!inst) {
     throw new ServiceError(`No card instance "${cardId}" in profile "${profile.name}"`, 404, { cardId });
   }
-  const bundle = await getSeedBundle(inst.ref);
+  const bundle = await getBundle(deps, inst.ref);
   if (!bundle || !bundle.memory) {
     throw new ServiceError(`Card "${cardId}" (${inst.ref}) is not a memory card`, 409, { cardId, ref: inst.ref });
   }
@@ -70,7 +71,7 @@ export async function burnEprom(
   input: BurnInput,
 ): Promise<BurnOutcome> {
   const profile = await getProfile(deps, profileId);
-  const { nsId, base, size } = await romRegionOf(profile, cardId);
+  const { nsId, base, size } = await romRegionOf(deps, profile, cardId);
 
   const format = input.format ?? detectFormat(input.bytes, input.filename);
   let result: BurnResult;
@@ -112,7 +113,7 @@ export async function eraseEprom(
   cardId: string,
 ): Promise<{ profile: ProfileDoc; erased: boolean }> {
   const profile = await getProfile(deps, profileId);
-  const { nsId } = await romRegionOf(profile, cardId);
+  const { nsId } = await romRegionOf(deps, profile, cardId);
   if (!profile.memory.some((m) => m.id === nsId)) {
     return { profile, erased: false }; // nothing burned
   }

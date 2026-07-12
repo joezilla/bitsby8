@@ -13,6 +13,7 @@ import type {
   ConfigDoc,
   ConfigStatus,
   CatalogListing,
+  CardDefinition,
   CardDetail,
   CpuInfo,
   MachineProfile,
@@ -479,6 +480,16 @@ export const api = {
   getCardDetail: (id: string) =>
     request<CardDetail>(`/api/catalog/cards/${encodeURIComponent(id)}/detail`),
   listCpus: () => request<{ cpus: CpuInfo[] }>('/api/catalog/cpus'),
+  authorCard: (body: {
+    name: string;
+    version?: string;
+    maker?: string;
+    summary?: string;
+    behavior: { resolvesTo: 'memory'; memKind: 'ram' | 'rom' } | { resolvesTo: 'cpu'; cpuKind: 'i8080' | 'z80' };
+    defaults?: { base?: number; size?: number; resetVector?: number };
+  }) => request<CardDefinition>('/api/catalog/cards', { method: 'POST', body: JSON.stringify(body) }),
+  deleteCard: (id: string) =>
+    request<{ deleted: true }>(`/api/catalog/cards/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   // Machine Profiles (Bitsby8) — versioned declarative machines.
   listProfiles: () => request<{ profiles: MachineProfile[] }>('/api/profiles'),
