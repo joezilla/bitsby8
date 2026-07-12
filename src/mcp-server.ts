@@ -13,6 +13,7 @@ import { getStatus, getDrivesStatus, getTerminalStatus } from './services/status
 import { listCardDefinitions, getCardDefinition } from './services/catalog';
 import { getCardDetail } from './services/card-detail';
 import { authorCard, deleteAuthoredCard } from './services/card-authoring';
+import { listPeripheralEndpoints } from './services/peripheral-registry';
 import { checkCardConfig } from './services/card-config';
 import {
   listMachinePresets,
@@ -2050,6 +2051,19 @@ export function createMcpServer(deps: Dependencies): McpServer {
       try {
         const result = await checkCardConfig(deps, id, config ?? {});
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'list_peripherals',
+    'List the peripheral endpoint types a card can bind its far side to (Bitsby8 Story 5.6) — ' +
+      'terminal, disk, clock, gpio, display, socket — with what is wired today.',
+    async () => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify({ endpoints: listPeripheralEndpoints(deps) }, null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
       }

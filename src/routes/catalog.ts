@@ -7,6 +7,7 @@ import { getCardDetail } from '../services/card-detail';
 import { checkCardConfig } from '../services/card-config';
 import { listCpus } from '../services/bundle-registry';
 import { authorCard, deleteAuthoredCard } from '../services/card-authoring';
+import { listPeripheralEndpoints } from '../services/peripheral-registry';
 
 /** Map a thrown error to an HTTP response: ServiceError carries a status;
  * anything else is a sanitized 500. */
@@ -99,6 +100,40 @@ export function registerCatalogRoutes(router: Router, deps: Dependencies): void 
   router.get('/api/catalog/cpus', async (_req: Request, res: Response): Promise<void> => {
     try {
       res.json({ cpus: await listCpus() });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/peripherals:
+   *   get:
+   *     tags: [Catalog]
+   *     summary: List peripheral endpoint types a card can bind to (Story 5.6)
+   *     description: The vocabulary of endpoints a card's far side connects to (terminal, disk, clock, gpio, display, socket), with what's wired today.
+   *     responses:
+   *       200:
+   *         description: Endpoint types
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 endpoints:
+   *                   type: array
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       type: { type: string }
+   *                       label: { type: string }
+   *                       description: { type: string }
+   *                       available: { type: boolean }
+   *                       arrivesWith: { type: string }
+   */
+  router.get('/api/peripherals', async (_req: Request, res: Response): Promise<void> => {
+    try {
+      res.json({ endpoints: listPeripheralEndpoints(deps) });
     } catch (error) {
       sendError(res, error);
     }
