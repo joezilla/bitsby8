@@ -3393,6 +3393,62 @@
         }
       }
     },
+    "/api/instances/{id}/display": {
+      "get": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Read a running instance's video displays (Story 5.9)",
+        "description": "The video cards the machine exposes — each with a render descriptor (charGrid | bitmap) and a fresh frame (base64 of the video RAM the card maps). Poll for live output.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Displays",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "displays": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "cardId": {
+                            "type": "string"
+                          },
+                          "descriptor": {
+                            "type": "object",
+                            "additionalProperties": true
+                          },
+                          "state": {
+                            "type": "object",
+                            "additionalProperties": true
+                          },
+                          "frame": {
+                            "type": "string",
+                            "description": "base64 of the frame bytes"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/images": {
       "get": {
         "tags": [

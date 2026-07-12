@@ -21,6 +21,7 @@ import { getSim } from './bundle-registry';
 import { resolveProfile, MachineProfile } from './resolver';
 import { ConsoleHub, ConsoleSubscriber, consoleSourceFromCard } from './console-hub';
 import { GpioPort, gpioSourceFromCard } from './gpio-hub';
+import { DisplaySurface, displaySourceFromCard } from './display-hub';
 import { createLogger } from '../logger';
 
 const log = createLogger('instance-manager');
@@ -51,6 +52,8 @@ interface RunningInstance {
   console?: ConsoleHub;
   /** GPIO ports the machine's parallel cards expose, by card instance id (5.8). */
   gpio?: Map<string, GpioPort>;
+  /** Display surfaces the machine's video cards expose, by card instance id (5.9). */
+  display?: Map<string, DisplaySurface>;
 }
 
 export interface InstanceInfo {
@@ -232,6 +235,14 @@ export class InstanceManager {
     }
     inst.gpio = gpio.size ? gpio : undefined;
 
+    // Collect the display surfaces the machine's video cards expose (Story 5.9).
+    const display = new Map<string, DisplaySurface>();
+    for (const c of machine.cards) {
+      const surface = displaySourceFromCard(c);
+      if (surface) display.set(c.id, surface);
+    }
+    inst.display = display.size ? display : undefined;
+
     machine.runner.start();
     // Launch-time speed override (authentic 2 MHz, 'max', etc.) — applied live
     // over whatever clock the profile built with (FR-14; same setHz path 3.3 uses).
@@ -255,6 +266,7 @@ export class InstanceManager {
     inst.channelConnId = undefined;
     inst.console = undefined;
     inst.gpio = undefined;
+    inst.display = undefined;
     inst.startedAt = undefined;
   }
 
@@ -281,6 +293,18 @@ export class InstanceManager {
       direction: p.direction,
       output: p.read() & 0xff,
     }));
+  }
+
+  /** Read the display surfaces of a running instance — descriptor + a fresh frame (5.9). */
+  readDisplays(
+    id: string,
+  ): Array<{ cardId: string; descriptor: DisplaySurface['descriptor']; state: Record<string, number>; bytes: Uint8Array }> {
+    const inst = this.require(id);
+    if (!inst.display) return [];
+    return [...inst.display.entries()].map(([cardId, s]) => {
+      const f = s.frame();
+      return { cardId, descriptor: s.descriptor, state: f.state, bytes: f.bytes };
+    });
   }
 
   /** Drive a GPIO card's input pins (sense switches) on a running instance (5.8). */

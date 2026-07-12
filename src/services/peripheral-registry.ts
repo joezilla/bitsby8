@@ -56,8 +56,7 @@ export function listPeripheralEndpoints(_deps: Dependencies): PeripheralEndpoint
       type: 'display',
       label: 'Monitor',
       description: 'A canvas display a memory-mapped video card renders into (geometry + charset/pixel format).',
-      available: false,
-      arrivesWith: '5.9',
+      available: true,
     },
     {
       type: 'socket',

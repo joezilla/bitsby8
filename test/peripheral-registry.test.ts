@@ -13,15 +13,13 @@ describe('peripheral registry', () => {
     expect(types).toEqual<EndpointType[]>(['clock', 'disk', 'display', 'gpio', 'socket', 'terminal']);
   });
 
-  test('terminal, disk, clock, gpio are wired today; display/socket name their story', () => {
+  test('terminal, disk, clock, gpio, display are wired today; socket names its story', () => {
     const byType = new Map(listPeripheralEndpoints(deps).map((e) => [e.type, e]));
-    for (const t of ['terminal', 'disk', 'clock', 'gpio'] as EndpointType[]) {
+    for (const t of ['terminal', 'disk', 'clock', 'gpio', 'display'] as EndpointType[]) {
       expect(byType.get(t)!.available).toBe(true);
     }
-    for (const t of ['display', 'socket'] as EndpointType[]) {
-      expect(byType.get(t)!.available).toBe(false);
-      expect(byType.get(t)!.arrivesWith).toBeTruthy(); // says when it lands
-    }
+    expect(byType.get('socket')!.available).toBe(false);
+    expect(byType.get('socket')!.arrivesWith).toBeTruthy();
   });
 
   test('every endpoint carries a human label + description', () => {

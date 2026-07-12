@@ -193,3 +193,18 @@ export function setInstanceGpioInput(
 ): { cardId: string; input: number } {
   return manager(deps).setGpioInput(id, cardId, value);
 }
+
+/** The display surfaces of a running instance — descriptor + a fresh frame (base64) (5.9). */
+export function listInstanceDisplays(
+  deps: Dependencies,
+  id: string,
+): Array<{ cardId: string; descriptor: unknown; state: Record<string, number>; frame: string }> {
+  return manager(deps)
+    .readDisplays(id)
+    .map((d) => ({
+      cardId: d.cardId,
+      descriptor: d.descriptor,
+      state: d.state,
+      frame: Buffer.from(d.bytes).toString('base64'),
+    }));
+}

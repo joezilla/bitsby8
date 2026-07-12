@@ -16,6 +16,7 @@ import {
   readInstanceConsole,
   listInstanceGpio,
   setInstanceGpioInput,
+  listInstanceDisplays,
 } from '../services/instance-service';
 import {
   snapshotInstance,
@@ -555,6 +556,44 @@ export function registerInstanceRoutes(router: Router, deps: Dependencies): void
         throw new ServiceError('`value` (integer 0–255) is required', 400);
       }
       res.json(setInstanceGpioInput(deps, req.params.id, req.params.cardId, value));
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/instances/{id}/display:
+   *   get:
+   *     tags: [Instances]
+   *     summary: Read a running instance's video displays (Story 5.9)
+   *     description: The video cards the machine exposes — each with a render descriptor (charGrid | bitmap) and a fresh frame (base64 of the video RAM the card maps). Poll for live output.
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *     responses:
+   *       200:
+   *         description: Displays
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 displays:
+   *                   type: array
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       cardId: { type: string }
+   *                       descriptor: { type: object, additionalProperties: true }
+   *                       state: { type: object, additionalProperties: true }
+   *                       frame: { type: string, description: 'base64 of the frame bytes' }
+   */
+  router.get('/api/instances/:id/display', (req: Request, res: Response): void => {
+    try {
+      res.json({ displays: listInstanceDisplays(deps, req.params.id) });
     } catch (error) {
       sendError(res, error);
     }
