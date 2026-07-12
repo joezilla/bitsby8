@@ -9,6 +9,11 @@
   import Icon from '$lib/components/shared/Icon.svelte';
   import ProfileDetail from '$lib/components/profiles/ProfileDetail.svelte';
 
+  interface Props {
+    onNavigate?: (page: 'machines') => void;
+  }
+  let { onNavigate }: Props = $props();
+
   let profiles = $state<MachineProfile[]>([]);
   let presets = $state<MachinePresetInfo[]>([]);
   let loading = $state(true);
@@ -90,6 +95,7 @@
 {#if selectedId}
   <ProfileDetail
     id={selectedId}
+    {onNavigate}
     onBack={() => (selectedId = null)}
     onChanged={(id) => { load(); if (id) selectedId = id; }}
     onDeleted={() => { selectedId = null; load(); }}

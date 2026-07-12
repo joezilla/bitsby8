@@ -107,7 +107,7 @@
   />
 {:else}
 <PageHeader
-  eyebrow="Build · Catalog"
+  eyebrow="Build · Card Catalog"
   title="Card Catalog"
   subtitle="The S-100 card knowledge library — browse and filter the Card Definitions you assemble machines from."
   actions={headerActions}

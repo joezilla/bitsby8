@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { api } from '$lib/services/api';
   import { showToast } from '$lib/stores/toast';
+  import { pendingRunInstance } from '$lib/stores/pendingRun';
   import type { InstanceStatus, ClientBay } from '$lib/types/api';
   import PageHeader from '$lib/components/shared/PageHeader.svelte';
   import Button from '$lib/components/shared/Button.svelte';
@@ -29,6 +30,18 @@
   // Leave the cockpit if its machine is stopped or destroyed elsewhere.
   $effect(() => {
     if (runFor && !instances.some((i) => i.id === runFor!.id && i.status === 'running')) runFor = null;
+  });
+  // Open the Run cockpit for an instance requested elsewhere (e.g. the profile
+  // "Launch" action) once it surfaces in the polled list. Clear the intent as
+  // soon as the instance appears so a failed launch can't reopen it later.
+  $effect(() => {
+    const wantId = $pendingRunInstance;
+    if (!wantId) return;
+    const inst = instances.find((i) => i.id === wantId && i.status === 'running');
+    if (inst) {
+      runFor = inst;
+      pendingRunInstance.set(null);
+    }
   });
   let sparkData = $state<Record<string, number[]>>({}); // per-instance effectiveHz ring
   let poll: ReturnType<typeof setInterval> | null = null;
@@ -129,8 +142,8 @@
   <RunView instance={runFor} onBack={() => (runFor = null)} onChanged={load} />
 {:else}
 <PageHeader
-  eyebrow="Operate · Machines"
-  title="Machines"
+  eyebrow="Operate · Virtual Machines"
+  title="Virtual Machines"
   subtitle="Everything consuming the disk server, in one view — virtual instances and physical/external clients."
   actions={headerActions}
 />

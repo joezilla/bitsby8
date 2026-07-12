@@ -57,7 +57,7 @@
   <div style="flex: 1; display: flex; min-height: 0; position: relative;">
     {#if sidebarOpen}
       <!-- Desktop: inline flex sibling -->
-      <div class="hidden lg:flex" style="flex: 0 0 220px;">
+      <div class="hidden lg:flex" style="flex: 0 0 272px;">
         <Sidebar active={currentPage} onNavigate={navigateTo} />
       </div>
 
@@ -101,7 +101,7 @@
       {:else if currentPage === 'catalog'}
         <CatalogPage />
       {:else if currentPage === 'profiles'}
-        <ProfilesPage />
+        <ProfilesPage onNavigate={navigateTo} />
       {:else if currentPage === 'machines'}
         <MachinesPage onNavigate={navigateTo} />
       {:else if currentPage === 'scripts'}
