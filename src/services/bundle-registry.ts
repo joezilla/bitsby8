@@ -13,13 +13,16 @@ import type {
   CardManifest,
   CardFactory,
   ClaimsFn,
+  MemoryRegionSpec,
 } from '@joezilla/8sim';
 
-/** A seed bundle as exported by 8sim at runtime. */
+/** A seed bundle as exported by 8sim at runtime. A `memory` card additionally
+ * declares the RAM/ROM region(s) it maps (Story 5.1). */
 export interface SeedBundleRuntime {
   manifest: CardManifest;
   cardFactory: CardFactory;
   claims: ClaimsFn;
+  memory?: (config: Record<string, unknown>) => MemoryRegionSpec[];
 }
 
 /** The subset of the 8sim module surface the orchestration layer uses. */

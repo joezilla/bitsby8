@@ -57,6 +57,10 @@ export async function resolveProfile(
   const sim = await getSim();
   const cards: CardSpec[] = [];
   const provenance: ResolvedCardProvenance[] = [];
+  // Card-emitted memory regions are hoisted into the machine's declared memory
+  // map (Story 5.1) — a memory card (RAM/EPROM) resolves to a region, namespaced
+  // by its instance id, so buildMachine validates it like any other region.
+  const memory: MemoryRegionSpec[] = [...profile.memory];
 
   for (const inst of profile.cards) {
     const bundle = await getSeedBundle(inst.ref);
@@ -81,6 +85,12 @@ export async function resolveProfile(
 
     cards.push({ id: inst.id, factory: bundle.cardFactory, config: cfg, claims: bundle.claims(cfg) });
 
+    if (bundle.memory) {
+      for (const region of bundle.memory(cfg)) {
+        memory.push({ ...region, id: `${inst.id}/${region.id}` });
+      }
+    }
+
     const rec = await deps.database.getCardDefinitionById(inst.ref);
     provenance.push({
       id: inst.id,
@@ -95,7 +105,7 @@ export async function resolveProfile(
     cpuKind: profile.cpuKind,
     clock: profile.clock,
     resetVector: profile.resetVector,
-    memory: profile.memory,
+    memory,
     cards,
   };
 

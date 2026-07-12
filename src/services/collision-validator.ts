@@ -21,6 +21,8 @@ export interface CardClaim {
   ref: string;
   ports: number[];
   irq: number | null;
+  /** Memory regions this card maps (a RAM/EPROM memory card), namespaced by id. */
+  memory: Array<{ id: string; base: number; size: number }>;
 }
 
 export interface Collision {
@@ -47,10 +49,15 @@ async function claimsOf(cards: ProfileContent['cards']): Promise<CardClaim[]> {
     if (!bundle) {
       // Unknown card → no claims we can reason about; skip (catalog validation
       // catches unknown refs on save).
-      out.push({ cardId: c.id, ref: c.ref, ports: [], irq: null });
+      out.push({ cardId: c.id, ref: c.ref, ports: [], irq: null, memory: [] });
       continue;
     }
     const claim = bundle.claims(c.config ?? {});
+    const memory = (bundle.memory ? bundle.memory(c.config ?? {}) : []).map((r) => ({
+      id: `${c.id}/${r.id}`, // namespaced so two RAM cards don't false-collide on id
+      base: r.base,
+      size: r.size,
+    }));
     out.push({
       cardId: c.id,
       ref: c.ref,
@@ -58,12 +65,13 @@ async function claimsOf(cards: ProfileContent['cards']): Promise<CardClaim[]> {
       // ports coincide (an intra-card self-overlap) is visible to validation.
       ports: (claim.ports ?? []).map((p) => p & 0xff).sort((a, b) => a - b),
       irq: claim.irq ?? null,
+      memory,
     });
   }
   return out;
 }
 
-function memoryCollisions(memory: ProfileContent['memory']): Collision[] {
+function memoryCollisions(memory: Array<{ id: string; base: number; size: number }>): Collision[] {
   const out: Collision[] = [];
   for (let i = 0; i < memory.length; i++) {
     for (let j = i + 1; j < memory.length; j++) {
@@ -119,7 +127,12 @@ export async function validateProfile(
     if (ids.length > 1) collisions.push({ kind: 'irq', resource: `IRQ ${irq}`, offenders: ids });
   }
 
-  collisions.push(...memoryCollisions(content.memory));
+  // Profile-declared regions + card-emitted memory (RAM/EPROM cards) checked together.
+  const allMemory = [
+    ...content.memory.map((m) => ({ id: m.id, base: m.base, size: m.size })),
+    ...claims.flatMap((c) => c.memory),
+  ];
+  collisions.push(...memoryCollisions(allMemory));
 
   // Report footprints deduped (raw dups were only needed for self-overlap detection).
   const displayClaims = claims.map((c) => ({ ...c, ports: [...new Set(c.ports)].sort((a, b) => a - b) }));

@@ -34,6 +34,15 @@ const fakeSim = {
       claims: (cfg: Record<string, unknown>) => ({ ports: [((cfg.basePort as number) ?? 0x08) & 0xff] }),
     },
     {
+      // A memory card (RAM board) — no I/O, resolves to a RAM region (Story 5.1).
+      manifest: { name: 'ram', version: '1.0.0', type: 'memory', configSchema: { base: { type: 'u16', default: 0, min: 0, max: 0xffff }, size: { type: 'u16', default: 0x4000, min: 1, max: 0xffff } } },
+      cardFactory: (id: string) => ({ id, reset() {}, attach() {} }),
+      claims: () => ({ ports: [] }),
+      memory: (cfg: Record<string, unknown>) => [
+        { id: 'ram', base: (cfg.base as number) ?? 0, size: (cfg.size as number) ?? 0x4000, kind: 'ram' },
+      ],
+    },
+    {
       // SIO-like card with two channels + a ctrl port — its config can make its
       // own ports overlap (an intra-card self-collision), like imsai-sio2.
       manifest: { name: 'sio', version: '1.0.0', type: 'serial', configSchema: { basePortA: { type: 'u8', default: 0x02, min: 0, max: 0xfe }, basePortB: { type: 'u8', default: 0x04, min: 0, max: 0xfe }, boardCtrlPort: { type: 'u8', default: 0x08, min: 0, max: 0xff } } },
@@ -118,6 +127,24 @@ describe('validateProfile — collisions', () => {
       { id: 'sio', ref: 'sio@1.0.0', config: { basePortA: 0x0c, basePortB: 0x04, boardCtrlPort: 0x0d } },
     ]));
     expect((await validateProfile(deps, aa.content)).ok).toBe(true);
+  });
+
+  test('card-emitted memory (two RAM cards) overlapping is a collision (Story 5.1)', async () => {
+    const deps = await makeDeps();
+    // RAM card A: 0x0000–0x7FFF; RAM card B: 0x4000–0x7FFF → overlap.
+    const v = await validateProfile(deps, profile([
+      { id: 'ramA', ref: 'ram@1.0.0', config: { base: 0x0000, size: 0x8000 } },
+      { id: 'ramB', ref: 'ram@1.0.0', config: { base: 0x4000, size: 0x4000 } },
+    ], []));
+    expect(v.ok).toBe(false);
+    const mem = v.collisions.find((c) => c.kind === 'memory');
+    expect(mem?.offenders.sort()).toEqual(['ramA/ram', 'ramB/ram']);
+    // Non-overlapping RAM cards are fine.
+    const ok = await validateProfile(deps, profile([
+      { id: 'ramA', ref: 'ram@1.0.0', config: { base: 0x0000, size: 0x4000 } },
+      { id: 'ramB', ref: 'ram@1.0.0', config: { base: 0x4000, size: 0x4000 } },
+    ], []));
+    expect(ok.ok).toBe(true);
   });
 
   test('a shared IRQ and overlapping memory are each collisions', async () => {
