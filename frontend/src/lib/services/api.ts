@@ -262,6 +262,8 @@ export const api = {
     request(`/api/clients/${encodeURIComponent(clientId)}/drives/${drive}`, { method: 'DELETE' }),
   forgetClient: (clientId: string) =>
     request(`/api/clients/${encodeURIComponent(clientId)}`, { method: 'DELETE' }),
+  cleanupOrphanClients: () =>
+    request<{ cleaned: string[] }>('/api/clients/cleanup-orphans', { method: 'POST' }),
   commitClientSplinter: (clientId: string, drive: number) =>
     request<{ success: boolean; clientId: string; drive: number; filename: string; hotSwapped: boolean; reloadedDrives: number[] }>(
       `/api/clients/${encodeURIComponent(clientId)}/drives/${drive}/splinter/commit`,

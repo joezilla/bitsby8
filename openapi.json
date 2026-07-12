@@ -5890,6 +5890,20 @@
         }
       }
     },
+    "/api/clients/cleanup-orphans": {
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Forget all orphaned machine-instance clients (deleted VMs)",
+        "description": "Clears the splinters / drive overrides / labels left behind by instance clients (`inst:<id>`) whose machine no longer exists.",
+        "responses": {
+          "200": {
+            "description": "The clientIds cleaned up"
+          }
+        }
+      }
+    },
     "/api/clients/{clientId}/drives/{drive}/splinter/commit": {
       "post": {
         "tags": [

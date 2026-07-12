@@ -107,6 +107,12 @@ export interface ClientBay {
   isMaster: boolean;
   hasSplinters: boolean;
   drives: ClientDrive[];
+  /** This client is a virtual machine instance (clientId `inst:<id>`). */
+  isInstance: boolean;
+  /** The instance id when isInstance, else null. */
+  instanceId: string | null;
+  /** Whether that instance still exists — false ⇒ an orphan from a deleted machine. */
+  instanceExists: boolean;
 }
 
 export interface CassetteInfo {

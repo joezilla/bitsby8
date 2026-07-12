@@ -95,7 +95,7 @@
       {:else if currentPage === 'disks'}
         <DisksPage />
       {:else if currentPage === 'clients'}
-        <ClientsPage />
+        <ClientsPage onNavigate={navigateTo} />
       {:else if currentPage === 'cassettes'}
         <CassettesPage />
       {:else if currentPage === 'catalog'}

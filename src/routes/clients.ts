@@ -8,6 +8,7 @@ import {
   setClientDrive,
   clearClientDrive,
   forgetClient,
+  cleanupOrphanInstanceClients,
 } from '../services/client-service';
 import { commitClientSplinter, saveClientSplinterSnapshot, saveClientSplinterAsDisk } from '../services/splinter-service';
 
@@ -154,6 +155,24 @@ export function registerClientRoutes(router: Router, deps: Dependencies): void {
     try {
       await forgetClient(deps, req.params.clientId);
       res.json({ success: true, clientId: req.params.clientId });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/clients/cleanup-orphans:
+   *   post:
+   *     tags: [Clients]
+   *     summary: Forget all orphaned machine-instance clients (deleted VMs)
+   *     description: Clears the splinters / drive overrides / labels left behind by instance clients (`inst:<id>`) whose machine no longer exists.
+   *     responses:
+   *       200: { description: The clientIds cleaned up }
+   */
+  router.post('/api/clients/cleanup-orphans', async (_req: Request, res: Response): Promise<void> => {
+    try {
+      res.json({ cleaned: await cleanupOrphanInstanceClients(deps) });
     } catch (error) {
       sendError(res, error);
     }

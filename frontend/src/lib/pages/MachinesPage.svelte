@@ -3,6 +3,7 @@
   import { api } from '$lib/services/api';
   import { showToast } from '$lib/stores/toast';
   import { pendingRunInstance } from '$lib/stores/pendingRun';
+  import { pendingClientFocus } from '$lib/stores/pendingClientFocus';
   import type { InstanceStatus, ClientBay } from '$lib/types/api';
   import PageHeader from '$lib/components/shared/PageHeader.svelte';
   import Button from '$lib/components/shared/Button.svelte';
@@ -125,6 +126,12 @@
     void act(() => api.destroyInstance(i.id), 'Instance destroyed');
   }
 
+  /** Jump to this machine's entry on the Clients page (its `inst:` client). */
+  function viewClient(clientId: string) {
+    pendingClientFocus.set(clientId);
+    onNavigate?.('clients');
+  }
+
   onMount(() => {
     load();
     poll = setInterval(load, 1000);
@@ -237,6 +244,7 @@
             {#if i.disks.length}
               <Button variant="ghost" size="sm" icon="photo_camera" onclick={() => (snapshotsFor = i)}>Snapshots</Button>
             {/if}
+            <Button variant="ghost" size="sm" icon="lan" onclick={() => viewClient(i.clientId)}>Client</Button>
             <Button variant="ghost" size="sm" icon="delete" danger onclick={() => destroy(i)}>Destroy</Button>
           </div>
         </div>
