@@ -92,7 +92,12 @@ export async function resolveProfile(
 
     if (bundle.memory) {
       for (const region of bundle.memory(cfg)) {
-        memory.push({ ...region, id: `${inst.id}/${region.id}` });
+        const nsId = `${inst.id}/${region.id}`;
+        // A profile-declared region with this id overrides the card's default
+        // emit — that's how a burned EPROM image (Story 5.2) supplies real bytes
+        // in place of the card's zero-filled region.
+        if (memory.some((m) => m.id === nsId)) continue;
+        memory.push({ ...region, id: nsId });
       }
     }
 

@@ -2610,6 +2610,124 @@
         }
       }
     },
+    "/api/profiles/{id}/cards/{cardId}/burn": {
+      "post": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Burn a .bin/Intel HEX image into an EPROM card (FR-6)",
+        "description": "Loads a base64 image into the EPROM card instance's ROM region, honoring the file's addresses or relocating from the region base. Persists a new Profile version with the burned bytes content-addressed.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "image"
+                ],
+                "properties": {
+                  "image": {
+                    "type": "string",
+                    "description": "base64-encoded file bytes (.bin or Intel HEX)."
+                  },
+                  "addressing": {
+                    "type": "string",
+                    "enum": [
+                      "file",
+                      "base"
+                    ],
+                    "description": "Honor file addresses ('file') or relocate to the region base ('base'). Default 'base'."
+                  },
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "bin",
+                      "ihex"
+                    ],
+                    "description": "Override format detection."
+                  },
+                  "filename": {
+                    "type": "string",
+                    "description": "Original filename (aids format detection)."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Burned — the new profile version + a burn summary"
+          },
+          "404": {
+            "description": "No such card instance"
+          },
+          "409": {
+            "description": "Card is not an EPROM/memory card"
+          },
+          "422": {
+            "description": "Image malformed or overflows the EPROM"
+          }
+        }
+      }
+    },
+    "/api/profiles/{id}/cards/{cardId}/rom": {
+      "delete": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Erase a burned EPROM card (FR-6)",
+        "description": "Drops the burned ROM override so the EPROM card reverts to empty. Persists a new Profile version when something was erased.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Erased (or a no-op if nothing was burned)"
+          },
+          "404": {
+            "description": "No such card instance"
+          },
+          "409": {
+            "description": "Card is not an EPROM/memory card"
+          }
+        }
+      }
+    },
     "/api/instances/presets": {
       "get": {
         "tags": [

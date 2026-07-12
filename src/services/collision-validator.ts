@@ -130,10 +130,15 @@ export async function validateProfile(
     if (ids.length > 1) collisions.push({ kind: 'irq', resource: `IRQ ${irq}`, offenders: ids });
   }
 
-  // Profile-declared regions + card-emitted memory (RAM/EPROM cards) checked together.
+  // Profile-declared regions + card-emitted memory (RAM/EPROM cards) checked
+  // together. A card-emitted region whose id is already declared at the profile
+  // level is an override (a burned EPROM, Story 5.2), not a second region — the
+  // resolver drops the card's emit for it, so exclude it here to avoid a
+  // phantom self-collision.
+  const declaredIds = new Set(content.memory.map((m) => m.id));
   const allMemory = [
     ...content.memory.map((m) => ({ id: m.id, base: m.base, size: m.size })),
-    ...claims.flatMap((c) => c.memory),
+    ...claims.flatMap((c) => c.memory).filter((r) => !declaredIds.has(r.id)),
   ];
   collisions.push(...memoryCollisions(allMemory));
 

@@ -505,6 +505,20 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ bundle, name }),
     }),
+  burnEprom: (
+    id: string,
+    cardId: string,
+    body: { image: string; addressing: 'file' | 'base'; format?: 'bin' | 'ihex'; filename?: string },
+  ) =>
+    request<{ profile: MachineProfile; summary: string; region: { id: string; base: number; size: number } }>(
+      `/api/profiles/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}/burn`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  eraseEprom: (id: string, cardId: string) =>
+    request<{ profile: MachineProfile; erased: boolean }>(
+      `/api/profiles/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}/rom`,
+      { method: 'DELETE' },
+    ),
 
   validateProfileBody: (body: { memory?: unknown[]; cards?: unknown[] }) =>
     request<ProfileValidation>('/api/profiles/validate', { method: 'POST', body: JSON.stringify(body) }),

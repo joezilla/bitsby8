@@ -32,6 +32,7 @@ import {
   restoreInstanceSnapshot,
 } from './services/instance-snapshot-service';
 import { exportProfile, importBundle } from './services/bundle-service';
+import { burnEprom, eraseEprom } from './services/eprom-service';
 import {
   createProfile,
   createProfileFromPreset,
@@ -2175,6 +2176,52 @@ export function createMcpServer(deps: Dependencies): McpServer {
     async ({ bundle, name }) => {
       try {
         return { content: [{ type: 'text', text: JSON.stringify(await importBundle(deps, bundle, { name }), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'burn_eprom',
+    'Burn a ROM image into an EPROM card instance of a Machine Profile (FR-6). Pass base64 `image` ' +
+      '(a raw .bin or an Intel HEX file) and `addressing`: "file" honors the file\'s addresses, "base" ' +
+      'relocates them to the EPROM base. Persists a NEW Profile version with the burned bytes ' +
+      'content-addressed; returns a burn summary. Rejects an image that overflows the EPROM window.',
+    {
+      id: z.string().describe('Profile Identity: name@version'),
+      cardId: z.string().describe('EPROM card instance id within the profile'),
+      image: z.string().describe('base64-encoded file bytes (.bin or Intel HEX)'),
+      addressing: z.enum(['file', 'base']).optional().describe("'file' honors file addresses; 'base' relocates to the region base (default)"),
+      format: z.enum(['bin', 'ihex']).optional().describe('Override format detection'),
+      filename: z.string().optional().describe('Original filename (aids format detection)'),
+    },
+    async ({ id, cardId, image, addressing, format, filename }) => {
+      try {
+        const out = await burnEprom(deps, id, cardId, {
+          bytes: new Uint8Array(Buffer.from(image, 'base64')),
+          addressing: addressing ?? 'base',
+          format,
+          filename,
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'erase_eprom',
+    'Erase a burned EPROM card instance of a Machine Profile (FR-6) — drops the burned ROM override so ' +
+      'the card reverts to empty. Persists a new Profile version when something was erased.',
+    {
+      id: z.string().describe('Profile Identity: name@version'),
+      cardId: z.string().describe('EPROM card instance id within the profile'),
+    },
+    async ({ id, cardId }) => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(await eraseEprom(deps, id, cardId), null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
       }

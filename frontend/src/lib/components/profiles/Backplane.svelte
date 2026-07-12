@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { CardDefinition, ProfileCardInstance, CardClaim, Collision } from '$lib/types/api';
+  import type { CardDefinition, ProfileCardInstance, CardClaim, Collision, ProfileMemoryRegion } from '$lib/types/api';
   import Icon from '$lib/components/shared/Icon.svelte';
   import Button from '$lib/components/shared/Button.svelte';
   import HexInput from '$lib/components/shared/HexInput.svelte';
@@ -20,8 +20,26 @@
     offenders?: Set<string>;
     claims?: CardClaim[];
     collisions?: Collision[];
+    /** Profile memory regions — carries burned-EPROM overrides (`<cardId>/rom`). */
+    memory?: ProfileMemoryRegion[];
+    /** Burn/erase an EPROM card instance (handled by the parent — new profile version). */
+    onburn?: (cardId: string) => void;
+    onerase?: (cardId: string) => void;
   }
-  let { cards, catalog, onchange, offenders = new Set(), claims = [], collisions = [] }: Props = $props();
+  let {
+    cards, catalog, onchange, offenders = new Set(), claims = [], collisions = [],
+    memory = [], onburn, onerase,
+  }: Props = $props();
+
+  /** An EPROM card resolves to a burnable ROM region — seed `eprom-card`, or any
+   * memory-type card whose name marks it as an EPROM. RAM cards aren't burnable. */
+  const isEprom = (ref: string) => {
+    const def = catalog.find((c) => c.id === ref);
+    const type = (def?.manifest as { type?: string } | undefined)?.type;
+    return type === 'memory' && /eprom|rom/i.test(def?.name ?? ref);
+  };
+  /** The burned override region for a card, if any (`<cardId>/rom` with an image). */
+  const burnOf = (cardId: string) => memory.find((m) => m.id === `${cardId}/rom` && m.kind === 'rom' && !!m.image);
 
   const footprintOf = (cardId: string) => claims.find((c) => c.cardId === cardId)?.ports ?? [];
   const collidingPortsOf = (cardId: string) =>
@@ -173,6 +191,27 @@
               </div>
             {:else}
               <p class="muted small">No configurable settings.</p>
+            {/if}
+
+            {#if isEprom(card.ref)}
+              {@const burn = burnOf(card.id)}
+              <div class="eprom-row">
+                <span class="eprom-state" class:burned={!!burn}>
+                  <Icon name="memory" size={16} />
+                  {#if burn}
+                    ROM burned · {burn.size >= 1024 ? `${(burn.size / 1024).toFixed(burn.size % 1024 ? 1 : 0)} KB` : `${burn.size} B`}
+                    @ 0x{burn.base.toString(16).toUpperCase()}
+                  {:else}
+                    EPROM empty
+                  {/if}
+                </span>
+                <div class="eprom-actions">
+                  <button class="linkbtn" onclick={() => onburn?.(card.id)}>{burn ? 'Re-burn…' : 'Burn image…'}</button>
+                  {#if burn}
+                    <button class="linkbtn danger" onclick={() => onerase?.(card.id)}>Erase</button>
+                  {/if}
+                </div>
+              </div>
             {/if}
 
             {#if footprintOf(card.id).length}
@@ -399,5 +438,44 @@
   }
   .small {
     font-size: 12px;
+  }
+  .eprom-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--border-1);
+  }
+  .eprom-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--fg-3);
+  }
+  .eprom-state.burned {
+    color: var(--fg-2);
+    font-weight: 500;
+  }
+  .eprom-actions {
+    display: flex;
+    gap: var(--space-3);
+  }
+  .linkbtn {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    font-size: 12px;
+    color: var(--accent);
+    cursor: pointer;
+  }
+  .linkbtn:hover {
+    text-decoration: underline;
+  }
+  .linkbtn.danger {
+    color: var(--error);
   }
 </style>

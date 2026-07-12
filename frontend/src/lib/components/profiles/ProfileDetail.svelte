@@ -9,6 +9,7 @@
   import Icon from '$lib/components/shared/Icon.svelte';
   import HexInput from '$lib/components/shared/HexInput.svelte';
   import Backplane from '$lib/components/profiles/Backplane.svelte';
+  import BurnEpromModal from '$lib/components/profiles/BurnEpromModal.svelte';
 
   interface Props {
     id: string;
@@ -133,6 +134,61 @@
       onChanged(np.id);
       id = np.id;
       await load();
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      busy = false;
+    }
+  }
+
+  // --- EPROM burning (Story 5.2) ---
+  let burnCardId = $state<string | null>(null);
+
+  /** The EPROM window (base/size) for a card, from its config or schema defaults. */
+  function burnRegionFor(cardId: string): { base: number; size: number } | undefined {
+    const card = editCards.find((c) => c.id === cardId);
+    if (!card) return undefined;
+    const schema = (catalog.find((c) => c.id === card.ref)?.manifest as { configSchema?: Record<string, { default?: number }> } | undefined)?.configSchema ?? {};
+    const num = (k: string) => {
+      const v = card.config?.[k];
+      return typeof v === 'number' ? v : (schema[k]?.default ?? 0);
+    };
+    return { base: num('base'), size: num('size') };
+  }
+
+  function openBurn(cardId: string) {
+    if (dirty) {
+      showToast('Save your backplane changes before burning an EPROM', 'error');
+      return;
+    }
+    burnCardId = cardId;
+  }
+
+  async function onBurned(newId: string) {
+    burnCardId = null;
+    onChanged(newId);
+    id = newId;
+    await load();
+  }
+
+  async function eraseRom(cardId: string) {
+    if (!profile) return;
+    if (dirty) {
+      showToast('Save your backplane changes before erasing an EPROM', 'error');
+      return;
+    }
+    if (!confirm(`Erase the burned ROM on "${cardId}"?`)) return;
+    try {
+      busy = true;
+      const res = await api.eraseEprom(profile.id, cardId);
+      if (res.erased) {
+        showToast('EPROM erased', 'success');
+        onChanged(res.profile.id);
+        id = res.profile.id;
+        await load();
+      } else {
+        showToast('Nothing to erase', 'info');
+      }
     } catch (err) {
       showToast((err as Error).message, 'error');
     } finally {
@@ -352,7 +408,10 @@
             offenders={offenderIds}
             claims={validation?.claims ?? []}
             collisions={validation?.collisions ?? []}
+            memory={p.memory}
             onchange={(c) => (editCards = c)}
+            onburn={openBurn}
+            onerase={eraseRom}
           />
         </Card>
 
@@ -372,6 +431,16 @@
     </div>
   {/if}
 </div>
+
+{#if burnCardId && profile}
+  <BurnEpromModal
+    profileId={profile.id}
+    cardId={burnCardId}
+    region={burnRegionFor(burnCardId)}
+    onClose={() => (burnCardId = null)}
+    {onBurned}
+  />
+{/if}
 
 <style>
   .detail {

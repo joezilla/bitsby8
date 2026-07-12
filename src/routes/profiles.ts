@@ -15,6 +15,8 @@ import {
 } from '../services/profile-service';
 import { validateProfile, autoAssign } from '../services/collision-validator';
 import { exportProfile, bundleFilename, importBundle } from '../services/bundle-service';
+import { burnEprom, eraseEprom } from '../services/eprom-service';
+import { Addressing, ImageFormat } from '../services/rom-image';
 
 /** Normalize a request body into a ProfileContent for collision checks
  * (only memory + cards affect collisions; the rest is defaulted). */
@@ -422,6 +424,88 @@ export function registerProfileRoutes(router: Router, deps: Dependencies): void 
       const bundle = await exportProfile(deps, req.params.id);
       res.setHeader('Content-Disposition', `attachment; filename="${bundleFilename(bundle)}"`);
       res.json(bundle);
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/profiles/{id}/cards/{cardId}/burn:
+   *   post:
+   *     tags: [Profiles]
+   *     summary: Burn a .bin/Intel HEX image into an EPROM card (FR-6)
+   *     description: Loads a base64 image into the EPROM card instance's ROM region, honoring the file's addresses or relocating from the region base. Persists a new Profile version with the burned bytes content-addressed.
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *       - in: path
+   *         name: cardId
+   *         required: true
+   *         schema: { type: string }
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [image]
+   *             properties:
+   *               image: { type: string, description: 'base64-encoded file bytes (.bin or Intel HEX).' }
+   *               addressing: { type: string, enum: [file, base], description: "Honor file addresses ('file') or relocate to the region base ('base'). Default 'base'." }
+   *               format: { type: string, enum: [bin, ihex], description: 'Override format detection.' }
+   *               filename: { type: string, description: 'Original filename (aids format detection).' }
+   *     responses:
+   *       200:
+   *         description: Burned — the new profile version + a burn summary
+   *       404: { description: No such card instance }
+   *       409: { description: Card is not an EPROM/memory card }
+   *       422: { description: Image malformed or overflows the EPROM }
+   */
+  router.post('/api/profiles/:id/cards/:cardId/burn', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const body = req.body ?? {};
+      if (typeof body.image !== 'string' || body.image === '') {
+        throw new ServiceError('image (base64) is required', 400);
+      }
+      const out = await burnEprom(deps, req.params.id, req.params.cardId, {
+        bytes: new Uint8Array(Buffer.from(body.image, 'base64')),
+        addressing: (body.addressing as Addressing) ?? 'base',
+        format: body.format as ImageFormat | undefined,
+        filename: body.filename as string | undefined,
+      });
+      res.json(out);
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/profiles/{id}/cards/{cardId}/rom:
+   *   delete:
+   *     tags: [Profiles]
+   *     summary: Erase a burned EPROM card (FR-6)
+   *     description: Drops the burned ROM override so the EPROM card reverts to empty. Persists a new Profile version when something was erased.
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *       - in: path
+   *         name: cardId
+   *         required: true
+   *         schema: { type: string }
+   *     responses:
+   *       200: { description: Erased (or a no-op if nothing was burned) }
+   *       404: { description: No such card instance }
+   *       409: { description: Card is not an EPROM/memory card }
+   */
+  router.delete('/api/profiles/:id/cards/:cardId/rom', async (req: Request, res: Response): Promise<void> => {
+    try {
+      res.json(await eraseEprom(deps, req.params.id, req.params.cardId));
     } catch (error) {
       sendError(res, error);
     }
