@@ -10,9 +10,11 @@
   interface Props {
     instanceId: string;
     title: string;
-    onClose: () => void;
+    onClose?: () => void;
+    /** Embedded in the Run cockpit (no modal chrome; fills its container). */
+    embedded?: boolean;
   }
-  let { instanceId, title, onClose }: Props = $props();
+  let { instanceId, title, onClose = () => {}, embedded = false }: Props = $props();
 
   let containerEl: HTMLDivElement;
   let term: Terminal | null = null;
@@ -66,23 +68,27 @@
   });
 </script>
 
-<div
-  class="overlay"
-  role="button"
-  tabindex="-1"
-  aria-label="Close console"
-  onclick={onClose}
-  onkeydown={(e) => e.key === 'Escape' && onClose()}
-></div>
-<div class="panel" role="dialog" aria-modal="true" aria-label="Console for {title}">
-  <header class="bar">
-    <div class="ttl">
-      <Icon name="terminal" size={18} />
-      <span class="fdc-mono">{title}</span>
-      <span class="hint">live console</span>
-    </div>
-    <button class="close" onclick={onClose} aria-label="Close console"><Icon name="close" size={20} /></button>
-  </header>
+{#if !embedded}
+  <div
+    class="overlay"
+    role="button"
+    tabindex="-1"
+    aria-label="Close console"
+    onclick={onClose}
+    onkeydown={(e) => e.key === 'Escape' && onClose()}
+  ></div>
+{/if}
+<div class="panel" class:embed={embedded} role="dialog" aria-modal="true" aria-label="Console for {title}">
+  {#if !embedded}
+    <header class="bar">
+      <div class="ttl">
+        <Icon name="terminal" size={18} />
+        <span class="fdc-mono">{title}</span>
+        <span class="hint">live console</span>
+      </div>
+      <button class="close" onclick={onClose} aria-label="Close console"><Icon name="close" size={20} /></button>
+    </header>
+  {/if}
   <div class="term" bind:this={containerEl}></div>
 </div>
 
@@ -148,5 +154,19 @@
     padding: var(--space-2);
     background: #07090c;
     min-height: 360px;
+  }
+  .panel.embed {
+    position: static;
+    transform: none;
+    width: 100%;
+    height: 100%;
+    box-shadow: none;
+    border: none;
+    border-radius: 0;
+    overflow: hidden;
+  }
+  .panel.embed .term {
+    flex: 1;
+    min-height: 0;
   }
 </style>

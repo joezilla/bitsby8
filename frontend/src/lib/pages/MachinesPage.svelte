@@ -11,6 +11,7 @@
   import SnapshotsModal from '$lib/components/machines/SnapshotsModal.svelte';
   import GpioPanel from '$lib/components/machines/GpioPanel.svelte';
   import MonitorPanel from '$lib/components/machines/MonitorPanel.svelte';
+  import RunView from '$lib/components/machines/RunView.svelte';
 
   interface Props {
     onNavigate?: (page: 'terminal' | 'clients') => void;
@@ -24,6 +25,11 @@
   let snapshotsFor = $state<InstanceStatus | null>(null);
   let gpioFor = $state<InstanceStatus | null>(null);
   let monitorFor = $state<InstanceStatus | null>(null);
+  let runFor = $state<InstanceStatus | null>(null);
+  // Leave the cockpit if its machine is stopped or destroyed elsewhere.
+  $effect(() => {
+    if (runFor && !instances.some((i) => i.id === runFor!.id && i.status === 'running')) runFor = null;
+  });
   let sparkData = $state<Record<string, number[]>>({}); // per-instance effectiveHz ring
   let poll: ReturnType<typeof setInterval> | null = null;
 
@@ -119,6 +125,9 @@
   <Button variant="ghost" icon="refresh" onclick={load}>Refresh</Button>
 {/snippet}
 
+{#if runFor}
+  <RunView instance={runFor} onBack={() => (runFor = null)} onChanged={load} />
+{:else}
 <PageHeader
   eyebrow="Operate · Machines"
   title="Machines"
@@ -207,9 +216,7 @@
 
           <div class="actions">
             {#if i.status === 'running'}
-              <Button variant="tonal" size="sm" icon="terminal" onclick={() => (consoleFor = i)}>Console</Button>
-              <Button variant="ghost" size="sm" icon="monitor" onclick={() => (monitorFor = i)}>Monitor</Button>
-              <Button variant="ghost" size="sm" icon="toggle_on" onclick={() => (gpioFor = i)}>GPIO</Button>
+              <Button variant="filled" size="sm" icon="developer_board" onclick={() => (runFor = i)}>Open</Button>
               <Button variant="outline" size="sm" icon="stop" onclick={() => act(() => api.stopInstance(i.id), 'Stopped')}>Stop</Button>
             {:else}
               <Button variant="tonal" size="sm" icon="play_arrow" onclick={() => act(() => api.startInstance(i.id), 'Started')}>Start</Button>
@@ -283,6 +290,7 @@
     onClose={() => (snapshotsFor = null)}
     onRestored={load}
   />
+{/if}
 {/if}
 
 <style>

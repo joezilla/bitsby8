@@ -7,9 +7,11 @@
   interface Props {
     instanceId: string;
     title: string;
-    onClose: () => void;
+    onClose?: () => void;
+    /** Embedded in the Run cockpit (no modal chrome; fills its container). */
+    embedded?: boolean;
   }
-  let { instanceId, title, onClose }: Props = $props();
+  let { instanceId, title, onClose = () => {}, embedded = false }: Props = $props();
 
   type Display = { cardId: string; descriptor: Record<string, unknown>; state: Record<string, number>; frame: string };
   let displays = $state<Display[]>([]);
@@ -89,13 +91,17 @@
   onDestroy(() => timer && clearInterval(timer));
 </script>
 
-<div class="overlay" role="button" tabindex="-1" aria-label="Close" onclick={onClose}
-  onkeydown={(e) => e.key === 'Escape' && onClose()}></div>
-<div class="panel" role="dialog" aria-modal="true" aria-label="Monitor for {title}">
-  <header class="bar">
-    <div class="ttl"><Icon name="monitor" size={18} /><span>Monitor</span><span class="hint fdc-mono">{title}</span></div>
-    <button class="close" onclick={onClose} aria-label="Close"><Icon name="close" size={20} /></button>
-  </header>
+{#if !embedded}
+  <div class="overlay" role="button" tabindex="-1" aria-label="Close" onclick={onClose}
+    onkeydown={(e) => e.key === 'Escape' && onClose()}></div>
+{/if}
+<div class="panel" class:embed={embedded} role="dialog" aria-modal="true" aria-label="Monitor for {title}">
+  {#if !embedded}
+    <header class="bar">
+      <div class="ttl"><Icon name="monitor" size={18} /><span>Monitor</span><span class="hint fdc-mono">{title}</span></div>
+      <button class="close" onclick={onClose} aria-label="Close"><Icon name="close" size={20} /></button>
+    </header>
+  {/if}
 
   <div class="body">
     {#if loading}
@@ -128,6 +134,9 @@
   .close { background: none; border: none; color: var(--fg-3); cursor: pointer; display: flex; }
   .close:hover { color: var(--fg-1); }
   .body { padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); align-items: center; }
+  .panel.embed { position: static; transform: none; width: 100%; height: 100%; max-width: none; max-height: none;
+    box-shadow: none; border: none; border-radius: 0; background: transparent; }
+  .panel.embed .body { flex: 1; padding: 0; justify-content: flex-start; }
   .muted { color: var(--fg-3); font: var(--text-body-sm); }
   .crt {
     background: #04120a;

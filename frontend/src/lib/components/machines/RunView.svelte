@@ -1,0 +1,198 @@
+<script lang="ts">
+  import type { InstanceStatus } from '$lib/types/api';
+  import { api } from '$lib/services/api';
+  import { socket } from '$lib/services/socket';
+  import { showToast } from '$lib/stores/toast';
+  import Icon from '$lib/components/shared/Icon.svelte';
+  import Button from '$lib/components/shared/Button.svelte';
+  import InstanceConsole from '$lib/components/machines/InstanceConsole.svelte';
+  import MonitorPanel from '$lib/components/machines/MonitorPanel.svelte';
+  import GpioPanel from '$lib/components/machines/GpioPanel.svelte';
+
+  interface Props {
+    instance: InstanceStatus;
+    onBack: () => void;
+    /** Called after a lifecycle change (stop) so the parent can refresh. */
+    onChanged?: () => void;
+  }
+  let { instance, onBack, onChanged }: Props = $props();
+
+  // Console + monitor layout: both 50/50, or one maximized (the other a rail).
+  let duo = $state<'both' | 'cmax' | 'mmax'>('both');
+  let fpOpen = $state(false); // front panel (Phase 3) starts collapsed
+  let gpioOpen = $state(true);
+  let busy = $state(false);
+
+  async function stop() {
+    try {
+      busy = true;
+      await api.stopInstance(instance.id);
+      showToast('Machine stopped', 'success');
+      onChanged?.();
+      onBack();
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      busy = false;
+    }
+  }
+
+  // Keyboard always routes to the serial console — even when the console is
+  // collapsed to a rail and the monitor is maximized. When the console is
+  // visible, its xterm captures input directly; when it's a rail, we forward.
+  function onKey(e: KeyboardEvent) {
+    if (duo !== 'mmax') return; // console visible → its xterm handles input
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    let data = '';
+    if (e.key === 'Enter') data = '\r';
+    else if (e.key === 'Backspace') data = '\x7f';
+    else if (e.key === 'Tab') data = '\t';
+    else if (e.key === 'Escape') data = '\x1b';
+    else if (e.key.length === 1) data = e.key;
+    else return;
+    e.preventDefault();
+    socket.emit('instance:console:write', { instanceId: instance.id, data });
+  }
+
+  const hz = $derived(
+    instance.effectiveHz ? `${(instance.effectiveHz / 1_000_000).toFixed(1)} MHz` : '',
+  );
+</script>
+
+<svelte:window onkeydown={onKey} />
+
+<div class="fdc-page-body cockpit">
+  <!-- Header -->
+  <div class="top">
+    <div class="id">
+      <span class="dot"></span>
+      <span class="name fdc-mono">{instance.profileRef}</span>
+      <span class="meta">
+        {#if hz}<span class="chip">{hz}</span>{/if}
+        {#each instance.disks.filter((d) => d.filename) as d (d.drive)}
+          <span class="chip">D{d.drive}: {d.filename}</span>
+        {/each}
+        <span class="chip run">running</span>
+        <span class="chip kb">⌨ → serial</span>
+      </span>
+    </div>
+    <div class="actions">
+      <Button variant="outline" size="sm" icon="stop" onclick={stop} disabled={busy}>Stop</Button>
+      <Button variant="ghost" size="sm" icon="arrow_back" onclick={onBack}>Machines</Button>
+    </div>
+  </div>
+
+  <div class="stack">
+    <!-- Front panel (Phase 3 — not wired to the CPU yet) -->
+    <div class="panel fp">
+      <button class="fphead" onclick={() => (fpOpen = !fpOpen)}>
+        <span class="ptitle"><span class="chev" class:open={fpOpen}>▶</span><Icon name="developer_board" size={16} /> Front panel</span>
+        <span class="pill">Phase 3</span>
+      </button>
+      {#if fpOpen}
+        <div class="fpbody">
+          The Altair-style front panel — sense switches, address/data LEDs, RUN / STOP / SINGLE STEP /
+          EXAMINE / DEPOSIT — lands in Phase 3, once the engine exposes CPU introspection, single-step, and
+          examine/deposit.
+        </div>
+      {/if}
+    </div>
+
+    <!-- Console | Monitor -->
+    <div class="duo {duo}">
+      <div class="pane console panel">
+        <div class="phead">
+          <span class="ptitle"><Icon name="terminal" size={16} /> Console <span class="psub">serial</span></span>
+          <span class="hright">
+            <span class="kbd">⌨ keyboard</span>
+            <button class="mx" title="Maximize monitor" onclick={() => (duo = 'mmax')}>❮ hide</button>
+          </span>
+        </div>
+        <div class="pbody"><InstanceConsole instanceId={instance.id} title={instance.profileRef} embedded /></div>
+        <button class="rail" onclick={() => (duo = 'both')}>
+          <span class="exp">❯</span><span class="railtxt">CONSOLE</span><span class="kbmini">⌨</span>
+        </button>
+      </div>
+
+      <div class="pane monitor panel">
+        <div class="phead">
+          <span class="ptitle"><Icon name="monitor" size={16} /> Monitor <span class="psub">VDM</span></span>
+          <span class="hright"><button class="mx" title="Maximize console" onclick={() => (duo = 'cmax')}>hide ❯</button></span>
+        </div>
+        <div class="pbody"><MonitorPanel instanceId={instance.id} title={instance.profileRef} embedded /></div>
+        <button class="rail" onclick={() => (duo = 'both')}>
+          <span class="exp">❮</span><span class="railtxt">MONITOR</span><span></span>
+        </button>
+      </div>
+    </div>
+    <p class="kbcap">
+      <Icon name="keyboard" size={14} /> Keyboard routes to the serial console — typing hits the SIO port even when the monitor is maximized.
+    </p>
+
+    <!-- GPIO -->
+    <div class="panel">
+      <button class="fphead" onclick={() => (gpioOpen = !gpioOpen)}>
+        <span class="ptitle"><span class="chev" class:open={gpioOpen}>▶</span><Icon name="toggle_on" size={16} /> GPIO</span>
+        <span class="psub">gpio</span>
+      </button>
+      {#if gpioOpen}
+        <GpioPanel instanceId={instance.id} title={instance.profileRef} embedded />
+      {/if}
+    </div>
+  </div>
+</div>
+
+<style>
+  .cockpit { display: flex; flex-direction: column; }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: var(--space-4); }
+  .id { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 4px rgba(34, 192, 143, 0.15); flex: none; }
+  .name { font-size: 18px; font-weight: 600; }
+  .meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .chip { font: var(--text-body-sm); font-family: var(--font-mono, monospace); font-size: 11.5px; color: var(--fg-2);
+    background: var(--surface-variant); border: 1px solid var(--border-1); padding: 2px 9px; border-radius: 999px; }
+  .chip.run { color: var(--success); background: rgba(34, 192, 143, 0.1); border-color: rgba(34, 192, 143, 0.28); }
+  .chip.kb { color: var(--accent); background: var(--accent-bg); border-color: rgba(255, 176, 32, 0.3); }
+  .actions { display: flex; gap: var(--space-2); }
+  .stack { display: flex; flex-direction: column; gap: var(--space-3); }
+
+  .panel { background: var(--surface); border: 1px solid var(--border-1); border-radius: var(--radius-lg); overflow: hidden; }
+  .phead, .fphead { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+    padding: var(--space-2) var(--space-3); background: var(--surface-raised); border-bottom: 1px solid var(--border-1); }
+  .fphead { width: 100%; cursor: pointer; border: none; border-bottom: 1px solid var(--border-1); text-align: left; }
+  .ptitle { display: flex; align-items: center; gap: var(--space-2); font-size: 12px; font-weight: 600; color: var(--fg-1); }
+  .chev { color: var(--fg-3); font-size: 11px; transition: transform 0.15s ease; }
+  .chev.open { transform: rotate(90deg); }
+  .psub { font-family: var(--font-mono, monospace); font-size: 10.5px; color: var(--fg-4); text-transform: uppercase; letter-spacing: 0.06em; }
+  .hright { display: flex; align-items: center; gap: var(--space-2); }
+  .kbd { font-family: var(--font-mono, monospace); font-size: 10px; color: var(--accent); background: var(--accent-bg);
+    border: 1px solid rgba(255, 176, 32, 0.3); padding: 2px 7px; border-radius: 5px; }
+  .pill { font-family: var(--font-mono, monospace); font-size: 10px; color: var(--accent); background: var(--accent-bg);
+    border: 1px solid rgba(255, 176, 32, 0.3); padding: 2px 8px; border-radius: 999px; }
+  .fpbody { padding: var(--space-3); color: var(--fg-3); font-size: 13px; max-width: 72ch; }
+  .mx { background: none; border: 1px solid var(--border-2); border-radius: 6px; color: var(--fg-3); cursor: pointer; font-size: 12px; padding: 2px 8px; }
+  .mx:hover { color: var(--fg-1); border-color: var(--border-3); }
+
+  /* console | monitor — maximize to side */
+  .duo { display: flex; gap: var(--space-3); align-items: stretch; min-height: 420px; }
+  .pane { display: flex; flex-direction: column; overflow: hidden; transition: flex 0.22s ease; min-width: 0; }
+  .duo.both .pane { flex: 1 1 0; }
+  .duo.cmax .console { flex: 1 1 0; } .duo.cmax .monitor { flex: 0 0 48px; }
+  .duo.mmax .monitor { flex: 1 1 0; } .duo.mmax .console { flex: 0 0 48px; }
+  .pbody { flex: 1; min-height: 0; display: flex; }
+  .pbody > :global(.panel.embed) { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .rail { display: none; }
+  .duo.cmax .monitor .phead, .duo.cmax .monitor .pbody { display: none; }
+  .duo.mmax .console .phead, .duo.mmax .console .pbody { display: none; }
+  .duo.cmax .monitor .rail, .duo.mmax .console .rail { display: flex; }
+  .rail { flex-direction: column; align-items: center; justify-content: space-between; background: var(--surface-raised);
+    border: none; cursor: pointer; color: var(--fg-2); width: 100%; height: 100%; padding: 14px 0; }
+  .rail:hover { color: var(--fg-1); background: var(--surface-variant); }
+  .railtxt { writing-mode: vertical-rl; transform: rotate(180deg); font-family: var(--font-mono, monospace); font-size: 12px; letter-spacing: 0.16em; font-weight: 600; }
+  .rail .exp { font-size: 14px; color: var(--accent); } .rail .kbmini { font-size: 11px; color: var(--accent); }
+  .kbcap { font-family: var(--font-mono, monospace); font-size: 11px; color: var(--fg-4); display: flex; align-items: center; gap: 6px; margin: 0; }
+
+  @media (max-width: 820px) { .duo { flex-direction: column; min-height: 0; } }
+</style>

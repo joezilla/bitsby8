@@ -71,10 +71,10 @@
           color: var(--fg-1);
         "
       >
-        FDC<span style="color: var(--accent);">+</span>
+        BitsBy<span style="color: var(--accent);">8</span>
       </span>
       <span class="fdc-label-strip hidden md:inline" style="opacity: 0.7; white-space: nowrap;">
-        Floppy Disk Controller · Mits Altair 8800
+        FDC Controller · S100 Simulator
       </span>
     </div>
   </div>
