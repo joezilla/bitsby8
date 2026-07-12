@@ -612,7 +612,7 @@
 <PageHeader
   eyebrow="Section · Drives & disk images"
   title="Drives & Library"
-  subtitle="Mount up to four virtual floppies on the FDC+ controller. Drag .img / .dsk files onto the library to upload."
+  subtitle="Mount up to four virtual floppies on the FDC+ controller — these mounts also serve as the default drives for virtual machine instances (a profile's startup disks override them per-drive). Drag .img / .dsk files onto the library to upload."
   actions={headerActions}
 />
 
