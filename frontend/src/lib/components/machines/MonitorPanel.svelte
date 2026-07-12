@@ -146,8 +146,7 @@
     display: flex; align-items: center; justify-content: center; overflow: hidden; max-width: 100%;
   }
   /* Scale the fixed-resolution framebuffer to fit its box, staying pixel-crisp. */
-  .crt canvas { display: block; image-rendering: pixelated; filter: drop-shadow(0 0 2px rgba(125,255,154,0.4));
-    max-width: 100%; max-height: 70vh; }
+  .crt canvas { display: block; image-rendering: pixelated; max-width: 100%; max-height: 70vh; }
   .note { color: var(--fg-4); font-size: 12px; }
   /* Embedded (cockpit): the CRT fills the panel and the canvas contains-fits it. */
   .panel.embed .crt { flex: 1; width: 100%; height: 100%; min-height: 0; padding: 10px; border-radius: 0; border: none; }
