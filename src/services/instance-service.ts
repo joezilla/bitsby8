@@ -175,3 +175,21 @@ export function readInstanceConsole(
 ): { data: string; cursor: number } {
   return manager(deps).readConsole(id, cursor);
 }
+
+/** The GPIO ports a running instance exposes, with current latched output (5.8). */
+export function listInstanceGpio(
+  deps: Dependencies,
+  id: string,
+): Array<{ cardId: string; direction: string; output: number }> {
+  return manager(deps).listGpio(id);
+}
+
+/** Drive a GPIO card's input pins (sense switches) on a running instance (5.8). */
+export function setInstanceGpioInput(
+  deps: Dependencies,
+  id: string,
+  cardId: string,
+  value: number,
+): { cardId: string; input: number } {
+  return manager(deps).setGpioInput(id, cardId, value);
+}

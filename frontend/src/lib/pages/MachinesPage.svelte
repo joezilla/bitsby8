@@ -9,6 +9,7 @@
   import Sparkline from '$lib/components/machines/Sparkline.svelte';
   import InstanceConsole from '$lib/components/machines/InstanceConsole.svelte';
   import SnapshotsModal from '$lib/components/machines/SnapshotsModal.svelte';
+  import GpioPanel from '$lib/components/machines/GpioPanel.svelte';
 
   interface Props {
     onNavigate?: (page: 'terminal' | 'clients') => void;
@@ -20,6 +21,7 @@
   let loading = $state(true);
   let consoleFor = $state<InstanceStatus | null>(null);
   let snapshotsFor = $state<InstanceStatus | null>(null);
+  let gpioFor = $state<InstanceStatus | null>(null);
   let sparkData = $state<Record<string, number[]>>({}); // per-instance effectiveHz ring
   let poll: ReturnType<typeof setInterval> | null = null;
 
@@ -204,6 +206,7 @@
           <div class="actions">
             {#if i.status === 'running'}
               <Button variant="tonal" size="sm" icon="terminal" onclick={() => (consoleFor = i)}>Console</Button>
+              <Button variant="ghost" size="sm" icon="toggle_on" onclick={() => (gpioFor = i)}>GPIO</Button>
               <Button variant="outline" size="sm" icon="stop" onclick={() => act(() => api.stopInstance(i.id), 'Stopped')}>Stop</Button>
             {:else}
               <Button variant="tonal" size="sm" icon="play_arrow" onclick={() => act(() => api.startInstance(i.id), 'Started')}>Start</Button>
@@ -257,6 +260,10 @@
     </div>
   {/if}
 </div>
+
+{#if gpioFor}
+  <GpioPanel instanceId={gpioFor.id} title={gpioFor.profileRef} onClose={() => (gpioFor = null)} />
+{/if}
 
 {#if consoleFor}
   <InstanceConsole instanceId={consoleFor.id} title={consoleFor.profileRef} onClose={() => (consoleFor = null)} />

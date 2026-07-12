@@ -50,8 +50,7 @@ export function listPeripheralEndpoints(_deps: Dependencies): PeripheralEndpoint
       type: 'gpio',
       label: 'GPIO lanes',
       description: 'Parallel byte lanes: sense switches, LEDs, a printer — and real hardware GPIO on the host.',
-      available: false,
-      arrivesWith: '5.8',
+      available: true,
     },
     {
       type: 'display',

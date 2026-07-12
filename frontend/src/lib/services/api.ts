@@ -567,6 +567,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ label }),
     }),
+  listInstanceGpio: (id: string) =>
+    request<{ ports: { cardId: string; direction: 'out' | 'in' | 'inout'; output: number }[] }>(
+      `/api/instances/${encodeURIComponent(id)}/gpio`,
+    ),
+  setInstanceGpioInput: (id: string, cardId: string, value: number) =>
+    request<{ cardId: string; input: number }>(
+      `/api/instances/${encodeURIComponent(id)}/gpio/${encodeURIComponent(cardId)}/input`,
+      { method: 'POST', body: JSON.stringify({ value }) },
+    ),
   restoreInstanceSnapshot: (snapshotId: string) =>
     request<{ instanceId: string; restored: number[] }>(
       `/api/instance-snapshots/${encodeURIComponent(snapshotId)}/restore`,

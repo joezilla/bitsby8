@@ -14,6 +14,8 @@ import {
   destroyInstance,
   writeInstanceConsole,
   readInstanceConsole,
+  listInstanceGpio,
+  setInstanceGpioInput,
 } from '../services/instance-service';
 import {
   snapshotInstance,
@@ -475,6 +477,84 @@ export function registerInstanceRoutes(router: Router, deps: Dependencies): void
       }
       writeInstanceConsole(deps, req.params.id, input);
       res.json({ id: req.params.id, wrote: input.length });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/instances/{id}/gpio:
+   *   get:
+   *     tags: [Instances]
+   *     summary: Read a running instance's GPIO ports (Story 5.8)
+   *     description: The parallel (GPIO) cards the machine exposes, with each port's direction and current latched output byte (drive LEDs / read a printer).
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *     responses:
+   *       200:
+   *         description: GPIO ports
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 ports:
+   *                   type: array
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       cardId: { type: string }
+   *                       direction: { type: string, enum: [out, in, inout] }
+   *                       output: { type: integer, description: '0–255 latched output byte' }
+   */
+  router.get('/api/instances/:id/gpio', (req: Request, res: Response): void => {
+    try {
+      res.json({ ports: listInstanceGpio(deps, req.params.id) });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/instances/{id}/gpio/{cardId}/input:
+   *   post:
+   *     tags: [Instances]
+   *     summary: Drive a GPIO card's input pins (Story 5.8)
+   *     description: Set the byte the CPU reads from a parallel card — sense switches. Applies to a running instance.
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *       - in: path
+   *         name: cardId
+   *         required: true
+   *         schema: { type: string }
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [value]
+   *             properties:
+   *               value: { type: integer, description: '0–255 input byte' }
+   *     responses:
+   *       200: { description: Applied }
+   *       404: { description: No such GPIO card on the instance }
+   */
+  router.post('/api/instances/:id/gpio/:cardId/input', (req: Request, res: Response): void => {
+    try {
+      const value = req.body?.value;
+      if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 0xff) {
+        throw new ServiceError('`value` (integer 0–255) is required', 400);
+      }
+      res.json(setInstanceGpioInput(deps, req.params.id, req.params.cardId, value));
     } catch (error) {
       sendError(res, error);
     }
