@@ -11,6 +11,9 @@ import * as path from 'path';
 import { Database } from '../src/database';
 import { Dependencies } from '../src/types';
 import { registerCardDefinition } from '../src/services/catalog';
+import { resolveProfile } from '../src/services/resolver';
+import { validateProfile } from '../src/services/collision-validator';
+import { _setSimForTests, SimModule } from '../src/services/bundle-registry';
 import {
   createProfile,
   createProfileFromPreset,
@@ -24,6 +27,31 @@ import {
   toMachineProfile,
   ProfileContent,
 } from '../src/services/profile-service';
+
+/** A fake sim with the seed cards the card-based presets install. */
+function presetFakeSim(): SimModule {
+  const noop = (id: string) => ({ id, reset() {}, attach() {} });
+  return {
+    seedBundles: [
+      { manifest: { name: 'i8080-cpu', version: '1.0.0', type: 'cpu', configSchema: { resetVector: { type: 'u16', default: 0 } } },
+        cardFactory: noop, claims: () => ({ ports: [] }), cpu: (c: Record<string, unknown>) => ({ kind: 'i8080', resetVector: Number(c.resetVector ?? 0) }) },
+      { manifest: { name: 'ram-card', version: '1.0.0', type: 'memory', configSchema: { base: { type: 'u16', default: 0 }, size: { type: 'u16', default: 0x4000 } } },
+        cardFactory: noop, claims: () => ({ ports: [] }), memory: (c: Record<string, unknown>) => [{ id: 'ram', base: Number(c.base), size: Number(c.size), kind: 'ram' }] },
+      { manifest: { name: 'eprom-card', version: '1.0.0', type: 'memory', configSchema: { base: { type: 'u16', default: 0xf000 }, size: { type: 'u16', default: 0x800 } } },
+        cardFactory: noop, claims: () => ({ ports: [] }), memory: (c: Record<string, unknown>) => [{ id: 'rom', base: Number(c.base), size: Number(c.size), kind: 'rom', image: new Uint8Array(Number(c.size)) }] },
+      { manifest: { name: 'imsai-sio2', version: '1.0.0', type: 'serial', configSchema: { basePortA: { type: 'u8', default: 0x02 }, boardCtrlPort: { type: 'u8', default: 0x08 } } },
+        cardFactory: noop, claims: (c: Record<string, unknown>) => ({ ports: [Number(c.basePortA), Number(c.basePortA) + 1] }) },
+      { manifest: { name: 'mits-88-dcdd', version: '1.0.0', type: 'floppy', configSchema: { basePort: { type: 'u8', default: 0x08 } } },
+        cardFactory: noop, claims: (c: Record<string, unknown>) => ({ ports: [Number(c.basePort ?? 0x08)] }) },
+    ],
+    withDefaults: (m: { configSchema: Record<string, { default: unknown }> }, c: Record<string, unknown> = {}) => {
+      const out: Record<string, unknown> = {};
+      for (const [k, s] of Object.entries(m.configSchema)) out[k] = k in c ? c[k] : s.default;
+      return out;
+    },
+    buildMachine: (() => { throw new Error('not used'); }) as unknown as SimModule['buildMachine'],
+  } as unknown as SimModule;
+}
 
 async function makeDeps(): Promise<Dependencies> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fdcsds-prof-'));
@@ -65,6 +93,19 @@ async function makeDeps(): Promise<Dependencies> {
     },
     source: 'seed',
   });
+  // Card-based presets (Epic 5): CPU + RAM + EPROM cards.
+  await registerCardDefinition(deps, {
+    manifest: { name: 'i8080-cpu', version: '1.0.0', type: 'cpu', configSchema: { resetVector: { type: 'u16', default: 0, min: 0, max: 0xffff } } },
+    source: 'seed',
+  });
+  await registerCardDefinition(deps, {
+    manifest: { name: 'ram-card', version: '1.0.0', type: 'memory', configSchema: { base: { type: 'u16', default: 0, min: 0, max: 0xffff }, size: { type: 'u16', default: 0x4000, min: 1, max: 0xffff } } },
+    source: 'seed',
+  });
+  await registerCardDefinition(deps, {
+    manifest: { name: 'eprom-card', version: '1.0.0', type: 'memory', configSchema: { base: { type: 'u16', default: 0xf000, min: 0, max: 0xffff }, size: { type: 'u16', default: 0x800, min: 1, max: 0xffff } } },
+    source: 'seed',
+  });
   return deps;
 }
 
@@ -104,7 +145,7 @@ describe('profile-service: create + identity', () => {
     expect(doc.source).toBe('preset');
     const rom = doc.memory.find((m) => m.kind === 'rom');
     expect(typeof rom?.image).toBe('string'); // base64 in the stored/API form
-    expect(doc.cards.map((c) => c.id)).toEqual(['sio', 'dcdd']);
+    expect(doc.cards.map((c) => c.id)).toEqual(['cpu', 'ram', 'boot', 'sio', 'dcdd']);
 
     // Rehydrated for running: base64 → Uint8Array (256-byte CDBL).
     const mp = toMachineProfile(doc);
@@ -113,6 +154,33 @@ describe('profile-service: create + identity', () => {
     expect(mprom?.image?.length).toBe(256);
 
     await expect(createProfileFromPreset(deps, 'nope', 'x')).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  test('a card-based preset resolves to a bootable memory map (CDBL burned at reset, editable RAM below, no collision)', async () => {
+    _setSimForTests(presetFakeSim());
+    try {
+      const deps = await makeDeps();
+      const doc = await createProfileFromPreset(deps, 'imsai-cpm', 'boot-check');
+
+      // No phantom collisions — RAM is a card, EPROM is a card, they don't overlap.
+      expect((await validateProfile(deps, doc)).ok).toBe(true);
+
+      const { spec } = await resolveProfile(deps, toMachineProfile(doc));
+      expect(spec.cpuKind).toBe('i8080'); // from the CPU card
+      expect(spec.resetVector).toBe(0xff00);
+
+      // RAM card 0x0000–0xFEFF (editable via the card config).
+      expect(spec.memory.find((m) => m.id === 'ram/ram')).toMatchObject({ base: 0, size: 0xff00, kind: 'ram' });
+
+      // CDBL burned into the boot EPROM at the reset vector — the override supplies
+      // real bytes (DI = 0xF3), not the card's zero emit, and exactly once.
+      const rom = spec.memory.filter((m) => m.id === 'boot/rom');
+      expect(rom).toHaveLength(1);
+      expect(rom[0]).toMatchObject({ base: 0xff00, kind: 'rom' });
+      expect(rom[0].image?.[0]).toBe(0xf3);
+    } finally {
+      _setSimForTests(null);
+    }
   });
 });
 

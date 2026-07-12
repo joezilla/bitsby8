@@ -50,6 +50,19 @@ async function makeDeps(): Promise<Dependencies> {
     },
     source: 'seed',
   });
+  // Card-based presets (Epic 5): CPU + RAM + EPROM cards.
+  await registerCardDefinition(deps, {
+    manifest: { name: 'i8080-cpu', version: '1.0.0', type: 'cpu', configSchema: { resetVector: { type: 'u16', default: 0, min: 0, max: 0xffff } } },
+    source: 'seed',
+  });
+  await registerCardDefinition(deps, {
+    manifest: { name: 'ram-card', version: '1.0.0', type: 'memory', configSchema: { base: { type: 'u16', default: 0, min: 0, max: 0xffff }, size: { type: 'u16', default: 0x4000, min: 1, max: 0xffff } } },
+    source: 'seed',
+  });
+  await registerCardDefinition(deps, {
+    manifest: { name: 'eprom-card', version: '1.0.0', type: 'memory', configSchema: { base: { type: 'u16', default: 0xf000, min: 0, max: 0xffff }, size: { type: 'u16', default: 0x800, min: 1, max: 0xffff } } },
+    source: 'seed',
+  });
   return deps;
 }
 
