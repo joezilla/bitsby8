@@ -22,10 +22,59 @@ function cdblRom(): Uint8Array {
 }
 
 export interface MachinePreset {
+  /** Stable key for reset-to-default; not the profile name. */
   id: string;
+  /** Profile-safe display name (also the seeded profile's name). */
   name: string;
   description: string;
   build(): MachineProfile;
+}
+
+/** A bare machine to build up from: 8080 CPU + 64K RAM, nothing else. */
+function blankMachine(): MachineProfile {
+  return {
+    cpuKind: 'i8080',
+    clock: 'max',
+    resetVector: 0x0000,
+    memory: [],
+    cards: [
+      { id: 'cpu', ref: 'i8080-cpu@1.0.0', config: { resetVector: 0x0000 } },
+      { id: 'ram', ref: 'ram-card@1.0.0', config: { base: 0x0000, size: 0xffff } },
+    ],
+  };
+}
+
+/** CP/M machine + a bank-switch RAM card (extra RAM banks) + an MM58167 RTC. */
+function bankRtcMachine(): MachineProfile {
+  const m = cpmMachine({ basePortA: 0x10, boardCtrlPort: 0x16 });
+  m.cards.push(
+    { id: 'bank', ref: 'bank-ram@1.0.0', config: { window: 0x8000, size: 0x4000, banks: 4, selectPort: 0x40 } },
+    { id: 'rtc', ref: 'mm58167-rtc@1.0.0', config: { base: 0x50 } },
+  );
+  return m;
+}
+
+/** A VDM-1 / Dazzler video-terminal hardware template: CPU + 48K RAM + video +
+ * ASCII keyboard + serial console + boot EPROM + floppy. Mount a monitor OS to
+ * drive the display. `videoRef` picks VDM-1 (char) or Dazzler (graphics). */
+function videoTerminal(videoRef: string, videoCfg: Record<string, unknown>): MachineProfile {
+  const rom = cdblRom();
+  return {
+    cpuKind: 'i8080',
+    clock: 'max',
+    resetVector: 0xff00,
+    consoleCardId: 'sio',
+    memory: [{ id: 'boot/rom', base: 0xff00, size: rom.length, kind: 'rom', image: rom }],
+    cards: [
+      { id: 'cpu', ref: 'i8080-cpu@1.0.0', config: { resetVector: 0xff00 } },
+      { id: 'ram', ref: 'ram-card@1.0.0', config: { base: 0x0000, size: 0xc000 } },
+      { id: 'video', ref: videoRef, config: videoCfg },
+      { id: 'kbd', ref: 'ascii-keyboard@1.0.0', config: { dataPort: 0x01, statusPort: 0x00 } },
+      { id: 'sio', ref: 'imsai-sio2@1.0.0', config: { basePortA: 0x10, boardCtrlPort: 0x16 } },
+      { id: 'boot', ref: 'eprom-card@1.0.0', config: { base: 0xff00, size: rom.length } },
+      { id: 'dcdd', ref: 'mits-88-dcdd@1.0.0' },
+    ],
+  };
 }
 
 /**
@@ -55,16 +104,40 @@ function cpmMachine(consoleCfg: Record<string, unknown>): MachineProfile {
 
 export const PRESETS: MachinePreset[] = [
   {
+    id: 'blank',
+    name: 'Blank Machine',
+    description: 'A bare 8080 + 64K RAM to build up from. No ROM, no I/O — add cards on the backplane.',
+    build: blankMachine,
+  },
+  {
     id: 'imsai-cpm',
-    name: 'IMSAI 8080 — CP/M',
+    name: 'IMSAI 8080 CPM',
     description: '8080 CPU + 63.75K RAM card + CDBL boot EPROM + IMSAI SIO-2 console (0x12) + MITS 88-DCDD floppy — all editable cards',
     build: () => cpmMachine({ basePortA: 0x12, boardCtrlPort: 0x18 }),
   },
   {
     id: 'altair-cpm',
-    name: 'Altair 8800 — CP/M',
+    name: 'Altair 8800 CPM',
     description: '8080 CPU + 63.75K RAM card + CDBL boot EPROM + 2SIO-style console (0x10) + MITS 88-DCDD floppy — all editable cards',
     build: () => cpmMachine({ basePortA: 0x10, boardCtrlPort: 0x16 }),
+  },
+  {
+    id: 'altair-bank-rtc',
+    name: 'Altair 8800 Bank RAM RTC',
+    description: 'CP/M Altair plus a 4-bank switch-RAM card (window 0x8000) and an MM58167 real-time clock (port 0x50).',
+    build: bankRtcMachine,
+  },
+  {
+    id: 'vdm-terminal',
+    name: 'VDM-1 Video Terminal',
+    description: 'CPU + 48K RAM + VDM-1 character display + ASCII keyboard + serial + boot EPROM + floppy. Add a monitor OS to drive the screen.',
+    build: () => videoTerminal('vdm-1-video@1.0.0', { base: 0xcc00 }),
+  },
+  {
+    id: 'dazzler-station',
+    name: 'Dazzler Graphics Workstation',
+    description: 'CPU + 48K RAM + Cromemco Dazzler colour graphics + ASCII keyboard + serial + boot EPROM + floppy.',
+    build: () => videoTerminal('cromemco-dazzler@1.0.0', { controlPort: 0x0e, formatPort: 0x0f }),
   },
 ];
 

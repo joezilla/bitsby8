@@ -26,6 +26,7 @@ import {
   deleteProfile,
   resolveProfileRef,
   toMachineProfile,
+  upsertPresetProfile,
   ProfileContent,
 } from '../src/services/profile-service';
 
@@ -300,5 +301,39 @@ describe('profile-service: delete + resolveProfileRef', () => {
 
     await deleteProfile(deps, v1.id, 'all');
     await expect(getProfile(deps, 'trash@1.0.0')).rejects.toMatchObject({ statusCode: 404 });
+  });
+});
+
+describe('presets as editable profiles (Story 5.2)', () => {
+  test('a preset seeds as source:preset, edits in place (no version churn), and resets', async () => {
+    const deps = await makeDeps();
+    const p = await upsertPresetProfile(deps, 'Test Preset', toMachineProfile(content), 'a template');
+    expect(p.source).toBe('preset');
+    expect(p.version).toBe('1.0.0');
+
+    // Editing a preset updates the SAME id/version in place.
+    const edited = await updateProfile(deps, p.id, { resetVector: 0x100 });
+    expect(edited.id).toBe(p.id);
+    expect(edited.source).toBe('preset');
+    expect(edited.resetVector).toBe(0x100);
+    expect(await listProfileVersions(deps, 'Test Preset')).toHaveLength(1); // no new version
+
+    // Re-applying the shipped definition (reset) restores it in place.
+    const reset = await upsertPresetProfile(deps, 'Test Preset', toMachineProfile(content), 'a template');
+    expect(reset.id).toBe(p.id);
+    expect(reset.resetVector).toBe(0);
+    expect(await listProfileVersions(deps, 'Test Preset')).toHaveLength(1);
+  });
+
+  test('cloning a preset yields an independent source:user profile', async () => {
+    const deps = await makeDeps();
+    const preset = await upsertPresetProfile(deps, 'Base Preset', toMachineProfile(content), null);
+    const mine = await cloneProfile(deps, preset.id, 'my-machine');
+    expect(mine.source).toBe('user');
+    expect(mine.name).toBe('my-machine');
+    // Editing the clone versions normally (source:user), leaving the preset alone.
+    const v2 = await updateProfile(deps, mine.id, { resetVector: 0x50 });
+    expect(v2.id).not.toBe(mine.id); // new version
+    expect((await getProfile(deps, preset.id)).resetVector).toBe(0); // preset untouched
   });
 });

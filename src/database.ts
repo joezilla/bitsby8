@@ -913,6 +913,18 @@ export class Database {
       | undefined;
   }
 
+  /** Edit a profile row in place (digest/content/cpu/notes), keeping its id +
+   * version. Used only for preset templates, which are living, not versioned. */
+  async updateMachineProfileContent(
+    id: string,
+    fields: { digest: string; cpu_kind: string; profile: string; notes: string | null },
+  ): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare(
+      'UPDATE machine_profiles SET digest = ?, cpu_kind = ?, profile = ?, notes = ? WHERE id = ?'
+    ).run(fields.digest, fields.cpu_kind, fields.profile, fields.notes, id);
+  }
+
   /** All versions of a profile name, newest-created first. `rowid` is a
    * monotonic tiebreaker for versions inserted within the same clock second. */
   async listMachineProfileVersions(name: string): Promise<MachineProfileRecord[]> {

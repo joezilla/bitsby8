@@ -233,43 +233,82 @@ async function numericParams(
  * auto-assigned) are reported as `unresolved` for manual fix.
  */
 export async function autoAssign(deps: Dependencies, content: ProfileContent): Promise<AutoAssignResult> {
-  const occupied = new Set<number>();
+  const occupiedPorts = new Set<number>();
+  // Profile-declared memory regions are fixed anchors auto-assign places around.
+  const occupiedMem: Array<[number, number]> = content.memory.map((m) => [m.base, m.base + m.size - 1]);
   const cards = content.cards.map((c) => ({ ...c, config: { ...(c.config ?? {}) } }));
   const unresolved: string[] = [];
   const changes: AutoAssignResult['changes'] = [];
 
+  type Bundle = NonNullable<Awaited<ReturnType<typeof getBundle>>>;
+  const regionsOf = (bundle: Bundle, config: Record<string, unknown>): Array<[number, number]> =>
+    (bundle.memory ? bundle.memory(config) : []).map((r) => [r.base, r.base + r.size - 1] as [number, number]);
+  const memClashes = (regs: Array<[number, number]>): boolean =>
+    regs.some(([s, e]) => occupiedMem.some(([os, oe]) => s <= oe && os <= e));
+
   for (const card of cards) {
     const bundle = await getBundle(deps, card.ref);
     if (!bundle) continue;
-    const ports = (bundle.claims(card.config).ports ?? []).map((p) => p & 0xff);
-    const selfOverlap = new Set(ports).size !== ports.length;
-    if (!selfOverlap && !ports.some((p) => occupied.has(p))) {
-      ports.forEach((p) => occupied.add(p));
-      continue;
-    }
 
-    let placed = false;
-    for (const param of await numericParams(deps, card.ref)) {
-      const min = param.spec.min ?? 0;
-      const max = param.spec.max ?? (param.spec.type === 'u16' ? 0xffff : 0xff);
-      for (let cand = min; cand <= max; cand++) {
-        const tports = (bundle.claims({ ...card.config, [param.name]: cand }).ports ?? []).map((p) => p & 0xff);
-        const tset = new Set(tports);
-        // A good candidate has no internal self-overlap AND no clash with placed cards.
-        if (tports.length && tset.size === tports.length && ![...tset].some((p) => occupied.has(p))) {
-          const from = card.config[param.name];
-          card.config[param.name] = cand;
-          changes.push({ cardId: card.id, param: param.name, from, to: cand });
-          tports.forEach((p) => occupied.add(p));
+    const portsNow = (bundle.claims(card.config).ports ?? []).map((p) => p & 0xff);
+    const portsSelfOverlap = new Set(portsNow).size !== portsNow.length;
+    const portsClash = portsSelfOverlap || portsNow.some((p) => occupiedPorts.has(p));
+    const memNow = regionsOf(bundle, card.config ?? {});
+    const memBad = memClashes(memNow);
+    let ok = true;
+
+    // Memory: sweep `base` (page-aligned) for a gap the whole card fits into.
+    if (memBad) {
+      const baseParam = (await numericParams(deps, card.ref)).find((p) => p.name === 'base');
+      let placed = false;
+      const min = baseParam?.spec.min ?? 0;
+      const max = baseParam?.spec.max ?? 0xffff;
+      for (let cand = min; baseParam && cand <= max; cand += 0x100) {
+        const regs = regionsOf(bundle, { ...card.config, base: cand });
+        if (regs.length && regs.every(([, e]) => e <= 0xffff) && !memClashes(regs)) {
+          const from = card.config.base;
+          card.config.base = cand;
+          changes.push({ cardId: card.id, param: 'base', from, to: cand });
+          regs.forEach((r) => occupiedMem.push(r));
           placed = true;
           break;
         }
       }
-      if (placed) break;
+      if (!placed) ok = false;
+    } else {
+      memNow.forEach((r) => occupiedMem.push(r));
     }
-    if (!placed) {
+
+    // Ports: sweep a numeric param (not `base`, which drives memory) for a
+    // disjoint claim.
+    if (portsClash) {
+      let placed = false;
+      for (const param of await numericParams(deps, card.ref)) {
+        if (param.name === 'base') continue;
+        const min = param.spec.min ?? 0;
+        const max = param.spec.max ?? (param.spec.type === 'u16' ? 0xffff : 0xff);
+        for (let cand = min; cand <= max; cand++) {
+          const tports = (bundle.claims({ ...card.config, [param.name]: cand }).ports ?? []).map((p) => p & 0xff);
+          const tset = new Set(tports);
+          if (tports.length && tset.size === tports.length && ![...tset].some((p) => occupiedPorts.has(p))) {
+            const from = card.config[param.name];
+            card.config[param.name] = cand;
+            changes.push({ cardId: card.id, param: param.name, from, to: cand });
+            tports.forEach((p) => occupiedPorts.add(p));
+            placed = true;
+            break;
+          }
+        }
+        if (placed) break;
+      }
+      if (!placed) ok = false;
+    } else {
+      portsNow.forEach((p) => occupiedPorts.add(p));
+    }
+
+    if (!ok && !unresolved.includes(card.id)) {
       unresolved.push(card.id);
-      ports.forEach((p) => occupied.add(p));
+      portsNow.forEach((p) => occupiedPorts.add(p)); // reserve so later cards still avoid it
     }
   }
 

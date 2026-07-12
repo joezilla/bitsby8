@@ -19,6 +19,7 @@ import { exportProfile, bundleFilename, importBundle } from '../services/bundle-
 import { burnEprom, eraseEprom } from '../services/eprom-service';
 import { Addressing, ImageFormat } from '../services/rom-image';
 import { listProfileDisks, setProfileDisk, clearProfileDisk } from '../services/profile-disk-service';
+import { resetPreset } from '../services/preset-seed';
 
 /** Normalize a request body into a ProfileContent for collision checks
  * (only memory + cards affect collisions; the rest is defaulted). */
@@ -381,6 +382,31 @@ export function registerProfileRoutes(router: Router, deps: Dependencies): void 
     try {
       await clearProfileDisk(deps, req.params.id, Number(req.params.drive));
       res.json({ disks: await listProfileDisks(deps, req.params.id) });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/profiles/{id}/reset:
+   *   post:
+   *     tags: [Profiles]
+   *     summary: Reset a built-in preset to its shipped default (edit-in-place)
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *     responses:
+   *       200: { description: The reset preset profile }
+   *       404: { description: Not a built-in preset }
+   */
+  router.post('/api/profiles/:id/reset', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const doc = await getProfile(deps, req.params.id);
+      await resetPreset(deps, doc.name);
+      res.json({ profile: await getProfile(deps, req.params.id) });
     } catch (error) {
       sendError(res, error);
     }

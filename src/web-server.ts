@@ -38,6 +38,8 @@ import { registerCatalogRoutes } from './routes/catalog';
 import { registerInstanceRoutes } from './routes/instances';
 import { registerProfileRoutes } from './routes/profiles';
 import { loadSeedCatalog } from './services/catalog-seed';
+import { loadSeedKernelCards } from './services/kernel-cards-seed';
+import { loadSeedPresets } from './services/preset-seed';
 import { INSTANCE_CLIENT_PREFIX, InstanceManager } from './services/instance-manager';
 import { registerSettingsRoutes } from './routes/settings';
 import { registerClientRoutes } from './routes/clients';
@@ -328,6 +330,10 @@ export class WebServer {
     // Seed the Catalog with 8sim's built-in Card Definitions (non-fatal).
     try {
       await loadSeedCatalog(this.deps);
+      // Built-in cards for the behavior kernels (VDM/Dazzler/keyboard/RTC/bank-RAM),
+      // then the built-in machine presets — both after the seed catalog they build on.
+      await loadSeedKernelCards(this.deps);
+      await loadSeedPresets(this.deps);
     } catch (error) {
       console.error('Catalog seeding failed (continuing):', error);
     }

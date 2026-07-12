@@ -2561,6 +2561,32 @@
         }
       }
     },
+    "/api/profiles/{id}/reset": {
+      "post": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Reset a built-in preset to its shipped default (edit-in-place)",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The reset preset profile"
+          },
+          "404": {
+            "description": "Not a built-in preset"
+          }
+        }
+      }
+    },
     "/api/profiles/{id}/clone": {
       "post": {
         "tags": [

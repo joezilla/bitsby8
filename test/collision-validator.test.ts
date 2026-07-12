@@ -239,4 +239,26 @@ describe('autoAssign', () => {
     // The reassigned profile is now collision-free.
     expect((await validateProfile(deps, content)).ok).toBe(true);
   });
+
+  test('sweeps an overlapping memory card to a free base (memory auto-assign)', async () => {
+    const deps = await makeDeps();
+    await registerCardDefinition(deps, {
+      manifest: { name: 'ram', version: '1.0.0', type: 'memory', configSchema: { base: { type: 'u16', default: 0, min: 0, max: 0xffff }, size: { type: 'u16', default: 0x4000, min: 1, max: 0xffff } } },
+      source: 'seed',
+    });
+    // Two RAM cards at the same base overlap; no profile-level memory anchor.
+    const before = profile(
+      [
+        { id: 'r1', ref: 'ram@1.0.0', config: { base: 0x0000, size: 0x4000 } },
+        { id: 'r2', ref: 'ram@1.0.0', config: { base: 0x0000, size: 0x4000 } },
+      ],
+      [],
+    );
+    expect((await validateProfile(deps, before)).ok).toBe(false);
+
+    const { content, unresolved, changes } = await autoAssign(deps, before);
+    expect(unresolved).toEqual([]);
+    expect(changes.find((c) => c.cardId === 'r2' && c.param === 'base')).toBeTruthy();
+    expect((await validateProfile(deps, content)).ok).toBe(true);
+  });
 });

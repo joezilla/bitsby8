@@ -283,7 +283,44 @@ export async function updateProfile(
   if (digestOf(newContent) === base.digest && newNotes === base.notes) {
     return base; // nothing changed → no new version
   }
+  // A preset is a living template: editing it updates the row in place (no
+  // version churn). A user profile versions immutably.
+  if (base.source === 'preset') {
+    validateContent(newContent);
+    await deps.database.updateMachineProfileContent(base.id, {
+      digest: digestOf(newContent),
+      cpu_kind: newContent.cpuKind,
+      profile: JSON.stringify(newContent),
+      notes: newNotes ?? null,
+    });
+    return getProfile(deps, base.id);
+  }
   return persist(deps, base.name, await nextVersion(deps, base.name), newContent, 'user', newNotes ?? null);
+}
+
+/** Seed (or reset) a preset as a source:'preset' profile. Resolves card configs
+ * against the Catalog, then persists v1.0.0 (seed) or edits the row in place
+ * (reset). Used by the startup seeder + reset-to-default. */
+export async function upsertPresetProfile(
+  deps: Dependencies,
+  name: string,
+  built: MachineProfile,
+  notes: string | null,
+): Promise<ProfileDoc> {
+  const content = fromMachineProfile(built);
+  content.cards = await resolveProfileCards(deps, content.cards);
+  validateContent(content);
+  const existing = (await deps.database.listMachineProfileVersions(name).catch(() => []))[0];
+  if (existing) {
+    await deps.database.updateMachineProfileContent(existing.id, {
+      digest: digestOf(content),
+      cpu_kind: content.cpuKind,
+      profile: JSON.stringify(content),
+      notes,
+    });
+    return getProfile(deps, existing.id);
+  }
+  return persist(deps, name, '1.0.0', content, 'preset', notes);
 }
 
 /** Clone a Profile into an independent one under a new name (version 1.0.0). */
