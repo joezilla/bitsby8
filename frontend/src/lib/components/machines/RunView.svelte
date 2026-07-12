@@ -133,7 +133,7 @@
 </div>
 
 <style>
-  .cockpit { display: flex; flex-direction: column; }
+  .cockpit { display: flex; flex-direction: column; padding-top: var(--space-4); }
   .top { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: var(--space-4); }
   .id { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 4px rgba(34, 192, 143, 0.15); flex: none; }

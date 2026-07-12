@@ -45,7 +45,7 @@
   function led(on: boolean, sz: number): string {
     return on
       ? `width:${sz}px;height:${sz}px;box-sizing:border-box;border:1px solid transparent;border-radius:50%;background:radial-gradient(circle at 38% 32%,#ffe3a6 0%,#ffb020 46%,#e8860a 100%);box-shadow:inset 0 -2px 3px rgba(120,50,0,.5),inset 0 1px 2px rgba(255,255,255,.7)`
-      : `width:${sz}px;height:${sz}px;box-sizing:border-box;border-radius:50%;background:radial-gradient(circle at 38% 32%,#39301f,#1a130a 82%);box-shadow:inset 0 1px 2px rgba(0,0,0,.75);border:1px solid rgba(0,0,0,.45)`;
+      : `width:${sz}px;height:${sz}px;box-sizing:border-box;border-radius:50%;background:radial-gradient(circle at 38% 32%,#39301f,#1a130a 82%);box-shadow:inset 0 1px 2px rgba(0,0,0,.75),inset 0 -1px 1px rgba(255,190,90,.06);border:1px solid rgba(0,0,0,.45)`;
   }
 
   // Status LEDs — only the ones the engine exposes are live; the rest sit dark.
@@ -87,7 +87,7 @@
   <div class="fp2-title">
     <button class="fp2-left" onclick={() => (open = !open)}>
       <span class="chev2">▶</span>
-      <span class="fp2-ic"><Icon name="developer_board" size={18} /></span> Front panel
+      <span class="fp2-ic"><Icon name="developer_board" size={20} /></span> Front panel
     </button>
     <div class="fp2-right">
       <div class="fp2-seg">
@@ -119,7 +119,8 @@
           <div class="r" style="height:40px;color:#8a929d">DATA</div><div style="height:6px"></div>
           <div class="r" style="height:26px;color:#8a929d">ADDR</div><div style="height:14px"></div>
           <div class="r" style="height:48px">SET</div><div style="height:18px"></div>
-          <div class="r" style="height:26px;color:#c89858">{oct ? 'OCTAL' : 'HEX'}</div>
+          <div style="height:8px"></div>
+          <div class="r" style="height:32px;color:#c89858">{oct ? 'OCTAL' : 'HEX'}</div>
         </div>
         <div class="fp2-groups">
           {#each groups as g, gi (gi)}
@@ -174,14 +175,14 @@
   .fp2 { background: linear-gradient(180deg, #1c2027 0%, #141820 100%); border: 1px solid rgba(255,255,255,.09);
     border-radius: var(--radius-lg); box-shadow: inset 0 1px 0 rgba(255,255,255,.05); overflow: hidden;
     --mono: var(--font-mono, ui-monospace, monospace); }
-  .fp2-title { display: flex; align-items: center; justify-content: space-between; padding: 12px 18px;
+  .fp2-title { display: flex; align-items: center; justify-content: space-between; padding: 20px 26px 18px;
     border-bottom: 1px solid rgba(255,255,255,.07); flex-wrap: wrap; gap: 10px; }
   .fp2.collapsed .fp2-title { border-bottom: none; }
-  .fp2-left { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 700; color: var(--fg-1);
+  .fp2-left { display: flex; align-items: center; gap: 11px; font-size: 17px; font-weight: 700; letter-spacing: -.01em; color: var(--fg-1);
     background: none; border: none; cursor: pointer; padding: 0; }
   .chev2 { color: var(--fg-3); font-size: 11px; transition: transform .15s ease; }
   .fp2:not(.collapsed) .chev2 { transform: rotate(90deg); }
-  .fp2-ic { display: inline-flex; color: #8a929d; }
+  .fp2-ic { display: inline-flex; color: #7a828e; }
   .fp2-right { display: flex; align-items: center; gap: 12px; }
   .fp2-seg { display: flex; padding: 3px; border-radius: 9px; background: #0d0f13; border: 1px solid rgba(255,255,255,.08); }
   .fp2-seg button { padding: 5px 12px; border-radius: 6px; border: none; background: transparent; color: #6d7580;
@@ -193,20 +194,22 @@
   .fp2-runchip.running { background: rgba(52,199,89,.12); border: 1px solid rgba(52,199,89,.35); color: #5ee08a; }
   .fp2-runchip .d { width: 7px; height: 7px; border-radius: 50%; }
   .fp2-runchip.stopped .d { background: #4a525d; }
-  .fp2-runchip.running .d { background: #34c759; }
-  .fp2-body { padding: 0 18px 20px; overflow-x: auto; }
-  .fp2-lab { width: 56px; flex: none; text-align: right; font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: .14em; color: #6d7580; }
-  .fp2-status { display: flex; align-items: flex-start; gap: 18px; padding: 18px 0; border-bottom: 1px solid rgba(255,255,255,.06); }
-  .fp2-sleds { display: flex; gap: 13px; flex-wrap: wrap; }
-  .fp2-sled { display: flex; flex-direction: column; align-items: center; width: 30px; gap: 8px; }
-  .fp2-sled small { font-family: var(--mono); font-size: 9px; color: #7f8792; }
-  .fp2-pc { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+  .fp2-runchip.running .d { background: #34c759; animation: fp-pulse 1.1s ease-in-out infinite; }
+  @keyframes fp-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+  .fp2-body { padding: 0 26px 26px; overflow-x: auto; }
+  .fp2-lab { width: 60px; flex: none; text-align: right; font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: .16em; color: #6d7580; }
+  .fp2-status { display: flex; align-items: flex-start; gap: 18px; padding: 22px 0 20px; border-bottom: 1px solid rgba(255,255,255,.06); }
+  .fp2-status .fp2-lab { padding-top: 4px; }
+  .fp2-sleds { display: flex; gap: 14px; flex-wrap: wrap; }
+  .fp2-sled { display: flex; flex-direction: column; align-items: center; width: 34px; gap: 8px; }
+  .fp2-sled small { font-family: var(--mono); font-size: 10px; letter-spacing: .04em; color: #7f8792; }
+  .fp2-pc { margin-left: auto; display: flex; align-items: center; gap: 12px; padding-top: 2px; }
   .fp2-pc .l { font-family: var(--mono); font-size: 11px; letter-spacing: .16em; color: #6d7580; }
-  .fp2-pc .v { font-family: var(--mono); font-size: 24px; font-weight: 600; letter-spacing: .06em; color: #ffb020; text-shadow: 0 0 10px rgba(255,160,30,.35); }
-  .fp2-grid { display: flex; align-items: flex-start; gap: 18px; padding: 18px 0 14px; }
-  .fp2-rail { width: 56px; flex: none; padding-top: 8px; display: flex; flex-direction: column; text-align: right; font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: .14em; color: #6d7580; }
+  .fp2-pc .v { font-family: var(--mono); font-size: 26px; font-weight: 600; letter-spacing: .06em; color: #ffb020; text-shadow: 0 0 10px rgba(255,160,30,.35); }
+  .fp2-grid { display: flex; align-items: flex-start; gap: 18px; padding: 22px 0 18px; }
+  .fp2-rail { width: 60px; flex: none; padding-top: 8px; display: flex; flex-direction: column; text-align: right; font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: .14em; color: #6d7580; }
   .fp2-rail .r { display: flex; align-items: center; justify-content: flex-end; }
-  .fp2-groups { display: flex; gap: 7px; align-items: flex-start; }
+  .fp2-groups { display: flex; width: 604px; justify-content: space-between; align-items: flex-start; }
   .fp2-group { display: flex; flex-direction: column; padding: 8px 6px 0; background: rgba(0,0,0,.28); border: 1px solid rgba(255,255,255,.05); border-radius: 10px; box-shadow: inset 0 1px 3px rgba(0,0,0,.5); }
   .fp2-grow { display: flex; gap: 6px; justify-content: center; }
   .fp2-col { display: flex; flex-direction: column; align-items: center; width: 28px; }
@@ -221,14 +224,15 @@
   .fp2-knob { position: absolute; left: 3px; width: 20px; height: 20px; border-radius: 5px; background: linear-gradient(180deg, #f6f2e6, #ccc4af); box-shadow: 0 2px 3px rgba(0,0,0,.5), inset 0 1px 1px rgba(255,255,255,.85); transition: top .12s cubic-bezier(.2,0,0,1); }
   .fp2-bnum { height: 18px; display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 11px; color: #6d7580; }
   .fp2-gdigit { margin-top: 8px; height: 32px; display: flex; align-items: center; justify-content: center; border-top: 1px solid rgba(255,255,255,.07); font-family: var(--mono); font-size: 20px; font-weight: 700; color: #ffb020; }
-  .fp2-regs { margin-left: auto; display: flex; flex-direction: column; gap: 10px; flex: none; width: 118px; }
-  .fp2-reg { background: #0c0e12; border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 10px 13px; box-shadow: inset 0 2px 6px rgba(0,0,0,.6); }
+  .fp2-regs { margin-left: auto; display: flex; flex-direction: column; gap: 10px; flex: none; width: 122px; }
+  .fp2-reg { background: #0c0e12; border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 11px 14px; box-shadow: inset 0 2px 6px rgba(0,0,0,.6); }
   .fp2-reg .k { font-family: var(--mono); font-size: 9px; letter-spacing: .16em; color: #6d7580; margin-bottom: 5px; }
-  .fp2-reg .v { font-family: var(--mono); font-size: 22px; font-weight: 600; letter-spacing: .06em; color: #ffb020; text-shadow: 0 0 10px rgba(255,160,30,.35); }
-  .fp2-ctrl { display: flex; align-items: center; gap: 18px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,.06); flex-wrap: wrap; }
+  .fp2-reg .v { font-family: var(--mono); font-size: 24px; font-weight: 600; letter-spacing: .06em; color: #ffb020; text-shadow: 0 0 10px rgba(255,160,30,.35); }
+  .fp2-ctrl { display: flex; align-items: center; gap: 18px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,.06); flex-wrap: wrap; }
   .fp2-btns { display: flex; flex-wrap: wrap; gap: 8px; }
-  .fp2-btn { display: inline-flex; align-items: center; height: 40px; padding: 0 13px; border-radius: 9px; background: #171b22; border: 1px solid rgba(255,255,255,.1); color: #c4cad3; font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: .05em; cursor: pointer; }
+  .fp2-btn { display: inline-flex; align-items: center; height: 42px; padding: 0 12px; border-radius: 9px; background: #171b22; border: 1px solid rgba(255,255,255,.1); color: #c4cad3; font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: .05em; cursor: pointer; }
   .fp2-btn:hover { background: #1e232b; border-color: rgba(255,255,255,.16); }
+  .fp2-btn.run, .fp2-btn.stop { padding: 0 17px; font-weight: 700; letter-spacing: .08em; }
   .fp2-btn.run.on { background: rgba(52,199,89,.16); border-color: rgba(52,199,89,.5); color: #5ee08a; }
   .fp2-btn.stop.on { background: rgba(255,86,79,.16); border-color: rgba(255,86,79,.5); color: #ff9a95; }
 </style>
