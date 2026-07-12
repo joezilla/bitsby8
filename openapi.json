@@ -2453,6 +2453,114 @@
         }
       }
     },
+    "/api/profiles/{id}/disks": {
+      "get": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "List a Profile's startup disk mounts",
+        "description": "Which disk image each drive gets when a machine launches from this profile. Keyed by profile name (shared across versions).",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The profile's disk bindings"
+          }
+        }
+      }
+    },
+    "/api/profiles/{id}/disks/{drive}": {
+      "put": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Bind a disk image to a Profile drive (mounts at startup)",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "drive",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "filename"
+                ],
+                "properties": {
+                  "filename": {
+                    "type": "string"
+                  },
+                  "readonly": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated bindings"
+          },
+          "404": {
+            "description": "Disk image not found"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Clear a Profile drive's startup disk",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "drive",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated bindings"
+          }
+        }
+      }
+    },
     "/api/profiles/{id}/clone": {
       "post": {
         "tags": [

@@ -595,6 +595,8 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
       // DB and the in-memory registry, then re-sync live sessions.
       await deps.database.deleteClientMountsForBase(filename);
       getClientMountRegistry().clearByBasename(filename);
+      // Drop any profile startup-disk bindings pointing at this image.
+      await deps.database.deleteProfileDisksForBase(filename);
       await deps.connectionManager?.syncAll();
 
       res.json({ success: true, filename });
@@ -844,6 +846,8 @@ export function registerImageRoutes(router: Router, deps: Dependencies): void {
       // Keep per-client drive-bay overrides attached to the renamed image.
       await deps.database.renameClientMountsBase(filename, newFilename);
       getClientMountRegistry().renameByBasename(filename, destPath);
+      // Keep profile startup-disk bindings attached to the renamed image.
+      await deps.database.renameProfileDisksBase(filename, newFilename);
       await deps.connectionManager?.syncAll();
 
       res.json({ success: true, filename: newFilename });

@@ -17,6 +17,7 @@ import { validateProfile, autoAssign } from '../services/collision-validator';
 import { exportProfile, bundleFilename, importBundle } from '../services/bundle-service';
 import { burnEprom, eraseEprom } from '../services/eprom-service';
 import { Addressing, ImageFormat } from '../services/rom-image';
+import { listProfileDisks, setProfileDisk, clearProfileDisk } from '../services/profile-disk-service';
 
 /** Normalize a request body into a ProfileContent for collision checks
  * (only memory + cards affect collisions; the rest is defaulted). */
@@ -296,6 +297,89 @@ export function registerProfileRoutes(router: Router, deps: Dependencies): void 
       const scope = req.query.scope === 'version' ? 'version' : 'all';
       await deleteProfile(deps, req.params.id, scope);
       res.json({ id: req.params.id, deleted: true, scope });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/profiles/{id}/disks:
+   *   get:
+   *     tags: [Profiles]
+   *     summary: List a Profile's startup disk mounts
+   *     description: Which disk image each drive gets when a machine launches from this profile. Keyed by profile name (shared across versions).
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *     responses:
+   *       200: { description: The profile's disk bindings }
+   * /api/profiles/{id}/disks/{drive}:
+   *   put:
+   *     tags: [Profiles]
+   *     summary: Bind a disk image to a Profile drive (mounts at startup)
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *       - in: path
+   *         name: drive
+   *         required: true
+   *         schema: { type: integer }
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [filename]
+   *             properties:
+   *               filename: { type: string }
+   *               readonly: { type: boolean }
+   *     responses:
+   *       200: { description: Updated bindings }
+   *       404: { description: Disk image not found }
+   *   delete:
+   *     tags: [Profiles]
+   *     summary: Clear a Profile drive's startup disk
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *       - in: path
+   *         name: drive
+   *         required: true
+   *         schema: { type: integer }
+   *     responses:
+   *       200: { description: Updated bindings }
+   */
+  router.get('/api/profiles/:id/disks', async (req: Request, res: Response): Promise<void> => {
+    try {
+      res.json({ disks: await listProfileDisks(deps, req.params.id) });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.put('/api/profiles/:id/disks/:drive', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { filename, readonly } = req.body ?? {};
+      if (typeof filename !== 'string') throw new ServiceError('`filename` is required', 400);
+      await setProfileDisk(deps, req.params.id, Number(req.params.drive), filename, readonly === true);
+      res.json({ disks: await listProfileDisks(deps, req.params.id) });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.delete('/api/profiles/:id/disks/:drive', async (req: Request, res: Response): Promise<void> => {
+    try {
+      await clearProfileDisk(deps, req.params.id, Number(req.params.drive));
+      res.json({ disks: await listProfileDisks(deps, req.params.id) });
     } catch (error) {
       sendError(res, error);
     }

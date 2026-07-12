@@ -311,8 +311,14 @@ export async function deleteProfile(
 ): Promise<void> {
   const rec = await deps.database.getMachineProfileById(id);
   if (!rec) return;
-  if (scope === 'all') await deps.database.deleteMachineProfilesByName(rec.name);
-  else await deps.database.deleteMachineProfile(id);
+  if (scope === 'all') {
+    await deps.database.deleteMachineProfilesByName(rec.name);
+    // Startup disks are keyed by name (shared across versions) — drop them only
+    // when the whole lineage goes, not for a single-version delete.
+    await deps.database.deleteProfileDisksForProfile(rec.name);
+  } else {
+    await deps.database.deleteMachineProfile(id);
+  }
 }
 
 /** Resolve a stored Profile reference (`name@version`, or a bare name → latest)

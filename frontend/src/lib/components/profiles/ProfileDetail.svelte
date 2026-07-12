@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/services/api';
   import { showToast } from '$lib/stores/toast';
+  import { pendingRunInstance } from '$lib/stores/pendingRun';
   import type { MachineProfile, CardDefinition, ProfileCardInstance, ProfileValidation, CpuInfo } from '$lib/types/api';
   import Button from '$lib/components/shared/Button.svelte';
   import Card from '$lib/components/shared/Card.svelte';
@@ -11,14 +12,16 @@
   import Backplane from '$lib/components/profiles/Backplane.svelte';
   import BurnEpromModal from '$lib/components/profiles/BurnEpromModal.svelte';
   import MemoryRibbon from '$lib/components/profiles/MemoryRibbon.svelte';
+  import ProfileDisks from '$lib/components/profiles/ProfileDisks.svelte';
 
   interface Props {
     id: string;
     onBack: () => void;
     onChanged: (id: string | null) => void;
     onDeleted: () => void;
+    onNavigate?: (page: 'machines') => void;
   }
-  let { id, onBack, onChanged, onDeleted }: Props = $props();
+  let { id, onBack, onChanged, onDeleted, onNavigate }: Props = $props();
 
   let profile = $state<MachineProfile | null>(null);
   let versions = $state<MachineProfile[]>([]);
@@ -216,7 +219,10 @@
       busy = true;
       const speed = launchSpeed === 'max' ? 'max' : Number(launchSpeed);
       const { instance } = await api.launchTransient(profile.id, speed);
-      showToast(`Launched instance ${instance.id.slice(0, 8)}… (mount a boot disk on drive 0 to boot)`, 'success');
+      // Jump straight into the Run cockpit for the freshly-launched instance;
+      // the Machines page opens it once it appears in its polled list.
+      pendingRunInstance.set(instance.id);
+      onNavigate?.('machines');
     } catch (err) {
       showToast((err as Error).message, 'error');
     } finally {
@@ -357,117 +363,119 @@
       </div>
     {/if}
 
-    <div class="cols">
-      <div class="col">
-        <Card raised>
-          <h2 class="sec">Configuration</h2>
-          <dl class="kv">
-            <dt>CPU</dt>
-            <dd>
-              {#if cpuCard}
-                {@const ck = cpus.find((c) => c.ref === cpuCard.ref)?.name ?? cpuKind}
-                <span class="fdc-mono">{ck}</span>
-                <span class="cpu-note">set by card <span class="fdc-mono">{cpuCard.id}</span></span>
-              {:else}
-                <select class="inp sm" bind:value={cpuKind} aria-label="CPU">
-                  {#each cpus as c (c.kind)}<option value={c.kind}>{c.name}</option>{/each}
-                </select>
-              {/if}
-            </dd>
-            <dt>Clock</dt>
-            <dd>
-              <div class="clock-edit">
-                <label><input type="radio" bind:group={clockMode} value="max" /> max</label>
-                <label><input type="radio" bind:group={clockMode} value="hz" /> fixed</label>
-                {#if clockMode === 'hz'}
-                  <input class="inp sm fdc-mono" type="number" bind:value={clockHz} min="1000" step="1000" />
-                  <span class="unit">Hz</span>
-                {/if}
-              </div>
-            </dd>
-            <dt>Reset vector</dt>
-            <dd>
-              <HexInput
-                value={resetVector}
-                min={0}
-                max={0xffff}
-                ariaLabel="reset vector (hex)"
-                onchange={(n) => (resetVector = n)}
-              />
-            </dd>
-            <dt>Console card</dt>
-            <dd class="fdc-mono">{p.consoleCardId ?? '—'}</dd>
-          </dl>
-        </Card>
+    <!-- spec bar (CPU · Clock · Reset vector · Console) -->
+    <div class="specbar">
+      <div class="spec-cell">
+        <div class="spec-lab">CPU</div>
+        <div class="spec-val">
+          {#if cpuCard}
+            {@const ck = cpus.find((c) => c.ref === cpuCard.ref)?.name ?? cpuKind}
+            <span class="fdc-mono">{ck}</span>
+            <span class="cpu-note">set by card <span class="fdc-mono">{cpuCard.id}</span></span>
+          {:else}
+            <select class="inp sm" bind:value={cpuKind} aria-label="CPU">
+              {#each cpus as c (c.kind)}<option value={c.kind}>{c.name}</option>{/each}
+            </select>
+          {/if}
+        </div>
+      </div>
+      <div class="spec-cell">
+        <div class="spec-lab">Clock</div>
+        <div class="spec-val">
+          <div class="clock-edit">
+            <label><input type="radio" bind:group={clockMode} value="max" /> max</label>
+            <label><input type="radio" bind:group={clockMode} value="hz" /> fixed</label>
+            {#if clockMode === 'hz'}
+              <input class="inp sm fdc-mono" type="number" bind:value={clockHz} min="1000" step="1000" />
+              <span class="unit">Hz</span>
+            {/if}
+          </div>
+        </div>
+      </div>
+      <div class="spec-cell">
+        <div class="spec-lab">Reset vector</div>
+        <div class="spec-val">
+          <HexInput value={resetVector} min={0} max={0xffff} ariaLabel="reset vector (hex)" onchange={(n) => (resetVector = n)} />
+        </div>
+      </div>
+      <div class="spec-cell">
+        <div class="spec-lab">Console card</div>
+        <div class="spec-val fdc-mono">{p.consoleCardId ?? '—'}</div>
+      </div>
+    </div>
 
-        <Card raised>
-          <h2 class="sec">Notes</h2>
-          <textarea class="inp area" bind:value={notes} placeholder="What is this machine for?"></textarea>
-        </Card>
+    <Card raised>
+      <h2 class="sec">Memory layout</h2>
+      {@const bands = validation?.memoryMap ?? p.memory.map((m) => ({ ...m, source: 'profile' as const }))}
+      <MemoryRibbon map={bands} {resetVector} />
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr><th>Region</th><th>Kind</th><th>Range</th><th>Source</th></tr></thead>
+          <tbody>
+            {#each [...bands].sort((a, b) => a.base - b.base) as m (m.id)}
+              <tr>
+                <td class="fdc-mono">{m.id}</td>
+                <td>{m.kind}</td>
+                <td class="fdc-mono">{hex(m.base)}–{hex(m.base + m.size - 1)}</td>
+                <td class="muted">{m.source === 'card' ? 'card' : 'profile'}</td>
+              </tr>
+            {/each}
+            {#if bands.length === 0}
+              <tr><td colspan="4" class="muted">No memory mapped. Add a RAM or EPROM card.</td></tr>
+            {/if}
+          </tbody>
+        </table>
+      </div>
+    </Card>
 
-        <div class="save-bar">
+    <Card raised>
+      <div class="sec-row">
+        <h2 class="sec">S-100 backplane</h2>
+        <span class="pill">{editCards.length} card{editCards.length === 1 ? '' : 's'}</span>
+      </div>
+      <Backplane
+        cards={editCards}
+        {catalog}
+        offenders={offenderIds}
+        claims={validation?.claims ?? []}
+        collisions={validation?.collisions ?? []}
+        memory={p.memory}
+        onchange={(c) => (editCards = c)}
+        onburn={openBurn}
+        onerase={eraseRom}
+      />
+      <!-- inline notes + save footer -->
+      <div class="notes-save">
+        <label class="notes-field">
+          <span class="fdc-overline">Notes</span>
+          <input class="inp" bind:value={notes} placeholder="What is this machine for?" />
+        </label>
+        <div class="save-actions">
           <span class="muted">{dirty ? 'Saving writes a new version.' : 'No unsaved changes.'}</span>
           <Button variant="filled" icon="save" onclick={save} disabled={busy || !dirty}>Save new version</Button>
         </div>
       </div>
+    </Card>
 
-      <div class="col">
-        <Card raised>
-          <h2 class="sec">Memory layout</h2>
-          {@const bands = validation?.memoryMap ?? p.memory.map((m) => ({ ...m, source: 'profile' as const }))}
-          <MemoryRibbon map={bands} {resetVector} />
-          <div class="table-wrap">
-            <table class="tbl">
-              <thead><tr><th>Region</th><th>Kind</th><th>Range</th><th>Source</th></tr></thead>
-              <tbody>
-                {#each [...bands].sort((a, b) => a.base - b.base) as m (m.id)}
-                  <tr>
-                    <td class="fdc-mono">{m.id}</td>
-                    <td>{m.kind}</td>
-                    <td class="fdc-mono">{hex(m.base)}–{hex(m.base + m.size - 1)}</td>
-                    <td class="muted">{m.source === 'card' ? 'card' : 'profile'}</td>
-                  </tr>
-                {/each}
-                {#if bands.length === 0}
-                  <tr><td colspan="4" class="muted">No memory mapped. Add a RAM or EPROM card.</td></tr>
-                {/if}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+    <Card raised>
+      <ProfileDisks profileId={p.id} />
+    </Card>
 
-        <Card raised>
-          <div class="sec-row">
-            <h2 class="sec">S-100 backplane</h2>
-            <span class="pill">{editCards.length} card{editCards.length === 1 ? '' : 's'}</span>
-          </div>
-          <Backplane
-            cards={editCards}
-            {catalog}
-            offenders={offenderIds}
-            claims={validation?.claims ?? []}
-            collisions={validation?.collisions ?? []}
-            memory={p.memory}
-            onchange={(c) => (editCards = c)}
-            onburn={openBurn}
-            onerase={eraseRom}
-          />
-        </Card>
-
-        <Card raised>
-          <h2 class="sec">Versions</h2>
-          <ul class="versions">
-            {#each versions as v (v.id)}
-              <li class:current={v.id === p.id}>
-                <span class="fdc-mono">v{v.version}</span>
-                {#if v.id === p.id}<Chip size="sm" color="green">current</Chip>{/if}
-                <span class="digest fdc-mono" title={v.digest}>{v.digest}</span>
-              </li>
-            {/each}
-          </ul>
-        </Card>
+    <Card raised>
+      <div class="sec-row">
+        <h2 class="sec">Versions</h2>
+        <span class="pill">{versions.length}</span>
       </div>
-    </div>
+      <ul class="versions">
+        {#each versions as v (v.id)}
+          <li class:current={v.id === p.id}>
+            <span class="fdc-mono">v{v.version}</span>
+            {#if v.id === p.id}<Chip size="sm" color="green">current</Chip>{/if}
+            <span class="digest fdc-mono" title={v.digest}>{v.digest}</span>
+          </li>
+        {/each}
+      </ul>
+    </Card>
   {/if}
 </div>
 
@@ -620,21 +628,35 @@
     color: var(--fg-2);
   }
 
-  .cols {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: var(--space-4);
-  }
-  @media (min-width: 900px) {
-    .cols {
-      grid-template-columns: 1fr 1fr;
-    }
-  }
-  .col {
+  /* horizontal spec bar (was the left-column Configuration card) */
+  .specbar {
     display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
-    min-width: 0;
+    align-items: stretch;
+    flex-wrap: wrap;
+    background: var(--surface-raised);
+    border: 1px solid var(--border-1);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+  .spec-cell {
+    flex: 1;
+    min-width: 170px;
+    padding: 13px 18px;
+    border-right: 1px solid var(--border-1);
+  }
+  .spec-cell:last-child {
+    border-right: none;
+  }
+  .spec-lab {
+    font: var(--text-overline);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--fg-3);
+    margin-bottom: 7px;
+  }
+  .spec-val {
+    color: var(--fg-1);
+    font-size: 14px;
   }
 
   .sec {
@@ -659,24 +681,6 @@
     padding: 1px 6px;
   }
 
-  .kv {
-    display: grid;
-    grid-template-columns: max-content 1fr;
-    gap: var(--space-2) var(--space-4);
-    margin: 0;
-    align-items: center;
-  }
-  .kv dt {
-    font: var(--text-overline);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--fg-3);
-  }
-  .kv dd {
-    margin: 0;
-    color: var(--fg-1);
-    font-size: 14px;
-  }
   .clock-edit {
     display: flex;
     align-items: center;
@@ -708,11 +712,6 @@
     height: 30px;
     padding: 0 var(--space-2);
   }
-  .inp.area {
-    width: 100%;
-    min-height: 64px;
-    resize: vertical;
-  }
   .unit {
     color: var(--fg-3);
     font-size: 12px;
@@ -724,11 +723,32 @@
     margin-left: 8px;
   }
 
-  .save-bar {
+  /* inline notes + save footer inside the backplane card */
+  .notes-save {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--border-1);
+  }
+  .notes-field {
+    flex: 1;
+    min-width: 240px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .notes-field .inp {
+    width: 100%;
+    height: 40px;
+  }
+  .save-actions {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: var(--space-3);
+    flex: none;
   }
 
   .table-wrap {

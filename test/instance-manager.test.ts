@@ -15,6 +15,7 @@ import { Dependencies } from '../src/types';
 import { InstanceManager, INSTANCE_CLIENT_PREFIX } from '../src/services/instance-manager';
 import { MachineProfile } from '../src/services/resolver';
 import { _setSimForTests, SimModule } from '../src/services/bundle-registry';
+import { getClientMountRegistry } from '../src/client-mount-registry';
 
 const closedChannels: string[] = [];
 
@@ -210,6 +211,40 @@ describe('InstanceManager keyboard cards (Story 5.9)', () => {
     const info = await im.define(profile, 'ref');
     expect(im.listKeyboards(info.id)).toEqual([]);
     expect(() => im.sendKeys(info.id, [0x41])).toThrow(/no keyboard card/);
+  });
+});
+
+describe('InstanceManager startup disks (profile_disks)', () => {
+  async function depsWithDisks() {
+    const disksDir = await fs.mkdtemp(path.join(os.tmpdir(), 'fdcsds-im-disks-'));
+    await fs.writeFile(path.join(disksDir, 'boot.dsk'), Buffer.alloc(16));
+    const deps = await makeDeps();
+    (deps as unknown as { config: { disksDir: string } }).config = { disksDir };
+    return { deps, disksDir };
+  }
+
+  test('launch seeds the profile’s disks as this instance’s client-mount overrides; teardown clears them', async () => {
+    const { deps, disksDir } = await depsWithDisks();
+    await deps.database.setProfileDisk('mach', 0, 'boot.dsk', true);
+    const im = new InstanceManager(deps);
+    const info = await im.createTransient(profile, 'mach@1.0.0');
+
+    const overrides = getClientMountRegistry().forClient(info.clientId);
+    const drive0 = overrides.get(0);
+    expect(drive0?.readonly).toBe(true);
+    expect(path.basename(drive0?.filename ?? '')).toBe('boot.dsk'); // absolute realpath under disksDir
+    expect(drive0?.filename).toContain(path.basename(disksDir));
+
+    await im.destroy(info.id);
+    expect(getClientMountRegistry().forClient(info.clientId).size).toBe(0);
+  });
+
+  test('a preset/inline machine gets no startup-disk overrides', async () => {
+    const { deps } = await depsWithDisks();
+    await deps.database.setProfileDisk('mach', 0, 'boot.dsk', false);
+    const im = new InstanceManager(deps);
+    const info = await im.createTransient(profile); // profileRef defaults to 'inline'
+    expect(getClientMountRegistry().forClient(info.clientId).size).toBe(0);
   });
 });
 

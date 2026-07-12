@@ -58,6 +58,14 @@ export interface ClientMount {
   updated_at: string;
 }
 
+export interface ProfileDisk {
+  profile_name: string;
+  drive: number;
+  filename: string;
+  readonly: number; // SQLite 0/1
+  updated_at: string;
+}
+
 export interface ClientLabel {
   client_id: string;
   name: string;
@@ -266,6 +274,21 @@ const MIGRATIONS: string[] = [
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
   CREATE INDEX IF NOT EXISTS idx_instance_snapshots_instance ON instance_snapshots(instance_id);`,
+
+  // Migration 10: per-profile startup disk mounts (Bitsby8). Which disk image
+  // (if any) each drive gets when a machine is launched from a profile. Keyed by
+  // profile NAME (not name@version), so the disk set follows the machine lineage
+  // across saved versions. Applied at launch as per-instance mount overrides —
+  // profiles stay content-addressed, so disks live here, never in profile content.
+  `CREATE TABLE IF NOT EXISTS profile_disks (
+    profile_name TEXT NOT NULL,
+    drive INTEGER NOT NULL,
+    filename TEXT NOT NULL,
+    readonly INTEGER NOT NULL DEFAULT 0,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (profile_name, drive)
+  );
+  CREATE INDEX IF NOT EXISTS idx_profile_disks_filename ON profile_disks(filename);`,
 ];
 
 export class Database {
@@ -698,6 +721,55 @@ export class Database {
   async deleteClientMountsForClient(clientId: string): Promise<void> {
     this.ensureInitialized();
     this.db!.prepare('DELETE FROM client_mounts WHERE client_id = ?').run(clientId);
+  }
+
+  // --- Per-profile startup disk mounts (profile_disks) --------------------
+
+  /** List a profile's startup disk bindings (by profile name), sorted by drive. */
+  async listProfileDisks(profileName: string): Promise<ProfileDisk[]> {
+    this.ensureInitialized();
+    return this.db!.prepare(
+      'SELECT * FROM profile_disks WHERE profile_name = ? ORDER BY drive'
+    ).all(profileName) as ProfileDisk[];
+  }
+
+  /** Set (or replace) a profile's disk binding for one drive. */
+  async setProfileDisk(profileName: string, drive: number, filename: string, readonly: boolean): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare(
+      `INSERT INTO profile_disks (profile_name, drive, filename, readonly, updated_at)
+       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(profile_name, drive) DO UPDATE SET
+         filename = excluded.filename,
+         readonly = excluded.readonly,
+         updated_at = CURRENT_TIMESTAMP`
+    ).run(profileName, drive, filename, readonly ? 1 : 0);
+  }
+
+  /** Clear a profile's binding on one drive. */
+  async deleteProfileDisk(profileName: string, drive: number): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM profile_disks WHERE profile_name = ? AND drive = ?').run(profileName, drive);
+  }
+
+  /** Remove all of a profile's disk bindings (used when the profile is deleted). */
+  async deleteProfileDisksForProfile(profileName: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM profile_disks WHERE profile_name = ?').run(profileName);
+  }
+
+  /** Delete every profile binding that points at a base image (base deleted). */
+  async deleteProfileDisksForBase(filename: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM profile_disks WHERE filename = ?').run(filename);
+  }
+
+  /** Repoint profile bindings when a base image is renamed. */
+  async renameProfileDisksBase(oldFilename: string, newFilename: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare(
+      'UPDATE profile_disks SET filename = ?, updated_at = CURRENT_TIMESTAMP WHERE filename = ?'
+    ).run(newFilename, oldFilename);
   }
 
   // --- Per-client friendly names (client_labels) --------------------------

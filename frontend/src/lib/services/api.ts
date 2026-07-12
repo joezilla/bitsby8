@@ -539,6 +539,22 @@ export const api = {
       { method: 'DELETE' },
     ),
 
+  // Per-profile startup disk mounts (which images mount when a machine launches).
+  listProfileDisks: (id: string) =>
+    request<{ disks: { drive: number; filename: string; readonly: boolean }[] }>(
+      `/api/profiles/${encodeURIComponent(id)}/disks`,
+    ),
+  setProfileDisk: (id: string, drive: number, filename: string, readonly: boolean) =>
+    request<{ disks: { drive: number; filename: string; readonly: boolean }[] }>(
+      `/api/profiles/${encodeURIComponent(id)}/disks/${drive}`,
+      { method: 'PUT', body: JSON.stringify({ filename, readonly }) },
+    ),
+  clearProfileDisk: (id: string, drive: number) =>
+    request<{ disks: { drive: number; filename: string; readonly: boolean }[] }>(
+      `/api/profiles/${encodeURIComponent(id)}/disks/${drive}`,
+      { method: 'DELETE' },
+    ),
+
   validateProfileBody: (body: { memory?: unknown[]; cards?: unknown[] }) =>
     request<ProfileValidation>('/api/profiles/validate', { method: 'POST', body: JSON.stringify(body) }),
   autoAssignProfile: (body: { memory?: unknown[]; cards?: unknown[] }) =>

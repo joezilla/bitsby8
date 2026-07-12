@@ -13,6 +13,7 @@ import { MachineProfile } from './resolver';
 import { getPreset, listPresets, MachinePreset } from './presets';
 import { resolveProfileRef } from './profile-service';
 import { getMountRegistry } from '../mount-registry';
+import { getClientMountRegistry } from '../client-mount-registry';
 import * as path from 'path';
 
 /** A disk bound to an instance (an operator mount) + its per-instance dirty state. */
@@ -29,9 +30,18 @@ export type InstanceStatus = InstanceInfo & { disks: DiskBinding[] };
 /** Enumerate an instance's bound disks (operator mounts) with its splinter
  * dirty state (copy-on-write writes are tracked per `inst:<uuid>` clientId). */
 async function disksFor(deps: Dependencies, clientId: string): Promise<DiskBinding[]> {
-  const mounts = getMountRegistry().all();
+  // The instance's effective drives: the global operator mounts overlaid with
+  // this instance's per-client overrides (its profile's startup disks win on the
+  // drives they bind; the rest inherit the global mount).
+  const effective = new Map<number, { filename: string; readonly: boolean }>();
+  for (const [drive, entry] of getMountRegistry().all()) {
+    effective.set(drive, { filename: entry.filename, readonly: entry.readonly });
+  }
+  for (const [drive, entry] of getClientMountRegistry().forClient(clientId)) {
+    effective.set(drive, { filename: entry.filename, readonly: entry.readonly });
+  }
   const out: DiskBinding[] = [];
-  for (const [drive, entry] of [...mounts.entries()].sort((a, b) => a[0] - b[0])) {
+  for (const [drive, entry] of [...effective.entries()].sort((a, b) => a[0] - b[0])) {
     const splinter = await deps.database.getClientSplinter(clientId, drive).catch(() => null);
     out.push({
       drive,

@@ -23,6 +23,9 @@ import { ConsoleHub, ConsoleSubscriber, consoleSourceFromCard } from './console-
 import { GpioPort, gpioSourceFromCard } from './gpio-hub';
 import { DisplaySurface, displaySourceFromCard } from './display-hub';
 import { KeyboardSink, keyboardSourceFromCard } from './keyboard-hub';
+import { profileNameOf } from './profile-disk-service';
+import { getClientMountRegistry } from '../client-mount-registry';
+import { safeResolvePath } from '../utils/safe-path';
 import { createLogger } from '../logger';
 
 const log = createLogger('instance-manager');
@@ -217,9 +220,29 @@ export class InstanceManager {
     return inst;
   }
 
+  /** Seed this instance's per-client mount overrides from the profile's startup
+   * disks (Bitsby8). Overlay semantics — only the drives the profile binds. */
+  private async applyStartupDisks(inst: RunningInstance): Promise<void> {
+    const name = profileNameOf(inst.profileRef);
+    if (!name) return; // presets / inline machines carry no startup disks
+    const disks = await this.deps.database.listProfileDisks(name).catch(() => []);
+    const registry = getClientMountRegistry();
+    for (const d of disks) {
+      const full = safeResolvePath(this.deps.config.disksDir, d.filename);
+      if (!full) continue; // image since deleted — skip rather than fail the launch
+      registry.set(inst.clientId, d.drive, full, d.readonly === 1);
+    }
+  }
+
   private async startInstance(inst: RunningInstance): Promise<void> {
     const sim = await getSim();
     const { spec } = await resolveProfile(this.deps, inst.profile);
+    // Apply the profile's startup disks as this instance's mount overrides
+    // (overlay — only the drives it specifies; the rest inherit global mounts).
+    // In-memory only: the clientId is ephemeral and re-derived from profile_disks
+    // on every start, so nothing needs to persist. Must happen BEFORE the
+    // DriveSession is created below, which reads these on its initial sync.
+    await this.applyStartupDisks(inst);
     // Give the machine its own in-process FDC client (own splinter).
     const { channel, id: connId } = await this.cm().addInProcessClient(inst.clientId);
     let machine: Machine;
@@ -308,6 +331,7 @@ export class InstanceManager {
     inst.keyboard = undefined;
     inst.panelAddr = undefined;
     inst.startedAt = undefined;
+    getClientMountRegistry().clearClient(inst.clientId); // drop this instance's startup-disk overrides
   }
 
   /** The console hub of a running instance (throws if not running / no console). */

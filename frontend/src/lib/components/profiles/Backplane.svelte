@@ -140,23 +140,14 @@
         <li class="slot">
           <div class="slot-rail" aria-hidden="true"><span class="slot-no fdc-mono">{i + 1}</span></div>
           <div class="board" class:collision={offenders.has(card.id)}>
-            <div class="board-head">
-              <div class="board-id">
-                <span class="cid fdc-mono">
-                  {#if offenders.has(card.id)}<Icon name="error" size={16} />{/if}
-                  {card.id}
-                </span>
-                <span class="cref fdc-mono">{card.ref}</span>
-              </div>
-              <div class="board-actions">
-                <button class="iconbtn" title="Move up" aria-label="Move {card.id} up"
-                  onclick={() => move(i, -1)} disabled={i === 0}><Icon name="arrow_upward" size={18} /></button>
-                <button class="iconbtn" title="Move down" aria-label="Move {card.id} down"
-                  onclick={() => move(i, 1)} disabled={i === cards.length - 1}><Icon name="arrow_downward" size={18} /></button>
-                <button class="iconbtn danger" title="Remove" aria-label="Remove {card.id}"
-                  onclick={() => removeCard(i)}><Icon name="close" size={18} /></button>
-              </div>
+            <div class="board-id">
+              <span class="cid fdc-mono">
+                {#if offenders.has(card.id)}<Icon name="error" size={16} />{/if}
+                {card.id}
+              </span>
+              <span class="cref fdc-mono">{card.ref}</span>
             </div>
+            <div class="board-body">
             {#if params.length}
               <div class="params">
                 {#each params as [param, spec] (param)}
@@ -225,6 +216,15 @@
                 </div>
               </div>
             {/if}
+            </div>
+            <div class="board-actions">
+              <button class="iconbtn" title="Move up" aria-label="Move {card.id} up"
+                onclick={() => move(i, -1)} disabled={i === 0}><Icon name="arrow_upward" size={18} /></button>
+              <button class="iconbtn" title="Move down" aria-label="Move {card.id} down"
+                onclick={() => move(i, 1)} disabled={i === cards.length - 1}><Icon name="arrow_downward" size={18} /></button>
+              <button class="iconbtn danger" title="Remove" aria-label="Remove {card.id}"
+                onclick={() => removeCard(i)}><Icon name="close" size={18} /></button>
+            </div>
           </div>
         </li>
       {/each}
@@ -307,10 +307,11 @@
     background: var(--surface-raised);
     border: 1px solid var(--border-2);
     border-radius: var(--radius-sm);
-    padding: var(--space-3);
+    padding: var(--space-3) var(--space-4);
     display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
+    flex-direction: row;
+    align-items: flex-start;
+    gap: var(--space-4);
   }
   .board.collision {
     border-color: var(--error);
@@ -322,16 +323,21 @@
     align-items: center;
     gap: 3px;
   }
-  .board-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2);
-  }
   .board-id {
+    flex: none;
+    width: 150px;
     display: flex;
     flex-direction: column;
+    gap: 3px;
     min-width: 0;
+    padding-top: 4px;
+  }
+  .board-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
   }
   .cid {
     font-size: 14px;
@@ -343,8 +349,10 @@
     color: var(--fg-4);
   }
   .board-actions {
+    flex: none;
     display: flex;
     gap: 2px;
+    padding-top: 2px;
   }
   .iconbtn {
     display: grid;
