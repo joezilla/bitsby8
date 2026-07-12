@@ -520,6 +520,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ name }),
     }),
+  resetProfile: (id: string) =>
+    request<{ profile: MachineProfile }>(`/api/profiles/${encodeURIComponent(id)}/reset`, {
+      method: 'POST',
+    }),
   deleteProfile: (id: string) =>
     request(`/api/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   exportProfile: (id: string) =>

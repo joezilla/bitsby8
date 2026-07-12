@@ -77,7 +77,7 @@
       if (res.unresolved.length) {
         showToast(`Auto-assigned; ${res.unresolved.length} card(s) need manual fixing: ${res.unresolved.join(', ')}`, 'error');
       } else {
-        showToast('Auto-assigned collision-free ports', 'success');
+        showToast('Auto-assigned collision-free ports and memory', 'success');
       }
     } catch (err) {
       showToast((err as Error).message, 'error');
@@ -301,6 +301,27 @@
     }
   }
 
+  // A preset is a living template: it edits in place (no version churn) and can
+  // be reset to its shipped default.
+  const isPreset = $derived(profile?.source === 'preset');
+
+  async function resetToDefault() {
+    if (!profile) return;
+    if (!confirm(`Reset preset "${profile.name}" to its shipped default? Your edits to it are discarded.`)) return;
+    try {
+      busy = true;
+      const { profile: np } = await api.resetProfile(profile.id);
+      showToast('Preset reset to default', 'success');
+      onChanged(np.id);
+      id = np.id;
+      await load();
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      busy = false;
+    }
+  }
+
   onMount(load);
 </script>
 
@@ -313,7 +334,7 @@
     {@const p = profile}
     <header class="head">
       <div class="head-main">
-        <span class="fdc-overline">Machine Profile</span>
+        <span class="fdc-overline">{isPreset ? 'Preset · editable template' : 'Machine Profile'}</span>
         <h1 class="title">{p.name}</h1>
         <div class="idrow">
           <Chip size="sm" color="amber">v{p.version}</Chip>
@@ -341,6 +362,9 @@
         </Button>
         <Button variant="ghost" icon="edit" onclick={rename} disabled={busy}>Rename</Button>
         <Button variant="outline" icon="content_copy" onclick={clone} disabled={busy}>Clone</Button>
+        {#if isPreset}
+          <Button variant="ghost" icon="restart_alt" onclick={resetToDefault} disabled={busy}>Reset</Button>
+        {/if}
         <Button variant="ghost" icon="download" onclick={exportBundle} disabled={busy}>Export</Button>
         <Button variant="ghost" icon="delete" danger onclick={remove} disabled={busy}>Delete</Button>
       </div>
@@ -470,8 +494,12 @@
           <input class="inp" bind:value={notes} placeholder="What is this machine for?" />
         </label>
         <div class="save-actions">
-          <span class="muted">{dirty ? 'Saving writes a new version.' : 'No unsaved changes.'}</span>
-          <Button variant="filled" icon="save" onclick={save} disabled={busy || !dirty}>Save new version</Button>
+          <span class="muted">
+            {#if !dirty}No unsaved changes.{:else if isPreset}Saving updates this preset in place.{:else}Saving writes a new version.{/if}
+          </span>
+          <Button variant="filled" icon="save" onclick={save} disabled={busy || !dirty}>
+            {isPreset ? 'Save preset' : 'Save new version'}
+          </Button>
         </div>
       </div>
     </Card>

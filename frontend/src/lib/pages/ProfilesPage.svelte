@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/services/api';
   import { showToast } from '$lib/stores/toast';
-  import type { MachineProfile, MachinePresetInfo } from '$lib/types/api';
+  import type { MachineProfile } from '$lib/types/api';
   import PageHeader from '$lib/components/shared/PageHeader.svelte';
   import Button from '$lib/components/shared/Button.svelte';
   import Chip from '$lib/components/shared/Chip.svelte';
@@ -15,9 +15,13 @@
   let { onNavigate }: Props = $props();
 
   let profiles = $state<MachineProfile[]>([]);
-  let presets = $state<MachinePresetInfo[]>([]);
   let loading = $state(true);
   let selectedId = $state<string | null>(null);
+
+  // Presets are profiles marked source:'preset' — editable templates you clone
+  // a new machine from. Everything else is a user machine.
+  const presetProfiles = $derived(profiles.filter((p) => p.source === 'preset'));
+  const userProfiles = $derived(profiles.filter((p) => p.source !== 'preset'));
 
   // Create panel
   let creating = $state(false);
@@ -53,10 +57,9 @@
   async function load() {
     try {
       loading = true;
-      const [p, pr] = await Promise.all([api.listProfiles(), api.listMachinePresets()]);
+      const p = await api.listProfiles();
       profiles = p.profiles;
-      presets = pr.presets;
-      if (!newPreset && presets.length) newPreset = presets[0].id;
+      if (!newPreset && presetProfiles.length) newPreset = presetProfiles[0].id;
     } catch (err) {
       showToast(`Failed to load profiles: ${(err as Error).message}`, 'error');
     } finally {
@@ -66,7 +69,7 @@
 
   function openCreate() {
     newName = '';
-    if (presets.length) newPreset = presets[0].id;
+    if (presetProfiles.length) newPreset = presetProfiles[0].id;
     creating = true;
   }
 
@@ -77,7 +80,9 @@
     }
     try {
       busy = true;
-      const { profile } = await api.createProfile({ name: newName.trim(), preset: newPreset });
+      // A new machine is an independent clone of the chosen preset (so preset
+      // edits flow into new machines, and the clone versions on its own).
+      const { profile } = await api.cloneProfile(newPreset, newName.trim());
       showToast(`Created ${profile.id}`, 'success');
       creating = false;
       await load();
@@ -125,8 +130,8 @@
   <div class="fdc-page-body profiles">
     {#if creating}
       <div class="create card">
-        <h2 class="sec">New profile from a preset</h2>
-        <p class="hint">Seeds a full bootable machine (boot ROM + cards) you can then edit. Blank/scratch authoring lands with the backplane editor (Story 2.4).</p>
+        <h2 class="sec">New machine from a preset</h2>
+        <p class="hint">Clones a preset into your own machine you can edit freely. Start from <strong>Blank Machine</strong> for a bare CPU + RAM, or a full bootable preset.</p>
         <div class="create-row">
           <label class="field">
             <span>Name</span>
@@ -135,7 +140,7 @@
           <label class="field">
             <span>Preset</span>
             <select class="inp" bind:value={newPreset}>
-              {#each presets as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
+              {#each presetProfiles as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
             </select>
           </label>
           <div class="create-actions">
@@ -144,10 +149,28 @@
           </div>
         </div>
         {#if newPreset}
-          <p class="preset-desc">{presets.find((p) => p.id === newPreset)?.description ?? ''}</p>
+          <p class="preset-desc">{presetProfiles.find((p) => p.id === newPreset)?.notes ?? ''}</p>
         {/if}
       </div>
     {/if}
+
+    {#snippet profileCard(p: MachineProfile)}
+      <button class="card-btn" onclick={() => (selectedId = p.id)} aria-label="Open {p.name}">
+        <div class="card-body">
+          <div class="card-top">
+            <span class="pname">{p.name}</span>
+            {#if p.source === 'preset'}<Chip size="sm" color="cyan">preset</Chip>{:else}<Chip size="sm" color="amber">v{p.version}</Chip>{/if}
+          </div>
+          <div class="specs">
+            <span class="spec fdc-mono">{p.cpuKind}</span>
+            <span class="spec fdc-mono">{clockLabel(p.clock)}</span>
+            <span class="spec">{p.cards.length} card{p.cards.length === 1 ? '' : 's'}</span>
+          </div>
+          {#if p.notes}<p class="notes">{p.notes}</p>{/if}
+          <span class="open-hint"><Icon name="arrow_forward" size={16} />Open</span>
+        </div>
+      </button>
+    {/snippet}
 
     {#if loading}
       <p class="muted">Loading profiles…</p>
@@ -158,25 +181,20 @@
         <Button variant="outline" size="sm" icon="add" onclick={openCreate}>Create your first profile</Button>
       </div>
     {:else}
-      <div class="grid">
-        {#each profiles as p (p.id)}
-          <button class="card-btn" onclick={() => (selectedId = p.id)} aria-label="Open {p.name} profile">
-            <div class="card-body">
-              <div class="card-top">
-                <span class="pname">{p.name}</span>
-                <Chip size="sm" color="amber">v{p.version}</Chip>
-              </div>
-              <div class="specs">
-                <span class="spec fdc-mono">{p.cpuKind}</span>
-                <span class="spec fdc-mono">{clockLabel(p.clock)}</span>
-                <span class="spec">{p.cards.length} card{p.cards.length === 1 ? '' : 's'}</span>
-              </div>
-              {#if p.notes}<p class="notes">{p.notes}</p>{/if}
-              <span class="open-hint"><Icon name="arrow_forward" size={16} />Open</span>
-            </div>
-          </button>
-        {/each}
-      </div>
+      {#if presetProfiles.length}
+        <div class="section-head"><h2 class="sec">Presets</h2><span class="sub">editable templates — clone one for a new machine, or edit in place</span></div>
+        <div class="grid">
+          {#each presetProfiles as p (p.id)}{@render profileCard(p)}{/each}
+        </div>
+      {/if}
+      <div class="section-head"><h2 class="sec">Your machines</h2></div>
+      {#if userProfiles.length}
+        <div class="grid">
+          {#each userProfiles as p (p.id)}{@render profileCard(p)}{/each}
+        </div>
+      {:else}
+        <p class="muted">No machines yet — clone a preset above with “New profile”.</p>
+      {/if}
     {/if}
   </div>
 {/if}
@@ -202,6 +220,17 @@
     margin: 0;
     font: var(--text-title-sm);
     color: var(--fg-1);
+  }
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-top: var(--space-2);
+  }
+  .section-head .sub {
+    font: var(--text-body-sm);
+    color: var(--fg-3);
   }
   .hint {
     margin: 0;
