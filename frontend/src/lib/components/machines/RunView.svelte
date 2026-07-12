@@ -9,6 +9,7 @@
   import MonitorPanel from '$lib/components/machines/MonitorPanel.svelte';
   import GpioPanel from '$lib/components/machines/GpioPanel.svelte';
   import FrontPanel from '$lib/components/machines/FrontPanel.svelte';
+  import { getCockpitLayout, setCockpitLayout } from '$lib/stores/cockpitLayout';
   import { onMount } from 'svelte';
 
   interface Props {
@@ -19,10 +20,21 @@
   }
   let { instance, onBack, onChanged }: Props = $props();
 
+  // Panel collapse/maximize state is remembered per machine (keyed by instance
+  // id) so re-opening a cockpit — or navigating away and back — restores it
+  // instead of snapping to defaults.
+  // svelte-ignore state_referenced_locally -- one-time read; RunView is remounted per instance
+  const saved = getCockpitLayout(instance.id);
   // Console + monitor layout: both 50/50, or one maximized (the other a rail).
-  let duo = $state<'both' | 'cmax' | 'mmax'>('both');
-  let gpioOpen = $state(true);
+  let duo = $state<'both' | 'cmax' | 'mmax'>(saved.duo);
+  let frontPanelOpen = $state(saved.frontPanelOpen);
+  let gpioOpen = $state(saved.gpioOpen);
   let busy = $state(false);
+
+  // Persist any change back to the per-machine layout store.
+  $effect(() => {
+    setCockpitLayout(instance.id, { duo, frontPanelOpen, gpioOpen });
+  });
 
   // Does this machine have a keyboard input card? If so, physical keystrokes
   // feed the guest's keyboard port (a serial-less video terminal) instead of
@@ -107,7 +119,7 @@
 
   <div class="stack">
     <!-- Live Altair-style front panel — CPU introspection + examine/deposit/step -->
-    <FrontPanel instanceId={instance.id} />
+    <FrontPanel instanceId={instance.id} bind:open={frontPanelOpen} />
 
     <!-- Console | Monitor -->
     <div class="duo {duo}">

@@ -7,13 +7,14 @@
 
   interface Props {
     instanceId: string;
+    /** Expanded state — bindable so the cockpit can persist it per machine. */
+    open?: boolean;
   }
-  let { instanceId }: Props = $props();
+  let { instanceId, open = $bindable(true) }: Props = $props();
 
   let panel = $state<FrontPanelState | null>(null);
   let switches = $state(0); // the operator's address/data register
   let base = $state<'oct' | 'hex'>('oct');
-  let open = $state(true);
   let timer: ReturnType<typeof setInterval> | undefined;
 
   async function poll() {
