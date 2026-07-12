@@ -247,6 +247,12 @@ export interface FrontPanelState {
   pc: number; sp: number; a: number; f: number;
   b: number; c: number; d: number; e: number; h: number; l: number;
   halted: boolean;
+  /** Interrupt-enable flip-flop (INTE lamp). */
+  inte: boolean;
+  /** A maskable interrupt is asserted (INT lamp). */
+  intPending: boolean;
+  /** 8080 status byte of the last instruction (machine-cycle lamps). */
+  status: number;
   running: boolean;
   addr: number;
   data: number;

@@ -48,12 +48,26 @@
       : `width:${sz}px;height:${sz}px;box-sizing:border-box;border-radius:50%;background:radial-gradient(circle at 38% 32%,#39301f,#1a130a 82%);box-shadow:inset 0 1px 2px rgba(0,0,0,.75),inset 0 -1px 1px rgba(255,190,90,.06);border:1px solid rgba(0,0,0,.45)`;
   }
 
-  // Status LEDs — only the ones the engine exposes are live; the rest sit dark.
-  const statusLeds = $derived([
-    { k: 'INTE', on: false }, { k: 'MEMR', on: false }, { k: 'INP', on: false }, { k: 'M1', on: false },
-    { k: 'OUT', on: false }, { k: 'HLTA', on: !!panel?.halted }, { k: 'STACK', on: false }, { k: 'WO', on: false },
-    { k: 'INT', on: false }, { k: 'RUN', on: !!panel?.running }, { k: 'WAIT', on: !panel?.running },
-  ]);
+  // Status LEDs. The machine-cycle lamps decode the 8080 status byte latched
+  // per instruction (the debug value when single-stepping); INTE/INT/RUN/WAIT
+  // come from the CPU flags and the runner. WO is active-low (lit on a read).
+  const S = { MEMR: 0x80, INP: 0x40, M1: 0x20, OUT: 0x10, HLTA: 0x08, STACK: 0x04, WO: 0x02 };
+  const statusLeds = $derived.by(() => {
+    const st = panel?.status ?? 0;
+    return [
+      { k: 'INTE', on: !!panel?.inte },
+      { k: 'MEMR', on: !!(st & S.MEMR) },
+      { k: 'INP', on: !!(st & S.INP) },
+      { k: 'M1', on: !!(st & S.M1) },
+      { k: 'OUT', on: !!(st & S.OUT) },
+      { k: 'HLTA', on: !!(st & S.HLTA) },
+      { k: 'STACK', on: !!(st & S.STACK) },
+      { k: 'WO', on: !!(st & S.WO) },
+      { k: 'INT', on: !!panel?.intPending },
+      { k: 'RUN', on: !!panel?.running },
+      { k: 'WAIT', on: !panel?.running },
+    ];
+  });
 
   // Bit columns grouped 3s (octal) / 4s (hex), from the MSB.
   const groups = $derived.by(() => {

@@ -47,7 +47,7 @@ const fakeSim = {
       step() { mem[this.pc]; this.pc = (this.pc + 1) & 0xffff; return 1; }, // NOP-ish: advance PC
       reset() { this.pc = reset; },
       state() {
-        return { pc: this.pc, sp: 0, a: 0, f: 0, b: 0, c: 0, d: 0, e: 0, h: 0, l: 0, halted: this.halted };
+        return { pc: this.pc, sp: 0, a: 0, f: 0, b: 0, c: 0, d: 0, e: 0, h: 0, l: 0, halted: this.halted, inte: false, intPending: false, status: 0 };
       },
     };
     const bus = {
