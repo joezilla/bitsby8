@@ -5763,6 +5763,53 @@
         }
       }
     },
+    "/api/catalog/kernels": {
+      "get": {
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "List behavior kernels an authored I/O card can use (Story 5.7)",
+        "description": "Trusted, parameterized device state machines (e.g. a serial UART) the host builds authored I/O cards from — no user code. Each names the peripheral endpoint it binds to.",
+        "responses": {
+          "200": {
+            "description": "Available kernels",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "kernels": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string"
+                          },
+                          "binding": {
+                            "type": "string"
+                          },
+                          "configSchema": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/catalog/cards/{id}": {
       "delete": {
         "tags": [

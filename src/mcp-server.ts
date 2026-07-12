@@ -14,6 +14,7 @@ import { listCardDefinitions, getCardDefinition } from './services/catalog';
 import { getCardDetail } from './services/card-detail';
 import { authorCard, deleteAuthoredCard } from './services/card-authoring';
 import { listPeripheralEndpoints } from './services/peripheral-registry';
+import { listKernels } from './services/bundle-registry';
 import { checkCardConfig } from './services/card-config';
 import {
   listMachinePresets,
@@ -2064,6 +2065,21 @@ export function createMcpServer(deps: Dependencies): McpServer {
     async () => {
       try {
         return { content: [{ type: 'text', text: JSON.stringify({ endpoints: listPeripheralEndpoints(deps) }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'list_card_kernels',
+    'List the behavior kernels an authored I/O card can be built from (Bitsby8 Story 5.7) — trusted, ' +
+      'parameterized devices (e.g. a serial UART) with no user code. Use a kernel id in author_card ' +
+      'behavior: { resolvesTo:"io", kernel:"<id>" }. Each names the peripheral endpoint it binds to.',
+    async () => {
+      try {
+        const kernels = (await listKernels()).map((k) => ({ id: k.id, label: k.label, type: k.type, binding: k.binding, configSchema: k.configSchema }));
+        return { content: [{ type: 'text', text: JSON.stringify({ kernels }, null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
       }

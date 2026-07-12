@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { api } from '$lib/services/api';
   import { showToast } from '$lib/stores/toast';
   import Button from '$lib/components/shared/Button.svelte';
@@ -11,32 +12,67 @@
   }
   let { onClose, onCreated }: Props = $props();
 
-  // The declarative kinds you can author with no code.
-  type Kind = 'ram' | 'rom' | 'cpu-i8080' | 'cpu-z80';
-  const KINDS: { id: Kind; label: string; icon: string; desc: string }[] = [
+  type ParamSpec = { type: string; default?: number | string; min?: number; max?: number; enum?: (number | string)[]; description?: string };
+  type Kernel = { id: string; label: string; type: string; binding?: string; configSchema: Record<string, ParamSpec> };
+
+  // Declarative kinds need no code; I/O kinds come from the engine's behavior kernels.
+  const DECL = [
     { id: 'ram', label: 'RAM board', icon: 'memory', desc: 'Read/write memory at a base address.' },
     { id: 'rom', label: 'EPROM board', icon: 'memory', desc: 'Read-only memory you can burn an image into.' },
     { id: 'cpu-i8080', label: 'CPU — Intel 8080', icon: 'developer_board', desc: 'An 8080 processor board.' },
     { id: 'cpu-z80', label: 'CPU — Zilog Z80', icon: 'developer_board', desc: 'A Z80 processor board.' },
   ];
 
-  let kind = $state<Kind>('ram');
+  let kernels = $state<Kernel[]>([]);
+  onMount(async () => {
+    try {
+      kernels = (await api.listCardKernels()).kernels;
+    } catch {
+      /* older engine — no I/O kernels yet */
+    }
+  });
+
+  let kindOptions = $derived([
+    ...DECL,
+    ...kernels.map((k) => ({
+      id: `io:${k.id}`,
+      label: k.label,
+      icon: 'cable',
+      desc: `A ${k.type} card${k.binding ? ` bound to the ${k.binding}` : ''}.`,
+    })),
+  ]);
+
+  let kind = $state('ram');
   let name = $state('');
   let maker = $state('');
   let summary = $state('');
   let base = $state(0xf000);
   let size = $state(0x0800);
   let resetVector = $state(0xf800);
+  let ioCfg = $state<Record<string, number | string>>({});
   let busy = $state(false);
 
   const isMemory = $derived(kind === 'ram' || kind === 'rom');
   const isCpu = $derived(kind === 'cpu-i8080' || kind === 'cpu-z80');
+  let selectedKernel = $derived(kind.startsWith('io:') ? kernels.find((k) => `io:${k.id}` === kind) : undefined);
+
+  // Seed the I/O config fields from the selected kernel's schema defaults.
+  $effect(() => {
+    if (selectedKernel) {
+      const seed: Record<string, number | string> = {};
+      for (const [p, s] of Object.entries(selectedKernel.configSchema)) seed[p] = s.default ?? 0;
+      ioCfg = seed;
+    }
+  });
+
+  const isNum = (s: ParamSpec) => /^u(8|16)$/.test(s.type);
 
   function behaviorFor() {
     if (kind === 'ram') return { resolvesTo: 'memory', memKind: 'ram' } as const;
     if (kind === 'rom') return { resolvesTo: 'memory', memKind: 'rom' } as const;
     if (kind === 'cpu-i8080') return { resolvesTo: 'cpu', cpuKind: 'i8080' } as const;
-    return { resolvesTo: 'cpu', cpuKind: 'z80' } as const;
+    if (kind === 'cpu-z80') return { resolvesTo: 'cpu', cpuKind: 'z80' } as const;
+    return { resolvesTo: 'io', kernel: selectedKernel!.id } as const;
   }
 
   async function create() {
@@ -46,12 +82,12 @@
     }
     try {
       busy = true;
-      const defaults = isMemory ? { base, size } : { resetVector };
+      const defaults = isMemory ? { base, size } : isCpu ? { resetVector } : { ...ioCfg };
       const card = await api.authorCard({
         name: name.trim(),
         maker: maker.trim() || undefined,
         summary: summary.trim() || undefined,
-        behavior: behaviorFor(),
+        behavior: behaviorFor() as never,
         defaults,
       });
       showToast(`Authored ${card.id}`, 'success');
@@ -68,7 +104,7 @@
   onkeydown={(e) => e.key === 'Escape' && onClose()}></div>
 <div class="panel" role="dialog" aria-modal="true" aria-label="Author a new card">
   <header class="bar">
-    <div class="ttl"><Icon name="add_circle" size={18} /><span>New card</span><span class="hint">no code — declarative</span></div>
+    <div class="ttl"><Icon name="add_circle" size={18} /><span>New card</span><span class="hint">no code required</span></div>
     <button class="close" onclick={onClose} aria-label="Close"><Icon name="close" size={20} /></button>
   </header>
 
@@ -76,7 +112,7 @@
     <fieldset class="kinds" disabled={busy}>
       <legend>What kind of board?</legend>
       <div class="kind-grid">
-        {#each KINDS as k (k.id)}
+        {#each kindOptions as k (k.id)}
           <label class="kind" class:sel={kind === k.id}>
             <input type="radio" value={k.id} bind:group={kind} />
             <Icon name={k.icon} size={18} />
@@ -122,6 +158,25 @@
       </div>
       <p class="note">The processor board sets the machine's CPU and its power-on jump.</p>
     {/if}
+    {#if selectedKernel}
+      <div class="io-grid">
+        {#each Object.entries(selectedKernel.configSchema) as [param, spec] (param)}
+          <div class="field">
+            <label for="nc-io-{param}">{param}{spec.description ? ` — ${spec.description}` : ''}</label>
+            {#if spec.type === 'enum'}
+              <select id="nc-io-{param}" class="inp" value={String(ioCfg[param] ?? spec.default)} onchange={(e) => (ioCfg = { ...ioCfg, [param]: e.currentTarget.value })} disabled={busy}>
+                {#each spec.enum ?? [] as opt (opt)}<option value={String(opt)}>{opt}</option>{/each}
+              </select>
+            {:else if isNum(spec)}
+              <HexInput id="nc-io-{param}" value={typeof ioCfg[param] === 'number' ? (ioCfg[param] as number) : 0} min={spec.min ?? 0} max={spec.max ?? 0xff} ariaLabel="default {param}" onchange={(n) => (ioCfg = { ...ioCfg, [param]: n })} />
+            {:else}
+              <input id="nc-io-{param}" class="inp" value={String(ioCfg[param] ?? '')} oninput={(e) => (ioCfg = { ...ioCfg, [param]: e.currentTarget.value })} disabled={busy} />
+            {/if}
+          </div>
+        {/each}
+      </div>
+      <p class="note">Default settings; every instance can override them on the backplane. The card’s far side binds to the <strong>{selectedKernel.binding ?? 'host'}</strong>.</p>
+    {/if}
   </div>
 
   <footer class="foot">
@@ -165,6 +220,7 @@
   .field label { font-size: 12px; color: var(--fg-2); }
   .opt { color: var(--fg-4); }
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+  .io-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
   .note { margin: 0; font-size: 12px; color: var(--fg-3); }
   .foot {
     display: flex; justify-content: flex-end; gap: var(--space-2);

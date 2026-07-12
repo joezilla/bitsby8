@@ -5,7 +5,7 @@ import { ServiceError } from '../services/service-error';
 import { browseCatalog, getCardDefinition, CatalogFilter } from '../services/catalog';
 import { getCardDetail } from '../services/card-detail';
 import { checkCardConfig } from '../services/card-config';
-import { listCpus } from '../services/bundle-registry';
+import { listCpus, listKernels } from '../services/bundle-registry';
 import { authorCard, deleteAuthoredCard } from '../services/card-authoring';
 import { listPeripheralEndpoints } from '../services/peripheral-registry';
 
@@ -134,6 +134,47 @@ export function registerCatalogRoutes(router: Router, deps: Dependencies): void 
   router.get('/api/peripherals', async (_req: Request, res: Response): Promise<void> => {
     try {
       res.json({ endpoints: listPeripheralEndpoints(deps) });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/catalog/kernels:
+   *   get:
+   *     tags: [Catalog]
+   *     summary: List behavior kernels an authored I/O card can use (Story 5.7)
+   *     description: Trusted, parameterized device state machines (e.g. a serial UART) the host builds authored I/O cards from — no user code. Each names the peripheral endpoint it binds to.
+   *     responses:
+   *       200:
+   *         description: Available kernels
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 kernels:
+   *                   type: array
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       id: { type: string }
+   *                       label: { type: string }
+   *                       type: { type: string }
+   *                       binding: { type: string }
+   *                       configSchema: { type: object, additionalProperties: true }
+   */
+  router.get('/api/catalog/kernels', async (_req: Request, res: Response): Promise<void> => {
+    try {
+      const kernels = (await listKernels()).map((k) => ({
+        id: k.id,
+        label: k.label,
+        type: k.type,
+        binding: k.binding,
+        configSchema: k.configSchema,
+      }));
+      res.json({ kernels });
     } catch (error) {
       sendError(res, error);
     }

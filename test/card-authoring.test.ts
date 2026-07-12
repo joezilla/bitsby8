@@ -26,6 +26,24 @@ const fakeSim = {
       claims: (c: Record<string, unknown>) => ({ ports: [Number(c.basePortA)] }),
     },
   ],
+  // A behavior kernel (Story 5.7): a serial UART bound to a terminal. Its card
+  // exposes a `.channel` (console-capable), unlike a bare deviceCard chip.
+  kernels: [
+    {
+      id: 'serial',
+      label: 'Serial UART (console)',
+      type: 'serial',
+      binding: 'terminal',
+      configSchema: { dataPort: { type: 'u8', default: 0x10 }, ctrlPort: { type: 'u8', default: 0x11 } },
+      create: (id: string) => ({
+        id,
+        reset() {},
+        attach() {},
+        channel: { onTransmit() {}, enqueueRx() {}, reset() {} },
+      }),
+      claims: (c: Record<string, unknown>) => ({ ports: [Number(c.dataPort), Number(c.ctrlPort)] }),
+    },
+  ],
   withDefaults: (m: { configSchema: Record<string, { default: unknown }> }, c: Record<string, unknown> = {}) => {
     const out: Record<string, unknown> = {};
     for (const [k, s] of Object.entries(m.configSchema)) out[k] = k in c ? c[k] : s.default;
@@ -115,6 +133,42 @@ describe('authorCard', () => {
     expect(rom).toHaveLength(1);
     expect(rom[0].image?.[0]).toBe(0xc3); // burned, not the card's zero emit
     expect((await validateProfile(deps, out.profile)).ok).toBe(true);
+  });
+
+  test('authors a serial (io) card from the terminal kernel, resolving to a console-capable card (Story 5.7)', async () => {
+    const deps = await makeDeps();
+    const card = await authorCard(deps, {
+      name: 'my-console-serial',
+      summary: 'Single 8251 console UART @ 0x12',
+      behavior: { resolvesTo: 'io', kernel: 'serial' } as never,
+      defaults: { dataPort: 0x12, ctrlPort: 0x13 },
+    });
+    expect(card.type).toBe('serial'); // from the kernel
+    // The stored behavior carries the kernel id + its terminal binding.
+    expect((card.manifest as { behavior?: { kernel?: string; binding?: string } }).behavior)
+      .toMatchObject({ resolvesTo: 'io', kernel: 'serial', binding: 'terminal' });
+
+    // It resolves into a machine, claiming the kernel's ports at the chosen config.
+    const p = await createProfile(deps, {
+      name: 'serial-machine',
+      cpuKind: 'i8080',
+      clock: 'max',
+      resetVector: 0,
+      memory: [{ id: 'ram', base: 0, size: 0x10000, kind: 'ram' }],
+      cards: [{ id: 'con', ref: 'my-console-serial@1.0.0', config: { dataPort: 0x12, ctrlPort: 0x13 } }],
+    });
+    const { spec } = await resolveProfile(deps, toMachineProfile(p));
+    expect(spec.cards[0].claims?.ports).toEqual([0x12, 0x13]);
+    // The synthesized card exposes a console channel — the whole point of a kernel.
+    const built = spec.cards[0].factory('con', spec.cards[0].config ?? {}, {} as never) as { channel?: unknown };
+    expect(built.channel).toBeDefined();
+  });
+
+  test('an unknown kernel is rejected (400)', async () => {
+    const deps = await makeDeps();
+    await expect(
+      authorCard(deps, { name: 'x', behavior: { resolvesTo: 'io', kernel: 'nope' } as never }),
+    ).rejects.toMatchObject({ statusCode: 400 });
   });
 
   test('rejects a bad name, an unknown behavior, and shadowing a seed card', async () => {

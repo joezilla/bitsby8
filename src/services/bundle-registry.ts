@@ -30,9 +30,24 @@ export interface SeedBundleRuntime {
   cpu?: (config: Record<string, unknown>) => { kind: CpuKind; resetVector?: number };
 }
 
+/** A behavior kernel (Story 5.7): a trusted, parameterized device an authored
+ * I/O card is synthesized from — the host references it by `id`. */
+export interface CardKernelRuntime {
+  id: string;
+  label: string;
+  type: string;
+  /** The peripheral endpoint this kernel's card binds to (e.g. 'terminal'). */
+  binding?: string;
+  configSchema: Record<string, unknown>;
+  create: CardFactory;
+  claims: ClaimsFn;
+}
+
 /** The subset of the 8sim module surface the orchestration layer uses. */
 export interface SimModule {
   seedBundles: ReadonlyArray<SeedBundleRuntime>;
+  /** Behavior kernels for authored I/O cards (Story 5.7). Absent on 8sim < 0.4. */
+  kernels?: ReadonlyArray<CardKernelRuntime>;
   withDefaults: (manifest: CardManifest, config?: Record<string, unknown>) => Record<string, unknown>;
   buildMachine: (spec: MachineSpec, opts?: { services?: Record<string, unknown>; log?: (m: string) => void }) => Machine;
 }
@@ -69,9 +84,16 @@ export async function getBundle(
   if (seed) return seed;
   const rec = await deps.database.getCardDefinitionById(identity);
   if (rec && rec.source === 'authored') {
-    return synthesizeAuthoredBundle(JSON.parse(rec.manifest) as AuthoredManifest);
+    const sim = await getSim();
+    return synthesizeAuthoredBundle(JSON.parse(rec.manifest) as AuthoredManifest, sim.kernels);
   }
   return undefined;
+}
+
+/** The behavior kernels an authored I/O card can be built from (Story 5.7). */
+export async function listKernels(): Promise<ReadonlyArray<CardKernelRuntime>> {
+  const sim = await getSim();
+  return sim.kernels ?? [];
 }
 
 /** Test seam: inject a fake/real SimModule (pass null to reset to lazy load). */

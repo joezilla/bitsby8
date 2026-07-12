@@ -17,7 +17,7 @@ import {
   CardDefinitionDoc,
   CardManifestInput,
 } from './catalog';
-import { getSim } from './bundle-registry';
+import { getSim, listKernels } from './bundle-registry';
 import { CardBehavior } from './authored-bundle';
 
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9 _.-]{0,63}$/;
@@ -30,44 +30,82 @@ export interface AuthorCardInput {
   maker?: string;
   summary?: string;
   behavior: CardBehavior;
-  /** Default config values baked into the card's schema. */
-  defaults?: { base?: number; size?: number; resetVector?: number };
+  /** Default config values baked into the card's schema (keys depend on the kind). */
+  defaults?: Record<string, number | string>;
 }
 
-/** The 8sim-native card type a behavior maps to. */
-function typeFor(b: CardBehavior): string {
-  return b.resolvesTo === 'cpu' ? 'cpu' : 'memory';
+/** What an authored behavior resolves into: its card type, config schema, and
+ * the (normalized) behavior to store. For `io` this comes from a host kernel. */
+interface AuthoredShape {
+  type: string;
+  configSchema: Record<string, unknown>;
+  behavior: CardBehavior;
 }
 
-/** Generate the config schema for a declarative behavior, seeded with defaults. */
-function schemaFor(b: CardBehavior, d: AuthorCardInput['defaults'] = {}): Record<string, unknown> {
-  if (b.resolvesTo === 'memory') {
-    return {
-      base: { type: 'u16', default: d.base ?? 0x0000, min: 0, max: 0xffff, description: 'Start address' },
-      size: { type: 'u16', default: d.size ?? 0x1000, min: 1, max: 0xffff, description: 'Region size in bytes' },
-    };
+/** Override a schema's defaults with the user's chosen values (matching keys). */
+function withUserDefaults(
+  schema: Record<string, unknown>,
+  d: Record<string, number | string>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, spec] of Object.entries(schema)) {
+    out[k] = k in d ? { ...(spec as Record<string, unknown>), default: d[k] } : spec;
   }
-  return {
-    resetVector: { type: 'u16', default: d.resetVector ?? 0x0000, min: 0, max: 0xffff, description: 'Power-on jump' },
-  };
+  return out;
 }
 
-function validateBehavior(b: CardBehavior): void {
+/** Resolve a behavior to its card shape — declarative (memory/cpu) or kernel-backed (io). */
+async function shapeFor(b: CardBehavior, d: Record<string, number | string>): Promise<AuthoredShape> {
   if (!b || typeof b !== 'object') throw new ServiceError('behavior is required', 400);
+
   if (b.resolvesTo === 'memory') {
     if (b.memKind !== 'ram' && b.memKind !== 'rom') {
       throw new ServiceError("memory behavior needs memKind 'ram' or 'rom'", 400);
     }
-    return;
+    if (d.size !== undefined && (typeof d.size !== 'number' || d.size < 1)) {
+      throw new ServiceError('default size must be at least 1', 400);
+    }
+    return {
+      type: 'memory',
+      configSchema: {
+        base: { type: 'u16', default: numDefault(d.base, 0x0000), min: 0, max: 0xffff, description: 'Start address' },
+        size: { type: 'u16', default: numDefault(d.size, 0x1000), min: 1, max: 0xffff, description: 'Region size in bytes' },
+      },
+      behavior: b,
+    };
   }
+
   if (b.resolvesTo === 'cpu') {
     if (b.cpuKind !== 'i8080' && b.cpuKind !== 'z80') {
       throw new ServiceError("cpu behavior needs cpuKind 'i8080' or 'z80'", 400);
     }
-    return;
+    return {
+      type: 'cpu',
+      configSchema: {
+        resetVector: { type: 'u16', default: numDefault(d.resetVector, 0x0000), min: 0, max: 0xffff, description: 'Power-on jump' },
+      },
+      behavior: b,
+    };
   }
+
+  if (b.resolvesTo === 'io') {
+    const kernel = (await listKernels()).find((k) => k.id === b.kernel);
+    if (!kernel) {
+      throw new ServiceError(`No behavior kernel "${b.kernel}" — this engine build may be too old`, 400);
+    }
+    return {
+      type: kernel.type,
+      configSchema: withUserDefaults(kernel.configSchema, d),
+      // Store the kernel id + the endpoint it binds to (Story 5.6/5.7).
+      behavior: { resolvesTo: 'io', kernel: kernel.id, binding: kernel.binding },
+    };
+  }
+
   throw new ServiceError(`unknown behavior.resolvesTo: ${JSON.stringify((b as { resolvesTo?: string }).resolvesTo)}`, 400);
 }
+
+const numDefault = (v: number | string | undefined, fallback: number): number =>
+  typeof v === 'number' ? v : fallback;
 
 /** Author a declarative card and register it into the Catalog. */
 export async function authorCard(deps: Dependencies, input: AuthorCardInput): Promise<CardDefinitionDoc> {
@@ -77,15 +115,15 @@ export async function authorCard(deps: Dependencies, input: AuthorCardInput): Pr
   }
   const version = input.version ?? '1.0.0';
   if (!SEMVER.test(version)) throw new ServiceError('Card version must be semver (x.y.z)', 400);
-  validateBehavior(input.behavior);
 
   const d = input.defaults ?? {};
   for (const [k, v] of Object.entries(d)) {
-    if (v !== undefined && !u16(v)) throw new ServiceError(`default ${k} must be an integer in 0x0000–0xFFFF`, 400);
+    if (typeof v === 'number' && !u16(v)) {
+      throw new ServiceError(`default ${k} must be an integer in 0x0000–0xFFFF`, 400);
+    }
   }
-  if (input.behavior.resolvesTo === 'memory' && d.size !== undefined && d.size < 1) {
-    throw new ServiceError('default size must be at least 1', 400);
-  }
+
+  const shape = await shapeFor(input.behavior, d);
 
   // An authored card must not shadow a built-in seed card of the same Identity.
   const sim = await getSim();
@@ -96,12 +134,12 @@ export async function authorCard(deps: Dependencies, input: AuthorCardInput): Pr
   const manifest: CardManifestInput = {
     name,
     version,
-    type: typeFor(input.behavior),
+    type: shape.type,
     kind: 'card',
     maker: input.maker?.trim() || 'authored',
     summary: input.summary?.trim() || undefined,
-    configSchema: schemaFor(input.behavior, d),
-    behavior: input.behavior,
+    configSchema: shape.configSchema,
+    behavior: shape.behavior,
   };
 
   return registerCardDefinition(deps, { manifest, entry: 'authored', source: 'authored' });

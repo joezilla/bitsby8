@@ -480,6 +480,10 @@ export const api = {
   getCardDetail: (id: string) =>
     request<CardDetail>(`/api/catalog/cards/${encodeURIComponent(id)}/detail`),
   listCpus: () => request<{ cpus: CpuInfo[] }>('/api/catalog/cpus'),
+  listCardKernels: () =>
+    request<{ kernels: { id: string; label: string; type: string; binding?: string; configSchema: Record<string, { type: string; default?: number | string; min?: number; max?: number; enum?: (number | string)[]; description?: string }> }[] }>(
+      '/api/catalog/kernels',
+    ),
   authorCard: (body: {
     name: string;
     version?: string;

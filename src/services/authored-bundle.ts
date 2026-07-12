@@ -9,12 +9,13 @@
  * (Story 5.5); this module never runs user code.
  */
 
-import type { SeedBundleRuntime } from './bundle-registry';
+import type { SeedBundleRuntime, CardKernelRuntime } from './bundle-registry';
 
 /** The declarative behavior an authored card resolves to. */
 export type CardBehavior =
   | { resolvesTo: 'memory'; memKind: 'ram' | 'rom' }
-  | { resolvesTo: 'cpu'; cpuKind: 'i8080' | 'z80' };
+  | { resolvesTo: 'cpu'; cpuKind: 'i8080' | 'z80' }
+  | { resolvesTo: 'io'; kernel: string; binding?: string };
 
 /** A manifest that may carry an authored behavior (stored in the Catalog). */
 export interface AuthoredManifest {
@@ -38,9 +39,25 @@ const noopCard = (id: string) => ({ id, reset: () => {}, attach: () => {} });
  * manifest carries no (recognized) behavior. Mirrors the seed ram/eprom/cpu
  * bundles exactly — the resolver treats it identically to a seed bundle.
  */
-export function synthesizeAuthoredBundle(manifest: AuthoredManifest): SeedBundleRuntime | undefined {
+export function synthesizeAuthoredBundle(
+  manifest: AuthoredManifest,
+  kernels?: ReadonlyArray<CardKernelRuntime>,
+): SeedBundleRuntime | undefined {
   const b = manifest.behavior;
   if (!b) return undefined;
+
+  // An I/O card is built from a trusted host behavior kernel (Story 5.7) — the
+  // manifest stores only the kernel id; its create/claims come live from 8sim.
+  if (b.resolvesTo === 'io') {
+    const kernel = (kernels ?? []).find((k) => k.id === b.kernel);
+    if (!kernel) return undefined; // kernel unavailable (older 8sim / unknown id)
+    return {
+      manifest: manifest as unknown as SeedBundleRuntime['manifest'],
+      cardFactory: kernel.create,
+      claims: kernel.claims,
+    };
+  }
+
   const base = {
     manifest: manifest as unknown as SeedBundleRuntime['manifest'],
     cardFactory: noopCard as unknown as SeedBundleRuntime['cardFactory'],
