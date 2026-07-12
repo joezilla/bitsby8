@@ -268,6 +268,24 @@
     }
   }
 
+  async function rename() {
+    if (!profile) return;
+    const next = prompt(`Rename "${profile.name}" to:`, profile.name);
+    if (!next || next.trim() === profile.name) return;
+    try {
+      busy = true;
+      const { profile: np } = await api.renameProfile(profile.id, next.trim());
+      showToast(`Renamed to ${np.name}`, 'success');
+      onChanged(np.id);
+      id = np.id;
+      await load();
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      busy = false;
+    }
+  }
+
   async function remove() {
     if (!profile) return;
     if (!confirm(`Delete profile "${profile.name}" and all its versions?`)) return;
@@ -321,6 +339,7 @@
         >
           Launch
         </Button>
+        <Button variant="ghost" icon="edit" onclick={rename} disabled={busy}>Rename</Button>
         <Button variant="outline" icon="content_copy" onclick={clone} disabled={busy}>Clone</Button>
         <Button variant="ghost" icon="download" onclick={exportBundle} disabled={busy}>Export</Button>
         <Button variant="ghost" icon="delete" danger onclick={remove} disabled={busy}>Delete</Button>

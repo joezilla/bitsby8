@@ -10,6 +10,7 @@ import {
   listProfileVersions,
   updateProfile,
   cloneProfile,
+  renameProfile,
   deleteProfile,
   ProfileContent,
 } from '../services/profile-service';
@@ -421,6 +422,52 @@ export function registerProfileRoutes(router: Router, deps: Dependencies): void 
       const { name, notes } = req.body ?? {};
       if (typeof name !== 'string') throw new ServiceError('`name` is required', 400);
       res.json({ profile: await cloneProfile(deps, req.params.id, name, notes) });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  /**
+   * @openapi
+   * /api/profiles/{id}/rename:
+   *   post:
+   *     tags: [Profiles]
+   *     summary: Rename a Profile in place across all its versions
+   *     description: >-
+   *       Re-keys every version from the current name to a new one, preserving
+   *       full version history, notes and provenance (the content digest excludes
+   *       the name, so nothing about the content changes). Also migrates the
+   *       profile's name-keyed startup disks. Fails with 409 if a profile already
+   *       exists under the target name.
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [name]
+   *             properties:
+   *               name: { type: string }
+   *     responses:
+   *       200:
+   *         description: The renamed profile (same version the id referred to)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 profile: { $ref: '#/components/schemas/MachineProfile' }
+   */
+  router.post('/api/profiles/:id/rename', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { name } = req.body ?? {};
+      if (typeof name !== 'string') throw new ServiceError('`name` is required', 400);
+      res.json({ profile: await renameProfile(deps, req.params.id, name) });
     } catch (error) {
       sendError(res, error);
     }

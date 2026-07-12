@@ -515,6 +515,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ name }),
     }),
+  renameProfile: (id: string, name: string) =>
+    request<{ profile: MachineProfile }>(`/api/profiles/${encodeURIComponent(id)}/rename`, {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
   deleteProfile: (id: string) =>
     request(`/api/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   exportProfile: (id: string) =>

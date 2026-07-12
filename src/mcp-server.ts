@@ -44,6 +44,7 @@ import {
   listProfileVersions,
   updateProfile,
   cloneProfile,
+  renameProfile,
   deleteProfile,
   ProfileContent,
 } from './services/profile-service';
@@ -2318,6 +2319,24 @@ export function createMcpServer(deps: Dependencies): McpServer {
     async ({ id, name, notes }) => {
       try {
         const profile = await cloneProfile(deps, id, name, notes);
+        return { content: [{ type: 'text', text: JSON.stringify(profile, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'rename_machine_profile',
+    'Rename a Machine Profile in place across ALL its versions (preserves version history and content; ' +
+      'the content digest excludes the name). Fails if the target name already exists.',
+    {
+      id: z.string().describe('Profile Identity to rename: name@version'),
+      name: z.string().describe('New profile name'),
+    },
+    async ({ id, name }) => {
+      try {
+        const profile = await renameProfile(deps, id, name);
         return { content: [{ type: 'text', text: JSON.stringify(profile, null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };

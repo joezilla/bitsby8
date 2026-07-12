@@ -303,6 +303,30 @@ export async function cloneProfile(
   return persist(deps, trimmed, '1.0.0', content as ProfileContent, 'user', notes ?? null);
 }
 
+/**
+ * Rename a Profile in place: re-key every version from `oldName@*` to
+ * `newName@*`, preserving full version history, notes and provenance. The
+ * content digest deliberately excludes the name (AD-8), so nothing about the
+ * content changes — this is a pure Identity re-key, plus migration of the
+ * name-keyed startup disks and any `name@version` references. Refuses (409) if
+ * a profile already exists under the target name.
+ */
+export async function renameProfile(
+  deps: Dependencies,
+  id: string,
+  newName: string,
+): Promise<ProfileDoc> {
+  validateName(newName);
+  const src = await getProfile(deps, id); // 404 if the source version isn't found
+  const trimmed = newName.trim();
+  if (trimmed === src.name) return src; // no-op rename
+  if ((await deps.database.listMachineProfileVersions(trimmed)).length > 0) {
+    throw new ServiceError(`A profile named "${trimmed}" already exists`, 409);
+  }
+  await deps.database.renameMachineProfile(src.name, trimmed);
+  return getProfile(deps, `${trimmed}@${src.version}`);
+}
+
 /** Delete one version, or (default) every version of the name. */
 export async function deleteProfile(
   deps: Dependencies,

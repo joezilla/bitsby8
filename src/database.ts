@@ -939,6 +939,35 @@ export class Database {
     this.db!.prepare('DELETE FROM machine_profiles WHERE name = ?').run(name);
   }
 
+  /**
+   * Rename a profile in place across every version: re-keys `id` (name@version)
+   * and the `name` column for all versions, preserving version rows, digests,
+   * notes and created_at (history intact). Because the name is Identity, this
+   * also migrates name-keyed startup disks and re-points anything storing a
+   * `name@version` ref (running instances, snapshots) so nothing dangles. Runs
+   * in one transaction. Caller must ensure `newName` is free of collisions.
+   */
+  async renameMachineProfile(oldName: string, newName: string): Promise<void> {
+    this.ensureInitialized();
+    const db = this.db!;
+    // Exact-prefix match on `oldName@` — computed with substr, NOT LIKE, since
+    // profile names may contain `_`/`%` which are LIKE wildcards.
+    const oldPrefix = `${oldName}@`;
+    const newPrefix = `${newName}@`;
+    const plen = oldPrefix.length;
+    db.transaction(() => {
+      db.prepare(
+        "UPDATE machine_profiles SET id = ? || '@' || version, name = ? WHERE name = ?"
+      ).run(newName, newName, oldName);
+      db.prepare('UPDATE profile_disks SET profile_name = ? WHERE profile_name = ?').run(newName, oldName);
+      for (const table of ['machine_instances', 'instance_snapshots'] as const) {
+        db.prepare(
+          `UPDATE ${table} SET profile_ref = ? || substr(profile_ref, ?) WHERE substr(profile_ref, 1, ?) = ?`
+        ).run(newPrefix, plen + 1, plen, oldPrefix);
+      }
+    })();
+  }
+
   // --- Instance snapshots (Bitsby8) ---
 
   async insertInstanceSnapshot(rec: Omit<InstanceSnapshotRecord, 'created_at'>): Promise<void> {

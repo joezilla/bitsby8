@@ -22,6 +22,7 @@ import {
   listProfileVersions,
   updateProfile,
   cloneProfile,
+  renameProfile,
   deleteProfile,
   resolveProfileRef,
   toMachineProfile,
@@ -236,6 +237,41 @@ describe('profile-service: clone', () => {
 
     // Cloning onto an existing name is rejected.
     await expect(cloneProfile(deps, src.id, 'derived')).rejects.toMatchObject({ statusCode: 409 });
+  });
+});
+
+describe('profile-service: rename', () => {
+  test('rename re-keys every version in place, preserving history and digests', async () => {
+    const deps = await makeDeps();
+    const v1 = await createProfile(deps, { name: 'oldname', ...content });
+    const v2 = await updateProfile(deps, v1.id, { resetVector: 0xff00 });
+    expect(v2.version).toBe('1.0.1');
+
+    const renamed = await renameProfile(deps, v2.id, 'newname');
+    expect(renamed.id).toBe('newname@1.0.1');
+    expect(renamed.name).toBe('newname');
+    // Content is untouched by a rename — same digest as before.
+    expect(renamed.digest).toBe(v2.digest);
+
+    // Both versions carried over under the new name, newest-first, history intact.
+    const versions = await listProfileVersions(deps, 'newname');
+    expect(versions.map((v) => v.version)).toEqual(['1.0.1', '1.0.0']);
+    expect((await getProfile(deps, 'newname@1.0.0')).digest).toBe(v1.digest);
+
+    // Old name is gone; only the new one lists.
+    await expect(listProfileVersions(deps, 'oldname')).rejects.toMatchObject({ statusCode: 404 });
+    const latest = await listProfiles(deps);
+    expect(latest.filter((p) => p.name === 'oldname')).toHaveLength(0);
+    expect(latest.filter((p) => p.name === 'newname')).toHaveLength(1);
+  });
+
+  test('rename onto an existing name is rejected; a no-op rename is a pass-through', async () => {
+    const deps = await makeDeps();
+    const a = await createProfile(deps, { name: 'alpha', ...content });
+    await createProfile(deps, { name: 'beta', ...content });
+    await expect(renameProfile(deps, a.id, 'beta')).rejects.toMatchObject({ statusCode: 409 });
+    // Renaming to its own name is a no-op that returns the source doc.
+    expect((await renameProfile(deps, a.id, 'alpha')).id).toBe('alpha@1.0.0');
   });
 });
 
