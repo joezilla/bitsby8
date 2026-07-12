@@ -127,12 +127,12 @@
       <Card>
         <form onsubmit={submitLogin} style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
           <div>
-            <div style="font: var(--text-title-md); color: var(--fg-1);">FDC+ Serial Drive Server</div>
+            <div style="font: var(--text-title-md); color: var(--fg-1);">BitsBy8</div>
             <p
               class="fdc-label-strip"
               style="color: var(--fg-3); margin: 6px 0 0; text-transform: none; letter-spacing: 0;"
             >
-              This daemon requires an admin password to access the UI. Enter it below.
+              This application requires an admin password to access the UI. Enter it below.
             </p>
           </div>
 
@@ -191,7 +191,7 @@
         <div style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
           <div>
             <div style="font: var(--text-title-md); color: var(--fg-1);">
-              FDC+ Serial Drive Server
+              BitsBy8
             </div>
             <p
               class="fdc-label-strip"
@@ -202,7 +202,7 @@
           </div>
           <div style="color: var(--fg-2); font: var(--text-body-sm); line-height: 1.5;">
             <p style="margin: 0 0 12px;">
-              The daemon has an <strong>API key</strong> configured — that protects the
+              The application has an <strong>API key</strong> configured — that protects the
               machine endpoints (MCP over HTTP, curl scripts) — but there is no
               <strong>admin password</strong>, so a browser has no way to log in.
             </p>
@@ -210,7 +210,7 @@
               To use the web UI, set an admin password by editing
               <code>/var/lib/fdcsds/fdcsds.overrides.json</code> and adding
               <code>"adminPassword": "your-password"</code>, then restart with
-              <code>sudo systemctl restart fdcsds</code>. The daemon hashes it on first
+              <code>sudo systemctl restart fdcsds</code>. The application hashes it on first
               read.
             </p>
             <p style="margin: 0; color: var(--fg-3);">
