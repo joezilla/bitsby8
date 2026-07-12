@@ -238,6 +238,8 @@ export interface ProfileValidation {
   collisions: Collision[];
   claims: CardClaim[];
   memoryMap: MemoryBand[];
+  /** Non-blocking advisories (e.g. the boot vector doesn't point into ROM). */
+  warnings: string[];
 }
 
 /** A CPU available to a Machine Profile (Story 5.3). */

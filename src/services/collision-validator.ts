@@ -25,6 +25,8 @@ export interface CardClaim {
   memory: Array<{ id: string; base: number; size: number; kind: string }>;
   /** True if this card is a CPU card (the bus master) — a machine has exactly one. */
   isCpu: boolean;
+  /** If a CPU card, the reset vector it forces onto the machine (Story 5.1 override). */
+  cpuReset: number | null;
 }
 
 export interface Collision {
@@ -51,6 +53,8 @@ export interface ProfileValidation {
   /** The full resolved memory map (profile regions + card-emitted, overrides
    * applied), sorted by base — what the address-space ribbon draws. */
   memoryMap: MemoryBand[];
+  /** Non-blocking advisories (e.g. the boot vector doesn't point into ROM). */
+  warnings: string[];
 }
 
 const hex = (n: number) => `0x${n.toString(16).toUpperCase().padStart(2, '0')}`;
@@ -63,7 +67,7 @@ async function claimsOf(deps: Dependencies, cards: ProfileContent['cards']): Pro
     if (!bundle) {
       // Unknown card → no claims we can reason about; skip (catalog validation
       // catches unknown refs on save).
-      out.push({ cardId: c.id, ref: c.ref, ports: [], irq: null, memory: [], isCpu: false });
+      out.push({ cardId: c.id, ref: c.ref, ports: [], irq: null, memory: [], isCpu: false, cpuReset: null });
       continue;
     }
     const claim = bundle.claims(c.config ?? {});
@@ -82,6 +86,7 @@ async function claimsOf(deps: Dependencies, cards: ProfileContent['cards']): Pro
       irq: claim.irq ?? null,
       memory,
       isCpu: typeof bundle.cpu === 'function',
+      cpuReset: bundle.cpu ? (bundle.cpu(c.config ?? {}).resetVector ?? null) : null,
     });
   }
   return out;
@@ -172,9 +177,31 @@ export async function validateProfile(
       .map((r) => ({ id: r.id, base: r.base, size: r.size, kind: r.kind, source: 'card' as const })),
   ].sort((a, b) => a.base - b.base);
 
+  // Boot-vector advisory: the machine starts executing at the reset vector, so
+  // it had better point into ROM (where boot code lives). A seated CPU card
+  // OVERRIDES the profile's reset vector (Story 5.1) — its default of 0x0000
+  // silently sends the machine into empty RAM, which is a real footgun. Warn at
+  // define time rather than let it "run" and produce nothing.
+  const warnings: string[] = [];
+  const cpuReset = claims.find((c) => c.isCpu && c.cpuReset != null)?.cpuReset;
+  const effectiveReset = cpuReset ?? content.resetVector;
+  const inRom = memoryMap.some(
+    (m) => m.kind === 'rom' && effectiveReset >= m.base && effectiveReset < m.base + m.size,
+  );
+  if (!inRom) {
+    const addr = `0x${effectiveReset.toString(16).toUpperCase().padStart(4, '0')}`;
+    const via = cpuReset != null ? ' (set by a CPU card)' : '';
+    const where = memoryMap.some((m) => effectiveReset >= m.base && effectiveReset < m.base + m.size)
+      ? 'RAM/MMIO — not ROM'
+      : 'unmapped memory';
+    warnings.push(
+      `Reset vector ${addr}${via} points at ${where}. The machine boots there, so put a boot ROM at that address or fix the reset vector — otherwise it runs into nothing.`,
+    );
+  }
+
   // Report footprints deduped (raw dups were only needed for self-overlap detection).
   const displayClaims = claims.map((c) => ({ ...c, ports: [...new Set(c.ports)].sort((a, b) => a - b) }));
-  return { ok: collisions.length === 0, collisions, claims: displayClaims, memoryMap };
+  return { ok: collisions.length === 0, collisions, claims: displayClaims, memoryMap, warnings };
 }
 
 export interface AutoAssignResult {

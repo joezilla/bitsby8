@@ -185,6 +185,28 @@ describe('validateProfile — collisions', () => {
     ]);
   });
 
+  test('warns when the reset vector (forced by a CPU card) points outside ROM (Story 5.1 footgun)', async () => {
+    const deps = await makeDeps();
+    // CPU card resetVector 0, only RAM mapped → boots into empty RAM. Warn.
+    const bad = await validateProfile(
+      deps,
+      profile([{ id: 'cpu', ref: 'cpu@1.0.0', config: { resetVector: 0 } }], [
+        { id: 'ram', base: 0, size: 0x8000, kind: 'ram' },
+      ]),
+    );
+    expect(bad.ok).toBe(true); // not a hard collision — advisory only
+    expect(bad.warnings.some((w) => /reset vector 0x0000.*cpu card.*not rom/i.test(w))).toBe(true);
+
+    // Same CPU card pointed at a ROM region → no warning.
+    const good = await validateProfile(
+      deps,
+      profile([{ id: 'cpu', ref: 'cpu@1.0.0', config: { resetVector: 0xff00 } }], [
+        { id: 'rom', base: 0xff00, size: 0x100, kind: 'rom' },
+      ]),
+    );
+    expect(good.warnings).toEqual([]);
+  });
+
   test('a shared IRQ and overlapping memory are each collisions', async () => {
     const deps = await makeDeps();
     const v = await validateProfile(deps, profile(

@@ -348,6 +348,15 @@
       </div>
     {/if}
 
+    {#if validation?.warnings?.length}
+      <div class="validator-bar warn" role="status">
+        <Icon name="warning" size={18} />
+        <ul class="vb-list">
+          {#each validation.warnings as w (w)}<li>{w}</li>{/each}
+        </ul>
+      </div>
+    {/if}
+
     <div class="cols">
       <div class="col">
         <Card raised>
@@ -583,6 +592,14 @@
     border-color: color-mix(in srgb, var(--success) 35%, transparent);
     color: var(--success);
     font: var(--text-body-sm);
+  }
+  .validator-bar.warn {
+    align-items: flex-start;
+    background: color-mix(in srgb, var(--warning) 12%, transparent);
+    border-color: color-mix(in srgb, var(--warning) 40%, transparent);
+    color: var(--warning);
+    font: var(--text-body-sm);
+    margin-top: var(--space-2);
   }
   .vb-body {
     flex: 1;
