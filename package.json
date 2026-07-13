@@ -1,6 +1,6 @@
 {
   "name": "fds-ts",
-  "version": "2.0.1-rc.4",
+  "version": "3.0.0-alpha",
   "description": "FDC+ Serial Drive Server in TypeScript",
   "main": "dist/index.js",
   "bin": {
@@ -31,7 +31,7 @@
   "author": "Joe Toppe (TypeScript version)",
   "license": "GPL-3.0",
   "dependencies": {
-    "@joezilla/8sim": "^0.1.0",
+    "@joezilla/8sim": "^0.10.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/multer": "^2.0.0",
     "@types/play-sound": "^1.1.2",

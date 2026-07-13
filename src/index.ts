@@ -48,7 +48,7 @@ function printHelp(): void {
   console.log(`${FDCSDS_COPYRIGHT}\n`);
   console.log('Serial Disk Server compatible with the FDC+ Enhanced Floppy Disk');
   console.log('Controller for the Altair 8800 available at http://www.deramp.com\n');
-  console.log('Usage: fdcsds [options] -p <port>\n');
+  console.log('Usage: fdcsds [options] [-p <port>]\n');
   console.log('Options:');
   console.log('  -0, --drive0 <file>    Mount disk image file to drive 0');
   console.log('  -1, --drive1 <file>    Mount disk image file to drive 1');
@@ -57,7 +57,7 @@ function printHelp(): void {
   console.log('                         The FDC+ in serial disk mode supports 330K 8 inch,');
   console.log('                         75K Minidisk, and 8MB disk images.');
   console.log('  -b, --baud <rate>      Set serial port speed (default: 230400)');
-  console.log('  -p, --port <device>    Serial port (required)');
+  console.log('  -p, --port <device>    Serial port (optional; omit to run without a serial connection)');
   console.log('                         Example: /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_ABC123-if00-port0');
   console.log('  -r, --readonly <n>     Make drive 0-3 read only (can be used multiple times)');
   console.log('  -v, --verbose          Verbose display');
@@ -94,7 +94,7 @@ async function main(): Promise<void> {
     .name('fdcsds')
     .description('FDC+ Serial Drive Server')
     .version(FDCSDS_VERSION)
-    .option('-p, --port <device>', 'Serial port (required)')
+    .option('-p, --port <device>', 'Serial port (optional; omit to run without a physical serial connection)')
     .option('-b, --baud <rate>', 'Set serial port speed')
     .option('-0, --drive0 <file>', 'Mount disk image to drive 0')
     .option('-1, --drive1 <file>', 'Mount disk image to drive 1')
@@ -306,12 +306,14 @@ async function main(): Promise<void> {
   console.log(`  TerminalAutoconnect: ${mergedOptions.terminalAutoconnect}`);
   console.log(`  TerminalOnly: ${mergedOptions.terminalOnly || false}`);
 
-  // Validate port is specified (unless in terminal-only mode)
+  // A serial port is optional. Without one, the daemon still runs the web UI,
+  // the REST/MCP API, and FDC serving to virtual instances over the WebSocket
+  // transport — only a *physical* Altair can't attach until a port is connected.
+  // The serial-open attempt below already fails soft, so just note it and go.
   if (!mergedOptions.port && !mergedOptions.terminalOnly) {
-    printHelp();
-    console.error('Error: You must specify a serial port with \'-p\' option or in config file.\n');
-    console.error('       (or use --terminal-only mode if you only need terminal functionality)\n');
-    process.exit(1);
+    console.log('No serial port specified (-p) — starting without a physical serial connection.');
+    console.log('  Web UI, API/MCP, and virtual-instance FDC serving remain available;');
+    console.log('  set a port later (config or restart with -p) to attach a physical FDC+ client.');
   }
 
   // In terminal-only mode, ensure we have at least web or terminal port

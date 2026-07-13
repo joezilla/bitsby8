@@ -107,6 +107,12 @@ export interface ClientBay {
   isMaster: boolean;
   hasSplinters: boolean;
   drives: ClientDrive[];
+  /** This client is a virtual machine instance (clientId `inst:<id>`). */
+  isInstance: boolean;
+  /** The instance id when isInstance, else null. */
+  instanceId: string | null;
+  /** Whether that instance still exists — false ⇒ an orphan from a deleted machine. */
+  instanceExists: boolean;
 }
 
 export interface CassetteInfo {
@@ -119,6 +125,187 @@ export interface CassetteInfo {
 export interface ScriptInfo {
   name: string;
   size: number;
+}
+
+export type PrimitiveKind = 'card' | 'chip';
+
+/** A Catalog Card Definition (Bitsby8) — a versioned S-100 primitive. */
+export interface CardDefinition {
+  id: string; // name@version
+  name: string;
+  version: string;
+  digest: string;
+  type: string;
+  kind: PrimitiveKind;
+  maker: string | null;
+  summary: string | null;
+  capabilities: string[];
+  manifest: Record<string, unknown>;
+  entry: string | null;
+  source: string;
+  createdAt: string;
+}
+
+export interface CatalogFacets {
+  kinds: string[];
+  types: string[];
+  makers: string[];
+  capabilities: string[];
+}
+
+export interface CatalogListing {
+  cards: CardDefinition[];
+  facets: CatalogFacets;
+}
+
+export interface CardFootprint {
+  ports: number[];
+  irq: number | null;
+}
+
+export interface CardVersion {
+  id: string;
+  version: string;
+  digest: string;
+  source: string;
+  createdAt: string;
+}
+
+export interface CardDetail {
+  card: CardDefinition;
+  footprint: CardFootprint | null;
+  skills: string;
+  versions: CardVersion[];
+  usedBy: string[];
+}
+
+export interface ProfileMemoryRegion {
+  id: string;
+  base: number;
+  size: number;
+  kind: 'ram' | 'rom' | 'mmio';
+  image?: string; // base64
+}
+
+export interface ProfileCardInstance {
+  id: string;
+  ref: string;
+  config?: Record<string, unknown>;
+}
+
+/** A Machine Profile (Bitsby8) — a declarative machine as a versioned Primitive. */
+export interface MachineProfile {
+  id: string; // name@version
+  name: string;
+  version: string;
+  digest: string;
+  cpuKind: 'i8080' | 'z80';
+  clock: { hz: number } | 'max';
+  resetVector: number;
+  memory: ProfileMemoryRegion[];
+  cards: ProfileCardInstance[];
+  consoleCardId?: string;
+  notes: string | null;
+  source: string;
+  createdAt: string;
+}
+
+export interface MachinePresetInfo {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface Collision {
+  kind: 'port' | 'irq' | 'memory' | 'cpu';
+  resource: string;
+  offenders: string[];
+  port?: number;
+}
+
+export interface CardClaim {
+  cardId: string;
+  ref: string;
+  ports: number[];
+  irq: number | null;
+}
+
+/** A resolved memory region for the address-space ribbon (Story 5.3). */
+export interface MemoryBand {
+  id: string;
+  base: number;
+  size: number;
+  kind: 'ram' | 'rom' | 'mmio' | string;
+  source: 'profile' | 'card';
+}
+
+export interface ProfileValidation {
+  ok: boolean;
+  collisions: Collision[];
+  claims: CardClaim[];
+  memoryMap: MemoryBand[];
+  /** Non-blocking advisories (e.g. the boot vector doesn't point into ROM). */
+  warnings: string[];
+}
+
+/** A running machine's front-panel state (cockpit Phase 3). */
+export interface FrontPanelState {
+  pc: number; sp: number; a: number; f: number;
+  b: number; c: number; d: number; e: number; h: number; l: number;
+  halted: boolean;
+  /** Interrupt-enable flip-flop (INTE lamp). */
+  inte: boolean;
+  /** A maskable interrupt is asserted (INT lamp). */
+  intPending: boolean;
+  /** 8080 status byte of the last instruction (machine-cycle lamps). */
+  status: number;
+  running: boolean;
+  addr: number;
+  data: number;
+  resetVector: number;
+}
+
+export type FrontPanelAction =
+  | 'run' | 'stop' | 'step' | 'reset' | 'examine' | 'examNext' | 'deposit' | 'depNext';
+
+/** A CPU available to a Machine Profile (Story 5.3). */
+export interface CpuInfo {
+  kind: 'i8080' | 'z80' | string;
+  name: string;
+  maker?: string;
+  ref?: string;
+}
+
+export interface DiskBinding {
+  drive: number;
+  filename: string;
+  readonly: boolean;
+  dirty: boolean;
+}
+
+export interface InstanceSnapshot {
+  id: string;
+  instanceId: string;
+  profileRef: string;
+  label: string | null;
+  disks: { drive: number; filename: string }[];
+  createdAt: string;
+}
+
+/** A virtual Machine Instance's dashboard status (Bitsby8). */
+export interface InstanceStatus {
+  id: string;
+  clientId: string;
+  profileRef: string;
+  transient: boolean;
+  status: 'defined' | 'running' | 'stopped';
+  driver: 'operator' | 'api' | 'mcp';
+  cpuKind: string;
+  effectiveHz?: number;
+  targetHz?: number | 'max';
+  uptimeSeconds?: number;
+  headless: boolean;
+  disks: DiskBinding[];
 }
 
 export interface SerialPortInfo {

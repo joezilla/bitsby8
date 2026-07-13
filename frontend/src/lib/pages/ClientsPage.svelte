@@ -13,11 +13,50 @@
   import LabelStrip from '$lib/components/shared/LabelStrip.svelte';
   import DriveCard from '$lib/components/shared/DriveCard.svelte';
   import type { ClientBay, ClientDrive, DiskImageInfo } from '$lib/types/api';
+  import { pendingRunInstance } from '$lib/stores/pendingRun';
+  import { pendingClientFocus } from '$lib/stores/pendingClientFocus';
+
+  interface Props {
+    onNavigate?: (page: 'terminal' | 'machines') => void;
+  }
+  let { onNavigate }: Props = $props();
 
   let clients = $state<ClientBay[]>([]);
   let images = $state<DiskImageInfo[]>([]);
   let loading = $state(true);
   let newClientId = $state('');
+  let focusId = $state<string | null>(null); // briefly highlighted after a deep-link
+
+  const orphans = $derived(clients.filter((c) => c.isInstance && !c.instanceExists));
+
+  // Deep-link from a machine → highlight + scroll to its client once loaded.
+  $effect(() => {
+    const want = $pendingClientFocus;
+    if (want && clients.some((c) => c.clientId === want)) {
+      focusId = want;
+      pendingClientFocus.set(null);
+      requestAnimationFrame(() => {
+        document.getElementById(`client-${want}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+      setTimeout(() => { if (focusId === want) focusId = null; }, 2600);
+    }
+  });
+
+  function openMachine(instanceId: string) {
+    pendingRunInstance.set(instanceId);
+    onNavigate?.('machines');
+  }
+
+  async function cleanupOrphans() {
+    if (!confirm(`Clean up ${orphans.length} orphaned machine client(s)? This clears the splinters, overrides, and labels left by deleted machines.`)) return;
+    try {
+      const { cleaned } = await api.cleanupOrphanClients();
+      showToast(`Cleaned up ${cleaned.length} orphaned client(s)`, 'success');
+      await load();
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    }
+  }
 
   // "Edit friendly name" modal — opened from the pencil icon on each client card.
   let nameModal = $state<{ clientId: string } | null>(null);
@@ -265,7 +304,18 @@
     <Card><div style="padding: 20px; color: var(--fg-3);">No known clients yet. Connect a client with <code>?clientId=…</code> or add one above.</div></Card>
   {/if}
 
+  {#if orphans.length}
+    <Card>
+      <div class="orphan-banner">
+        <Icon name="warning" size={18} />
+        <span><strong>{orphans.length}</strong> orphaned machine client{orphans.length === 1 ? '' : 's'} — splinters and overrides left behind by deleted machines.</span>
+        <Button variant="tonal" size="sm" icon="cleaning_services" onclick={cleanupOrphans}>Clean up all</Button>
+      </div>
+    </Card>
+  {/if}
+
   {#each clients as client (client.clientId)}
+    <div id="client-{client.clientId}" class="client-wrap" class:focus={focusId === client.clientId} class:orphan={client.isInstance && !client.instanceExists}>
     <Card>
       <div style="padding: 16px 20px; display: flex; flex-direction: column; gap: 14px;">
         <!-- Header -->
@@ -273,6 +323,13 @@
           <div style="min-width: 0;">
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
               <span class="fdc-mono" style="font-size: 15px; color: var(--accent);">{client.clientId}</span>
+              {#if client.isInstance}
+                {#if client.instanceExists}
+                  <Chip color="cyan" icon="dns" title="This client is a virtual machine instance">machine</Chip>
+                {:else}
+                  <Chip color="red" icon="warning" title="The machine this client belonged to was deleted">orphan · machine deleted</Chip>
+                {/if}
+              {/if}
               {#if client.connected}<Chip color="green" icon="bolt">connected</Chip>{:else}<Chip color="amber">offline</Chip>{/if}
               {#if client.isMaster}<Chip color="green" icon="edit">master</Chip>{/if}
               {#if client.hasSplinters}<Chip color="cyan" icon="bolt" title="This client has copy-on-write disk splinters with unsaved changes">splinters</Chip>{/if}
@@ -282,8 +339,11 @@
             </div>
           </div>
           <div style="display: flex; align-items: center; gap: 4px; flex: none;">
+            {#if client.isInstance && client.instanceExists && client.instanceId}
+              <Button variant="ghost" size="sm" icon="open_in_new" onclick={() => openMachine(client.instanceId!)}>Open machine</Button>
+            {/if}
             <IconButton icon="edit" size={18} title="Edit friendly name" onclick={() => openNameModal(client)} />
-            <IconButton icon="delete_forever" size={18} title="Forget client" onclick={() => forgetClient(client.clientId)} />
+            <IconButton icon="delete_forever" size={18} title={client.isInstance && !client.instanceExists ? 'Clean up this orphaned machine client' : 'Forget client'} onclick={() => forgetClient(client.clientId)} />
           </div>
         </div>
 
@@ -360,6 +420,7 @@
         </div>
       </div>
     </Card>
+    </div>
   {/each}
 </div>
 
@@ -524,3 +585,26 @@
     </div>
   </div>
 {/if}
+
+<style>
+  .orphan-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 12px 18px;
+    color: var(--fg-2);
+    font: var(--text-body-sm);
+  }
+  .orphan-banner > span { flex: 1; min-width: 200px; }
+  .client-wrap {
+    border-radius: var(--radius-lg);
+    transition: box-shadow 0.4s ease;
+  }
+  .client-wrap.orphan {
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--error, #ff6b64) 40%, transparent);
+  }
+  .client-wrap.focus {
+    box-shadow: 0 0 0 2px var(--accent), 0 0 0 6px color-mix(in oklab, var(--accent) 22%, transparent);
+  }
+</style>

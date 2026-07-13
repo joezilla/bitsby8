@@ -7,6 +7,9 @@
   import DisksPage from '$lib/pages/DisksPage.svelte';
   import ClientsPage from '$lib/pages/ClientsPage.svelte';
   import CassettesPage from '$lib/pages/CassettesPage.svelte';
+  import CatalogPage from '$lib/pages/CatalogPage.svelte';
+  import ProfilesPage from '$lib/pages/ProfilesPage.svelte';
+  import MachinesPage from '$lib/pages/MachinesPage.svelte';
   import ScriptsPage from '$lib/pages/ScriptsPage.svelte';
   import ConfigPage from '$lib/pages/ConfigPage.svelte';
   import ChatPanel from '$lib/components/chat/ChatPanel.svelte';
@@ -16,7 +19,7 @@
   // Initialize theme store (side effect: applies <html data-theme>)
   import '$lib/stores/theme';
 
-  type PageId = 'terminal' | 'disks' | 'clients' | 'cassettes' | 'scripts' | 'config';
+  type PageId = 'terminal' | 'disks' | 'clients' | 'cassettes' | 'catalog' | 'profiles' | 'machines' | 'scripts' | 'config';
 
   function isNarrowNow(): boolean {
     return typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches;
@@ -54,7 +57,7 @@
   <div style="flex: 1; display: flex; min-height: 0; position: relative;">
     {#if sidebarOpen}
       <!-- Desktop: inline flex sibling -->
-      <div class="hidden lg:flex" style="flex: 0 0 220px;">
+      <div class="hidden lg:flex" style="flex: 0 0 272px;">
         <Sidebar active={currentPage} onNavigate={navigateTo} />
       </div>
 
@@ -92,9 +95,15 @@
       {:else if currentPage === 'disks'}
         <DisksPage />
       {:else if currentPage === 'clients'}
-        <ClientsPage />
+        <ClientsPage onNavigate={navigateTo} />
       {:else if currentPage === 'cassettes'}
         <CassettesPage />
+      {:else if currentPage === 'catalog'}
+        <CatalogPage />
+      {:else if currentPage === 'profiles'}
+        <ProfilesPage onNavigate={navigateTo} />
+      {:else if currentPage === 'machines'}
+        <MachinesPage onNavigate={navigateTo} />
       {:else if currentPage === 'scripts'}
         <ScriptsPage />
       {:else if currentPage === 'config'}

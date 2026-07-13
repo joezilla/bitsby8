@@ -35,7 +35,12 @@ import { registerDriveRoutes } from './routes/drives';
 import { registerImageRoutes } from './routes/images';
 import { registerSnapshotRoutes } from './routes/snapshots';
 import { registerCatalogRoutes } from './routes/catalog';
+import { registerInstanceRoutes } from './routes/instances';
+import { registerProfileRoutes } from './routes/profiles';
 import { loadSeedCatalog } from './services/catalog-seed';
+import { loadSeedKernelCards } from './services/kernel-cards-seed';
+import { loadSeedPresets } from './services/preset-seed';
+import { INSTANCE_CLIENT_PREFIX, InstanceManager } from './services/instance-manager';
 import { registerSettingsRoutes } from './routes/settings';
 import { registerClientRoutes } from './routes/clients';
 import { ConnectionManager } from './services/connection-manager';
@@ -155,6 +160,8 @@ export class WebServer {
 
     // Owns the extra per-connection loops used when multi-client serving is on.
     this.deps.connectionManager = new ConnectionManager(this.deps);
+    // Owns virtual Machine Instance lifecycle + consoles (Bitsby8).
+    this.deps.instanceManager = new InstanceManager(this.deps);
 
     this.setup();
   }
@@ -180,6 +187,8 @@ export class WebServer {
     registerImageRoutes(router, this.deps);
     registerSnapshotRoutes(router, this.deps);
     registerCatalogRoutes(router, this.deps);
+    registerProfileRoutes(router, this.deps);
+    registerInstanceRoutes(router, this.deps);
     registerSettingsRoutes(router, this.deps);
     registerClientRoutes(router, this.deps);
     registerCpmRoutes(router, this.deps);
@@ -257,6 +266,14 @@ export class WebServer {
           // single shared transport (a new client replaces the prior one).
           if (this.deps.multiClientServing && this.deps.connectionManager) {
             const clientId = new URL(rawUrl, 'http://localhost').searchParams.get('clientId');
+            // The `inst:` clientId namespace is reserved for local virtual
+            // Machine Instances (served in-process). An external client must not
+            // claim it — that would collide with an instance's splinter (AD-7).
+            if (clientId?.startsWith(INSTANCE_CLIENT_PREFIX)) {
+              log.warn({ clientId }, 'rejecting external FDC client claiming reserved inst: prefix');
+              try { client.close(); } catch { /* already closing */ }
+              return;
+            }
             log.info({ clientId }, 'Virtual FDC client connected (multi-client)');
             this.deps.connectionManager.addWsClient(client, clientId).catch((err) => {
               log.error({ err }, 'failed to start multi-client FDC connection');
@@ -313,6 +330,10 @@ export class WebServer {
     // Seed the Catalog with 8sim's built-in Card Definitions (non-fatal).
     try {
       await loadSeedCatalog(this.deps);
+      // Built-in cards for the behavior kernels (VDM/Dazzler/keyboard/RTC/bank-RAM),
+      // then the built-in machine presets — both after the seed catalog they build on.
+      await loadSeedKernelCards(this.deps);
+      await loadSeedPresets(this.deps);
     } catch (error) {
       console.error('Catalog seeding failed (continuing):', error);
     }

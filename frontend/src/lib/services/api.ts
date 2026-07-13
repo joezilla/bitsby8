@@ -12,6 +12,18 @@ import type {
   CpmFileInfo,
   ConfigDoc,
   ConfigStatus,
+  CatalogListing,
+  CardDefinition,
+  CardDetail,
+  CpuInfo,
+  FrontPanelState,
+  FrontPanelAction,
+  MachineProfile,
+  MachinePresetInfo,
+  ProfileValidation,
+  ProfileCardInstance,
+  InstanceStatus,
+  InstanceSnapshot,
   SerialSection,
   WebSection,
   McpSection,
@@ -250,6 +262,8 @@ export const api = {
     request(`/api/clients/${encodeURIComponent(clientId)}/drives/${drive}`, { method: 'DELETE' }),
   forgetClient: (clientId: string) =>
     request(`/api/clients/${encodeURIComponent(clientId)}`, { method: 'DELETE' }),
+  cleanupOrphanClients: () =>
+    request<{ cleaned: string[] }>('/api/clients/cleanup-orphans', { method: 'POST' }),
   commitClientSplinter: (clientId: string, drive: number) =>
     request<{ success: boolean; clientId: string; drive: number; filename: string; hotSwapped: boolean; reloadedDrives: number[] }>(
       `/api/clients/${encodeURIComponent(clientId)}/drives/${drive}/splinter/commit`,
@@ -456,4 +470,172 @@ export const api = {
       '/api/config/rollback?confirm=1',
       { method: 'POST' },
     ),
+
+  // Catalog (Bitsby8) — browse Card Definitions with optional facet filters.
+  browseCatalog: (filter: { type?: string; maker?: string; capability?: string; q?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (filter.type) qs.set('type', filter.type);
+    if (filter.maker) qs.set('maker', filter.maker);
+    if (filter.capability) qs.set('capability', filter.capability);
+    if (filter.q) qs.set('q', filter.q);
+    const suffix = qs.toString() ? `?${qs}` : '';
+    return request<CatalogListing>(`/api/catalog/cards${suffix}`);
+  },
+  getCardDetail: (id: string) =>
+    request<CardDetail>(`/api/catalog/cards/${encodeURIComponent(id)}/detail`),
+  listCpus: () => request<{ cpus: CpuInfo[] }>('/api/catalog/cpus'),
+  listCardKernels: () =>
+    request<{ kernels: { id: string; label: string; type: string; binding?: string; configSchema: Record<string, { type: string; default?: number | string; min?: number; max?: number; enum?: (number | string)[]; description?: string }> }[] }>(
+      '/api/catalog/kernels',
+    ),
+  authorCard: (body: {
+    name: string;
+    version?: string;
+    maker?: string;
+    summary?: string;
+    behavior: { resolvesTo: 'memory'; memKind: 'ram' | 'rom' } | { resolvesTo: 'cpu'; cpuKind: 'i8080' | 'z80' };
+    defaults?: { base?: number; size?: number; resetVector?: number };
+  }) => request<CardDefinition>('/api/catalog/cards', { method: 'POST', body: JSON.stringify(body) }),
+  deleteCard: (id: string) =>
+    request<{ deleted: true }>(`/api/catalog/cards/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  // Machine Profiles (Bitsby8) — versioned declarative machines.
+  listProfiles: () => request<{ profiles: MachineProfile[] }>('/api/profiles'),
+  getProfile: (id: string) =>
+    request<{ profile: MachineProfile }>(`/api/profiles/${encodeURIComponent(id)}`),
+  listProfileVersions: (name: string) =>
+    request<{ versions: MachineProfile[] }>(`/api/profiles/${encodeURIComponent(name)}/versions`),
+  createProfile: (body: Record<string, unknown>) =>
+    request<{ profile: MachineProfile }>('/api/profiles', { method: 'POST', body: JSON.stringify(body) }),
+  updateProfile: (id: string, patch: Record<string, unknown>) =>
+    request<{ profile: MachineProfile }>(`/api/profiles/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    }),
+  cloneProfile: (id: string, name: string) =>
+    request<{ profile: MachineProfile }>(`/api/profiles/${encodeURIComponent(id)}/clone`, {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+  renameProfile: (id: string, name: string) =>
+    request<{ profile: MachineProfile }>(`/api/profiles/${encodeURIComponent(id)}/rename`, {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+  resetProfile: (id: string) =>
+    request<{ profile: MachineProfile }>(`/api/profiles/${encodeURIComponent(id)}/reset`, {
+      method: 'POST',
+    }),
+  deleteProfile: (id: string) =>
+    request(`/api/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  exportProfile: (id: string) =>
+    request<Record<string, unknown>>(`/api/profiles/${encodeURIComponent(id)}/export`),
+  importProfileBundle: (bundle: unknown, name?: string) =>
+    request<{ profile: MachineProfile; cards: unknown[]; warnings: string[] }>('/api/profiles/import', {
+      method: 'POST',
+      body: JSON.stringify({ bundle, name }),
+    }),
+  burnEprom: (
+    id: string,
+    cardId: string,
+    body: { image: string; addressing: 'file' | 'base'; format?: 'bin' | 'ihex'; filename?: string },
+  ) =>
+    request<{ profile: MachineProfile; summary: string; region: { id: string; base: number; size: number } }>(
+      `/api/profiles/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}/burn`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  eraseEprom: (id: string, cardId: string) =>
+    request<{ profile: MachineProfile; erased: boolean }>(
+      `/api/profiles/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}/rom`,
+      { method: 'DELETE' },
+    ),
+
+  // Per-profile startup disk mounts (which images mount when a machine launches).
+  listProfileDisks: (id: string) =>
+    request<{ disks: { drive: number; filename: string; readonly: boolean }[] }>(
+      `/api/profiles/${encodeURIComponent(id)}/disks`,
+    ),
+  setProfileDisk: (id: string, drive: number, filename: string, readonly: boolean) =>
+    request<{ disks: { drive: number; filename: string; readonly: boolean }[] }>(
+      `/api/profiles/${encodeURIComponent(id)}/disks/${drive}`,
+      { method: 'PUT', body: JSON.stringify({ filename, readonly }) },
+    ),
+  clearProfileDisk: (id: string, drive: number) =>
+    request<{ disks: { drive: number; filename: string; readonly: boolean }[] }>(
+      `/api/profiles/${encodeURIComponent(id)}/disks/${drive}`,
+      { method: 'DELETE' },
+    ),
+
+  validateProfileBody: (body: { memory?: unknown[]; cards?: unknown[] }) =>
+    request<ProfileValidation>('/api/profiles/validate', { method: 'POST', body: JSON.stringify(body) }),
+  autoAssignProfile: (body: { memory?: unknown[]; cards?: unknown[] }) =>
+    request<{ content: { cards: ProfileCardInstance[] }; unresolved: string[]; changes: unknown[] }>(
+      '/api/profiles/auto-assign',
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+
+  // Machine Instances (Bitsby8) — the Machines dashboard.
+  listInstances: () => request<{ instances: InstanceStatus[] }>('/api/instances'),
+  getInstance: (id: string) =>
+    request<{ instance: InstanceStatus }>(`/api/instances/${encodeURIComponent(id)}`),
+  startInstance: (id: string) =>
+    request<{ instance: InstanceStatus }>(`/api/instances/${encodeURIComponent(id)}/start`, { method: 'POST' }),
+  stopInstance: (id: string) =>
+    request<{ instance: InstanceStatus }>(`/api/instances/${encodeURIComponent(id)}/stop`, { method: 'POST' }),
+  setInstanceSpeed: (id: string, speed: number | 'max') =>
+    request<{ instance: InstanceStatus }>(`/api/instances/${encodeURIComponent(id)}/speed`, {
+      method: 'POST',
+      body: JSON.stringify({ speed }),
+    }),
+  destroyInstance: (id: string) =>
+    request(`/api/instances/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  listInstanceSnapshots: (id: string) =>
+    request<{ snapshots: InstanceSnapshot[] }>(`/api/instances/${encodeURIComponent(id)}/snapshots`),
+  snapshotInstance: (id: string, label?: string) =>
+    request<{ snapshot: InstanceSnapshot }>(`/api/instances/${encodeURIComponent(id)}/snapshots`, {
+      method: 'POST',
+      body: JSON.stringify({ label }),
+    }),
+  listInstanceGpio: (id: string) =>
+    request<{ ports: { cardId: string; direction: 'out' | 'in' | 'inout'; output: number }[] }>(
+      `/api/instances/${encodeURIComponent(id)}/gpio`,
+    ),
+  setInstanceGpioInput: (id: string, cardId: string, value: number) =>
+    request<{ cardId: string; input: number }>(
+      `/api/instances/${encodeURIComponent(id)}/gpio/${encodeURIComponent(cardId)}/input`,
+      { method: 'POST', body: JSON.stringify({ value }) },
+    ),
+  listInstanceDisplays: (id: string) =>
+    request<{ displays: { cardId: string; descriptor: Record<string, unknown>; state: Record<string, number>; frame: string }[] }>(
+      `/api/instances/${encodeURIComponent(id)}/display`,
+    ),
+  listInstanceKeyboards: (id: string) =>
+    request<{ keyboards: { cardId: string; pending: number }[] }>(
+      `/api/instances/${encodeURIComponent(id)}/keyboard`,
+    ),
+  sendInstanceKey: (id: string, body: { byte?: number; bytes?: number[]; text?: string; cardId?: string }) =>
+    request<{ cardId: string; sent: number }>(`/api/instances/${encodeURIComponent(id)}/keyboard`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  getFrontPanel: (id: string) => request<FrontPanelState>(`/api/instances/${encodeURIComponent(id)}/frontpanel`),
+  frontPanelAction: (id: string, action: FrontPanelAction, value?: number) =>
+    request<FrontPanelState>(`/api/instances/${encodeURIComponent(id)}/frontpanel`, {
+      method: 'POST',
+      body: JSON.stringify({ action, value }),
+    }),
+  restoreInstanceSnapshot: (snapshotId: string) =>
+    request<{ instanceId: string; restored: number[] }>(
+      `/api/instance-snapshots/${encodeURIComponent(snapshotId)}/restore`,
+      { method: 'POST' },
+    ),
+  deleteInstanceSnapshot: (snapshotId: string) =>
+    request(`/api/instance-snapshots/${encodeURIComponent(snapshotId)}`, { method: 'DELETE' }),
+
+  listMachinePresets: () => request<{ presets: MachinePresetInfo[] }>('/api/instances/presets'),
+  launchTransient: (profileRef: string, speed?: number | 'max') =>
+    request<{ instance: { id: string } }>('/api/instances/transient', {
+      method: 'POST',
+      body: JSON.stringify({ profileRef, speed }),
+    }),
 };

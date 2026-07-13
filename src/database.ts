@@ -58,6 +58,14 @@ export interface ClientMount {
   updated_at: string;
 }
 
+export interface ProfileDisk {
+  profile_name: string;
+  drive: number;
+  filename: string;
+  readonly: number; // SQLite 0/1
+  updated_at: string;
+}
+
 export interface ClientLabel {
   client_id: string;
   name: string;
@@ -77,6 +85,46 @@ export interface CardDefinitionRecord {
   manifest: string; // JSON
   entry: string | null; // bundle entry ref
   source: string; // 'seed' | 'imported' | 'signed'
+  created_at: string;
+}
+
+/** A persistent Machine Instance (Bitsby8). Transient instances are memory-only
+ * (never written here). `client_id` is the reserved `inst:<uuid>` serving id. */
+export interface MachineInstanceRecord {
+  id: string;
+  profile_ref: string;
+  client_id: string;
+  cpu_kind: string;
+  status: string; // 'defined' | 'running' | 'stopped'
+  created_at: string;
+}
+
+/** An instance disk/media snapshot (Bitsby8 Story 3.4) — the machine definition
+ * (profile_ref) + a copy of each bound drive's disk state, as a restorable unit.
+ * Execution (CPU) state is explicitly NOT captured. Disk images live under
+ * `{disksDir}/.instance-snapshots/<id>/`; `disks` is the JSON manifest. */
+export interface InstanceSnapshotRecord {
+  id: string;
+  instance_id: string;
+  profile_ref: string;
+  label: string | null;
+  disks: string; // JSON: [{ drive, base_filename, file }]
+  created_at: string;
+}
+
+/** A Machine Profile (Bitsby8) — a versioned Primitive (name@version + sha256
+ * `digest`) describing a machine declaratively. The full profile (CPU, clock,
+ * memory/ROM layout, card instances) is stored as JSON with ROM images base64.
+ * Versions are immutable: editing writes a new version; prior versions remain. */
+export interface MachineProfileRecord {
+  id: string; // `${name}@${version}`
+  name: string;
+  version: string;
+  digest: string;
+  cpu_kind: string;
+  profile: string; // JSON (MachineProfile with memory images base64-encoded)
+  notes: string | null;
+  source: string; // 'user' | 'preset' | 'imported'
   created_at: string;
 }
 
@@ -180,6 +228,67 @@ const MIGRATIONS: string[] = [
     UNIQUE (name, version)
   );
   CREATE INDEX IF NOT EXISTS idx_card_definitions_name ON card_definitions(name);`,
+
+  // Migration 7: persistent Machine Instances (Bitsby8). A DB-backed instance
+  // is re-runnable across restarts; transient instances are memory-only in the
+  // InstanceManager and never recorded here. `client_id` is the reserved
+  // `inst:<uuid>` serving identity that keys the instance's copy-on-write splinter.
+  `CREATE TABLE IF NOT EXISTS machine_instances (
+    id TEXT PRIMARY KEY,
+    profile_ref TEXT NOT NULL,
+    client_id TEXT NOT NULL,
+    cpu_kind TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'defined',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );`,
+
+  // Migration 8: Machine Profiles (Bitsby8) — a declarative machine as a
+  // versioned Primitive (`name@version` + content `digest`). The full profile
+  // (CPU, clock, memory/ROM layout, card instances) is stored as JSON. Versions
+  // are immutable — an edit inserts a new (name, version) row; prior versions
+  // stay resolvable (FR-10 content addressing).
+  `CREATE TABLE IF NOT EXISTS machine_profiles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    digest TEXT NOT NULL,
+    cpu_kind TEXT NOT NULL,
+    profile TEXT NOT NULL,
+    notes TEXT,
+    source TEXT NOT NULL DEFAULT 'user',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (name, version)
+  );
+  CREATE INDEX IF NOT EXISTS idx_machine_profiles_name ON machine_profiles(name);`,
+
+  // Migration 9: instance disk/media snapshots (Bitsby8 Story 3.4). A snapshot
+  // is the machine definition (profile_ref) + a copy of each bound drive's disk
+  // state, restorable as a unit. Execution state is out of scope. Disk images
+  // are stored on disk under {disksDir}/.instance-snapshots/<id>/.
+  `CREATE TABLE IF NOT EXISTS instance_snapshots (
+    id TEXT PRIMARY KEY,
+    instance_id TEXT NOT NULL,
+    profile_ref TEXT NOT NULL,
+    label TEXT,
+    disks TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_instance_snapshots_instance ON instance_snapshots(instance_id);`,
+
+  // Migration 10: per-profile startup disk mounts (Bitsby8). Which disk image
+  // (if any) each drive gets when a machine is launched from a profile. Keyed by
+  // profile NAME (not name@version), so the disk set follows the machine lineage
+  // across saved versions. Applied at launch as per-instance mount overrides —
+  // profiles stay content-addressed, so disks live here, never in profile content.
+  `CREATE TABLE IF NOT EXISTS profile_disks (
+    profile_name TEXT NOT NULL,
+    drive INTEGER NOT NULL,
+    filename TEXT NOT NULL,
+    readonly INTEGER NOT NULL DEFAULT 0,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (profile_name, drive)
+  );
+  CREATE INDEX IF NOT EXISTS idx_profile_disks_filename ON profile_disks(filename);`,
 ];
 
 export class Database {
@@ -614,6 +723,55 @@ export class Database {
     this.db!.prepare('DELETE FROM client_mounts WHERE client_id = ?').run(clientId);
   }
 
+  // --- Per-profile startup disk mounts (profile_disks) --------------------
+
+  /** List a profile's startup disk bindings (by profile name), sorted by drive. */
+  async listProfileDisks(profileName: string): Promise<ProfileDisk[]> {
+    this.ensureInitialized();
+    return this.db!.prepare(
+      'SELECT * FROM profile_disks WHERE profile_name = ? ORDER BY drive'
+    ).all(profileName) as ProfileDisk[];
+  }
+
+  /** Set (or replace) a profile's disk binding for one drive. */
+  async setProfileDisk(profileName: string, drive: number, filename: string, readonly: boolean): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare(
+      `INSERT INTO profile_disks (profile_name, drive, filename, readonly, updated_at)
+       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(profile_name, drive) DO UPDATE SET
+         filename = excluded.filename,
+         readonly = excluded.readonly,
+         updated_at = CURRENT_TIMESTAMP`
+    ).run(profileName, drive, filename, readonly ? 1 : 0);
+  }
+
+  /** Clear a profile's binding on one drive. */
+  async deleteProfileDisk(profileName: string, drive: number): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM profile_disks WHERE profile_name = ? AND drive = ?').run(profileName, drive);
+  }
+
+  /** Remove all of a profile's disk bindings (used when the profile is deleted). */
+  async deleteProfileDisksForProfile(profileName: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM profile_disks WHERE profile_name = ?').run(profileName);
+  }
+
+  /** Delete every profile binding that points at a base image (base deleted). */
+  async deleteProfileDisksForBase(filename: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM profile_disks WHERE filename = ?').run(filename);
+  }
+
+  /** Repoint profile bindings when a base image is renamed. */
+  async renameProfileDisksBase(oldFilename: string, newFilename: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare(
+      'UPDATE profile_disks SET filename = ?, updated_at = CURRENT_TIMESTAMP WHERE filename = ?'
+    ).run(newFilename, oldFilename);
+  }
+
   // --- Per-client friendly names (client_labels) --------------------------
 
   async getClientLabel(clientId: string): Promise<ClientLabel | null> {
@@ -694,6 +852,166 @@ export class Database {
     return this.db!.prepare(
       'SELECT * FROM card_definitions ORDER BY type, name, version'
     ).all() as CardDefinitionRecord[];
+  }
+
+  async deleteCardDefinition(id: string): Promise<boolean> {
+    this.ensureInitialized();
+    return this.db!.prepare('DELETE FROM card_definitions WHERE id = ?').run(id).changes > 0;
+  }
+
+  // --- Machine Instances (Bitsby8) ---
+
+  async upsertMachineInstance(rec: Omit<MachineInstanceRecord, 'created_at'>): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare(
+      `INSERT INTO machine_instances (id, profile_ref, client_id, cpu_kind, status, created_at)
+       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(id) DO UPDATE SET
+         profile_ref = excluded.profile_ref, client_id = excluded.client_id,
+         cpu_kind = excluded.cpu_kind, status = excluded.status`
+    ).run(rec.id, rec.profile_ref, rec.client_id, rec.cpu_kind, rec.status);
+  }
+
+  async setMachineInstanceStatus(id: string, status: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('UPDATE machine_instances SET status = ? WHERE id = ?').run(status, id);
+  }
+
+  async getMachineInstance(id: string): Promise<MachineInstanceRecord | undefined> {
+    this.ensureInitialized();
+    return this.db!.prepare('SELECT * FROM machine_instances WHERE id = ?').get(id) as
+      | MachineInstanceRecord
+      | undefined;
+  }
+
+  async listMachineInstances(): Promise<MachineInstanceRecord[]> {
+    this.ensureInitialized();
+    return this.db!.prepare('SELECT * FROM machine_instances ORDER BY created_at DESC').all() as
+      MachineInstanceRecord[];
+  }
+
+  async deleteMachineInstance(id: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM machine_instances WHERE id = ?').run(id);
+  }
+
+  // --- Machine Profiles (Bitsby8) ---
+
+  async insertMachineProfile(rec: Omit<MachineProfileRecord, 'created_at'>): Promise<void> {
+    this.ensureInitialized();
+    // Versions are immutable — a colliding (name, version) is a conflict, not an upsert.
+    this.db!.prepare(
+      `INSERT INTO machine_profiles (id, name, version, digest, cpu_kind, profile, notes, source, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+    ).run(rec.id, rec.name, rec.version, rec.digest, rec.cpu_kind, rec.profile, rec.notes, rec.source);
+  }
+
+  async getMachineProfileById(id: string): Promise<MachineProfileRecord | undefined> {
+    this.ensureInitialized();
+    return this.db!.prepare('SELECT * FROM machine_profiles WHERE id = ?').get(id) as
+      | MachineProfileRecord
+      | undefined;
+  }
+
+  /** Edit a profile row in place (digest/content/cpu/notes), keeping its id +
+   * version. Used only for preset templates, which are living, not versioned. */
+  async updateMachineProfileContent(
+    id: string,
+    fields: { digest: string; cpu_kind: string; profile: string; notes: string | null },
+  ): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare(
+      'UPDATE machine_profiles SET digest = ?, cpu_kind = ?, profile = ?, notes = ? WHERE id = ?'
+    ).run(fields.digest, fields.cpu_kind, fields.profile, fields.notes, id);
+  }
+
+  /** All versions of a profile name, newest-created first. `rowid` is a
+   * monotonic tiebreaker for versions inserted within the same clock second. */
+  async listMachineProfileVersions(name: string): Promise<MachineProfileRecord[]> {
+    this.ensureInitialized();
+    return this.db!.prepare(
+      'SELECT * FROM machine_profiles WHERE name = ? ORDER BY created_at DESC, rowid DESC'
+    ).all(name) as MachineProfileRecord[];
+  }
+
+  async listMachineProfiles(): Promise<MachineProfileRecord[]> {
+    this.ensureInitialized();
+    return this.db!.prepare(
+      'SELECT * FROM machine_profiles ORDER BY name, created_at DESC, rowid DESC'
+    ).all() as MachineProfileRecord[];
+  }
+
+  async deleteMachineProfile(id: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM machine_profiles WHERE id = ?').run(id);
+  }
+
+  async deleteMachineProfilesByName(name: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM machine_profiles WHERE name = ?').run(name);
+  }
+
+  /**
+   * Rename a profile in place across every version: re-keys `id` (name@version)
+   * and the `name` column for all versions, preserving version rows, digests,
+   * notes and created_at (history intact). Because the name is Identity, this
+   * also migrates name-keyed startup disks and re-points anything storing a
+   * `name@version` ref (running instances, snapshots) so nothing dangles. Runs
+   * in one transaction. Caller must ensure `newName` is free of collisions.
+   */
+  async renameMachineProfile(oldName: string, newName: string): Promise<void> {
+    this.ensureInitialized();
+    const db = this.db!;
+    // Exact-prefix match on `oldName@` — computed with substr, NOT LIKE, since
+    // profile names may contain `_`/`%` which are LIKE wildcards.
+    const oldPrefix = `${oldName}@`;
+    const newPrefix = `${newName}@`;
+    const plen = oldPrefix.length;
+    db.transaction(() => {
+      db.prepare(
+        "UPDATE machine_profiles SET id = ? || '@' || version, name = ? WHERE name = ?"
+      ).run(newName, newName, oldName);
+      db.prepare('UPDATE profile_disks SET profile_name = ? WHERE profile_name = ?').run(newName, oldName);
+      for (const table of ['machine_instances', 'instance_snapshots'] as const) {
+        db.prepare(
+          `UPDATE ${table} SET profile_ref = ? || substr(profile_ref, ?) WHERE substr(profile_ref, 1, ?) = ?`
+        ).run(newPrefix, plen + 1, plen, oldPrefix);
+      }
+    })();
+  }
+
+  // --- Instance snapshots (Bitsby8) ---
+
+  async insertInstanceSnapshot(rec: Omit<InstanceSnapshotRecord, 'created_at'>): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare(
+      `INSERT INTO instance_snapshots (id, instance_id, profile_ref, label, disks, created_at)
+       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+    ).run(rec.id, rec.instance_id, rec.profile_ref, rec.label, rec.disks);
+  }
+
+  async getInstanceSnapshot(id: string): Promise<InstanceSnapshotRecord | undefined> {
+    this.ensureInitialized();
+    return this.db!.prepare('SELECT * FROM instance_snapshots WHERE id = ?').get(id) as
+      | InstanceSnapshotRecord
+      | undefined;
+  }
+
+  async listInstanceSnapshots(instanceId?: string): Promise<InstanceSnapshotRecord[]> {
+    this.ensureInitialized();
+    if (instanceId) {
+      return this.db!.prepare(
+        'SELECT * FROM instance_snapshots WHERE instance_id = ? ORDER BY created_at DESC, rowid DESC'
+      ).all(instanceId) as InstanceSnapshotRecord[];
+    }
+    return this.db!.prepare(
+      'SELECT * FROM instance_snapshots ORDER BY created_at DESC, rowid DESC'
+    ).all() as InstanceSnapshotRecord[];
+  }
+
+  async deleteInstanceSnapshot(id: string): Promise<void> {
+    this.ensureInitialized();
+    this.db!.prepare('DELETE FROM instance_snapshots WHERE id = ?').run(id);
   }
 
   isInitialized(): boolean {

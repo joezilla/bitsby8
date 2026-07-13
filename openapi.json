@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "FDC+ Serial Drive Server API",
-    "version": "2.0.0",
+    "version": "3.0.0-alpha",
     "description": "REST API for the Altair 8800 FDC+ Serial Drive Server web interface. Manages disk image serving, CP/M filesystem browsing, cassette audio, terminal serial connections, script replay, and XMODEM transfers.\n\n## Socket.IO Events\n\nThe server also exposes real-time events via Socket.IO (not covered by OpenAPI).\n\n### Server → Client\n\n| Event | Payload | Description |\n|-------|---------|-------------|\n| `status` | `ServerStatus` | Periodic server status broadcast (1s interval) |\n| `terminal:data` | `number[]` | Incoming serial data as byte array |\n| `terminal:status` | `TerminalStatus` | Terminal connection status change |\n| `terminal:error` | `{message: string}` | Terminal error |\n| `replay:progress` | `ReplayProgress` | Transfer progress update |\n| `replay:status` | `{active, mode, progress}` | Transfer status on connect |\n\n### Client → Server\n\n| Event | Payload | Description |\n|-------|---------|-------------|\n| `request-status` | _(none)_ | Request current server status |\n| `terminal:write` | `string` | Send keyboard input to terminal serial port |\n| `terminal:control` | `{type, value}` | Set DTR/RTS control signals |\n| `replay:start` | `ReplayStartParams` | Start raw replay or XMODEM send |\n| `replay:cancel` | _(none)_ | Cancel active transfer |"
   },
   "servers": [
@@ -47,6 +47,14 @@
     {
       "name": "Clients",
       "description": "Per-client drive-bay overrides and friendly names (multi-client serving)"
+    },
+    {
+      "name": "Profiles",
+      "description": "Machine Profiles — declarative machines as versioned Primitives (Bitsby8)"
+    },
+    {
+      "name": "Instances",
+      "description": "Virtual S-100 Machine Instances — lifecycle + console I/O (Bitsby8)"
     },
     {
       "name": "CP/M",
@@ -147,11 +155,20 @@
           "digest": {
             "type": "string",
             "example": "sha256:…",
-            "description": "Content digest (basic sha256; full rule in a later release)."
+            "description": "Content-addressed Identity (AD-8): sha256 over a JCS canonical Merkle manifest."
           },
           "type": {
             "type": "string",
             "example": "serial"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "card",
+              "chip"
+            ],
+            "example": "card",
+            "description": "Bus-ontology kind: S-100 board vs. component chip."
           },
           "maker": {
             "type": "string",
@@ -161,6 +178,16 @@
           "summary": {
             "type": "string",
             "nullable": true
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "serial-io"
+            ],
+            "description": "Derived capability tags (from the manifest) — a browse/filter facet."
           },
           "manifest": {
             "type": "object",
@@ -179,6 +206,407 @@
           },
           "createdAt": {
             "type": "string"
+          }
+        }
+      },
+      "CardDetail": {
+        "type": "object",
+        "description": "A card's datasheet (Bitsby8) — definition + footprint + Skills file + versions + used-by.",
+        "properties": {
+          "card": {
+            "$ref": "#/components/schemas/CardDefinition"
+          },
+          "footprint": {
+            "type": "object",
+            "nullable": true,
+            "description": "Default bus footprint (null if not derivable).",
+            "properties": {
+              "ports": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "example": [
+                  16,
+                  17,
+                  18,
+                  19
+                ]
+              },
+              "irq": {
+                "type": "integer",
+                "nullable": true
+              }
+            }
+          },
+          "skills": {
+            "type": "string",
+            "description": "Generated Skills file (human- and agent-readable markdown)."
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string"
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "usedBy": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Machine Profiles referencing this card (populated once Profiles exist)."
+          }
+        }
+      },
+      "MachineProfile": {
+        "type": "object",
+        "description": "A declarative machine as a versioned Primitive (Bitsby8) — dual Identity (name@version + sha256) with immutable versions.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "my-imsai@1.0.0",
+            "description": "Identity: name@version."
+          },
+          "name": {
+            "type": "string",
+            "example": "my-imsai"
+          },
+          "version": {
+            "type": "string",
+            "example": "1.0.0"
+          },
+          "digest": {
+            "type": "string",
+            "example": "sha256:…",
+            "description": "Content digest; a change yields a new version + digest."
+          },
+          "cpuKind": {
+            "type": "string",
+            "enum": [
+              "i8080",
+              "z80"
+            ]
+          },
+          "clock": {
+            "description": "Clock: { hz: number } or the string 'max'."
+          },
+          "resetVector": {
+            "type": "integer",
+            "example": 65280
+          },
+          "memory": {
+            "type": "array",
+            "description": "Memory/ROM layout; a ROM region carries its bytes as base64 in `image`.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "base": {
+                  "type": "integer"
+                },
+                "size": {
+                  "type": "integer"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "ram",
+                    "rom",
+                    "mmio"
+                  ]
+                },
+                "image": {
+                  "type": "string",
+                  "nullable": true,
+                  "description": "base64 ROM contents"
+                }
+              }
+            }
+          },
+          "cards": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "ref": {
+                  "type": "string",
+                  "description": "Card Identity (name@version)."
+                },
+                "config": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "consoleCardId": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "source": {
+            "type": "string",
+            "example": "user",
+            "description": "'user' | 'preset' | 'imported'."
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        }
+      },
+      "ProfileValidation": {
+        "type": "object",
+        "description": "Define-time bus-collision validation of a Profile (Bitsby8). ok:true → runnable.",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "collisions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "port",
+                    "irq",
+                    "memory"
+                  ]
+                },
+                "resource": {
+                  "type": "string",
+                  "example": "I/O port 0x10"
+                },
+                "offenders": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Colliding card instance ids (or memory region ids)."
+                },
+                "port": {
+                  "type": "integer",
+                  "nullable": true,
+                  "description": "The colliding I/O port (kind port only)."
+                }
+              }
+            }
+          },
+          "claims": {
+            "type": "array",
+            "description": "Each card's claimed bus footprint at its config.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "cardId": {
+                  "type": "string"
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "ports": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                },
+                "irq": {
+                  "type": "integer",
+                  "nullable": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "InstanceSnapshot": {
+        "type": "object",
+        "description": "An instance's disk/media snapshot (Bitsby8) — machine definition + per-drive disk state; execution state is not captured.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "instanceId": {
+            "type": "string"
+          },
+          "profileRef": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "disks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "drive": {
+                  "type": "integer"
+                },
+                "filename": {
+                  "type": "string",
+                  "description": "Base image the drive was bound to."
+                }
+              }
+            }
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        }
+      },
+      "MachineInstance": {
+        "type": "object",
+        "description": "A virtual S-100 Machine Instance (Bitsby8) — a running or defined emulated machine.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Instance id (uuid)."
+          },
+          "clientId": {
+            "type": "string",
+            "example": "inst:…",
+            "description": "Reserved FDC serving clientId (inst:<uuid>)."
+          },
+          "profileRef": {
+            "type": "string",
+            "example": "preset:imsai-cpm",
+            "description": "Where the profile came from (preset:<id> | inline)."
+          },
+          "transient": {
+            "type": "boolean",
+            "description": "Memory-only; leaves no DB/splinter residue on destroy."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "defined",
+              "running",
+              "stopped"
+            ]
+          },
+          "driver": {
+            "type": "string",
+            "enum": [
+              "operator",
+              "api",
+              "mcp"
+            ],
+            "description": "Provenance — who drove it into existence."
+          },
+          "cpuKind": {
+            "type": "string",
+            "example": "i8080"
+          },
+          "effectiveHz": {
+            "type": "number",
+            "nullable": true
+          },
+          "targetHz": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "max"
+                ]
+              }
+            ],
+            "nullable": true
+          },
+          "uptimeSeconds": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Seconds since last start (running only)."
+          },
+          "headless": {
+            "type": "boolean",
+            "description": "Running with no live console subscriber (agent-spun, unattended)."
+          },
+          "disks": {
+            "type": "array",
+            "description": "Bound disks (operator mounts) with per-instance copy-on-write dirty state.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "drive": {
+                  "type": "integer"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "readonly": {
+                  "type": "boolean"
+                },
+                "dirty": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      },
+      "InstanceCreateRequest": {
+        "type": "object",
+        "description": "Create a Machine Instance from a stored Profile ref, a preset id, or an inline MachineProfile (exactly one).",
+        "properties": {
+          "profileRef": {
+            "type": "string",
+            "example": "my-imsai@1.0.0",
+            "description": "Stored Machine Profile reference (name@version, or a bare name → latest)."
+          },
+          "preset": {
+            "type": "string",
+            "example": "imsai-cpm",
+            "description": "Built-in preset id (see GET /api/instances/presets)."
+          },
+          "profile": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Inline MachineProfile (cpuKind, clock, resetVector, memory[], cards[], consoleCardId)."
+          },
+          "speed": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "max"
+                ]
+              }
+            ],
+            "description": "Launch speed: Hz (e.g. 2000000 for authentic 2 MHz) or \"max\"."
           }
         }
       },
@@ -1629,6 +2057,1756 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/profiles": {
+      "get": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "List Machine Profiles (latest version of each)",
+        "responses": {
+          "200": {
+            "description": "Array of profiles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "profiles": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/MachineProfile"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Create a Machine Profile",
+        "description": "Create from a preset (`preset` + `name`) or from an explicit content body.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "preset": {
+                    "type": "string",
+                    "description": "Seed from a built-in preset (carries ROM + cards)."
+                  },
+                  "notes": {
+                    "type": "string"
+                  },
+                  "cpuKind": {
+                    "type": "string",
+                    "enum": [
+                      "i8080",
+                      "z80"
+                    ]
+                  },
+                  "clock": {},
+                  "resetVector": {
+                    "type": "integer"
+                  },
+                  "memory": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "cards": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "consoleCardId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The created profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "profile": {
+                      "$ref": "#/components/schemas/MachineProfile"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/profiles/validate": {
+      "post": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Validate a (possibly unsaved) Profile for bus collisions",
+        "description": "Define-time collision check (FR-8) — returns every collision (port/IRQ/memory) naming both offenders and the specific resource, plus each card's claimed footprint. `ok:true` means the Profile is runnable.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "memory": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "cards": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Validation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileValidation"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/profiles/auto-assign": {
+      "post": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Auto-assign collision-free base ports",
+        "description": "Sweeps each colliding card's base port for a collision-free value (FR-8). Returns the updated content plus any cards that couldn't be resolved.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "memory": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "cards": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reassignment result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "content": {
+                      "type": "object"
+                    },
+                    "unresolved": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "changes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/profiles/import": {
+      "post": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Import a Bitsby8 bundle into the Catalog (FR-24)",
+        "description": "Registers the bundle's Machine Profile resolvable by Identity; requires its referenced cards to be present; reports (never overwrites) an already-present Identity.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "bundle"
+                ],
+                "properties": {
+                  "bundle": {
+                    "type": "object",
+                    "description": "A Bitsby8 bundle (from export)."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Optional import name (defaults to the bundle name)."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Imported — the new profile + card/warning report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "profile": {
+                      "$ref": "#/components/schemas/MachineProfile"
+                    },
+                    "cards": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Identity already present (no overwrite)"
+          },
+          "422": {
+            "description": "Referenced card(s) missing"
+          }
+        }
+      }
+    },
+    "/api/profiles/{id}": {
+      "get": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Get a Machine Profile by Identity (name@version)",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "profile": {
+                      "$ref": "#/components/schemas/MachineProfile"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Save a change (writes a new version)",
+        "description": "Applies a content patch and persists a NEW version with a new sha256; prior versions remain resolvable.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The new version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "profile": {
+                      "$ref": "#/components/schemas/MachineProfile"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Delete a Profile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scope",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "version",
+                "all"
+              ]
+            },
+            "description": "Delete just this version or every version of the name (default all)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted"
+          }
+        }
+      }
+    },
+    "/api/profiles/{id}/disks": {
+      "get": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "List a Profile's startup disk mounts",
+        "description": "Which disk image each drive gets when a machine launches from this profile. Keyed by profile name (shared across versions).",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The profile's disk bindings"
+          }
+        }
+      }
+    },
+    "/api/profiles/{id}/disks/{drive}": {
+      "put": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Bind a disk image to a Profile drive (mounts at startup)",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "drive",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "filename"
+                ],
+                "properties": {
+                  "filename": {
+                    "type": "string"
+                  },
+                  "readonly": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated bindings"
+          },
+          "404": {
+            "description": "Disk image not found"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Clear a Profile drive's startup disk",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "drive",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated bindings"
+          }
+        }
+      }
+    },
+    "/api/profiles/{id}/reset": {
+      "post": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Reset a built-in preset to its shipped default (edit-in-place)",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The reset preset profile"
+          },
+          "404": {
+            "description": "Not a built-in preset"
+          }
+        }
+      }
+    },
+    "/api/profiles/{id}/clone": {
+      "post": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Clone a Profile into an independent new one",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "notes": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The cloned profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "profile": {
+                      "$ref": "#/components/schemas/MachineProfile"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/profiles/{id}/rename": {
+      "post": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Rename a Profile in place across all its versions",
+        "description": "Re-keys every version from the current name to a new one, preserving full version history, notes and provenance (the content digest excludes the name, so nothing about the content changes). Also migrates the profile's name-keyed startup disks. Fails with 409 if a profile already exists under the target name.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The renamed profile (same version the id referred to)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "profile": {
+                      "$ref": "#/components/schemas/MachineProfile"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/profiles/{name}/versions": {
+      "get": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "List all versions of a Profile name",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Versions, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "versions": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/MachineProfile"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/api/profiles/{id}/validation": {
+      "get": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Validate a stored Profile for bus collisions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Validation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileValidation"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/api/profiles/{id}/export": {
+      "get": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Export a Profile to a self-describing bundle (FR-23)",
+        "description": "A downloadable Bitsby8 bundle containing the Profile (ROM/media inline), its content Identity, and its referenced cards pinned by Identity. Carries no host-specific device paths.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The bundle (application/json, download)"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/api/profiles/{id}/cards/{cardId}/burn": {
+      "post": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Burn a .bin/Intel HEX image into an EPROM card (FR-6)",
+        "description": "Loads a base64 image into the EPROM card instance's ROM region, honoring the file's addresses or relocating from the region base. Persists a new Profile version with the burned bytes content-addressed.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "image"
+                ],
+                "properties": {
+                  "image": {
+                    "type": "string",
+                    "description": "base64-encoded file bytes (.bin or Intel HEX)."
+                  },
+                  "addressing": {
+                    "type": "string",
+                    "enum": [
+                      "file",
+                      "base"
+                    ],
+                    "description": "Honor file addresses ('file') or relocate to the region base ('base'). Default 'base'."
+                  },
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "bin",
+                      "ihex"
+                    ],
+                    "description": "Override format detection."
+                  },
+                  "filename": {
+                    "type": "string",
+                    "description": "Original filename (aids format detection)."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Burned — the new profile version + a burn summary"
+          },
+          "404": {
+            "description": "No such card instance"
+          },
+          "409": {
+            "description": "Card is not an EPROM/memory card"
+          },
+          "422": {
+            "description": "Image malformed or overflows the EPROM"
+          }
+        }
+      }
+    },
+    "/api/profiles/{id}/cards/{cardId}/rom": {
+      "delete": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Erase a burned EPROM card (FR-6)",
+        "description": "Drops the burned ROM override so the EPROM card reverts to empty. Persists a new Profile version when something was erased.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Erased (or a no-op if nothing was burned)"
+          },
+          "404": {
+            "description": "No such card instance"
+          },
+          "409": {
+            "description": "Card is not an EPROM/memory card"
+          }
+        }
+      }
+    },
+    "/api/instances/presets": {
+      "get": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "List built-in machine presets",
+        "description": "Ready-to-boot S-100 machine presets usable with POST /api/instances/transient.",
+        "responses": {
+          "200": {
+            "description": "Array of presets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "presets": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/instances": {
+      "get": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "List virtual Machine Instances",
+        "responses": {
+          "200": {
+            "description": "Array of instances",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "instances": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/MachineInstance"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Define a persistent Machine Instance (not started)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstanceCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The defined instance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "instance": {
+                      "$ref": "#/components/schemas/MachineInstance"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/instances/transient": {
+      "post": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Create and start a transient Machine Instance",
+        "description": "Memory-only; boots immediately and leaves no residue on destroy. Mount a boot disk first.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstanceCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The running instance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "instance": {
+                      "$ref": "#/components/schemas/MachineInstance"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/instances/{id}": {
+      "get": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Get a Machine Instance by id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The instance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "instance": {
+                      "$ref": "#/components/schemas/MachineInstance"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Destroy a Machine Instance",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Destroyed"
+          }
+        }
+      }
+    },
+    "/api/instances/{id}/start": {
+      "post": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Start (or resume) a Machine Instance",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The running instance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "instance": {
+                      "$ref": "#/components/schemas/MachineInstance"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/instances/{id}/stop": {
+      "post": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Stop a running Machine Instance",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stopped instance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "instance": {
+                      "$ref": "#/components/schemas/MachineInstance"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/instances/{id}/speed": {
+      "post": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Change a running instance's speed live (no restart)",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "speed"
+                ],
+                "properties": {
+                  "speed": {
+                    "oneOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "max"
+                        ]
+                      }
+                    ],
+                    "description": "Hz (e.g. 2000000, 4000000) or 'max'."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The instance at its new speed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "instance": {
+                      "$ref": "#/components/schemas/MachineInstance"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Instance is not running"
+          }
+        }
+      }
+    },
+    "/api/instances/{id}/snapshots": {
+      "get": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "List an instance's disk/media snapshots",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Snapshots, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "snapshots": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/InstanceSnapshot"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Snapshot an instance's disk/media state (FR-18)",
+        "description": "Captures the machine definition + each bound drive's disk state (execution state is out of scope).",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "snapshot": {
+                      "$ref": "#/components/schemas/InstanceSnapshot"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/instance-snapshots/{snapshotId}/restore": {
+      "post": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Restore a disk/media snapshot onto its instance",
+        "description": "Stops the instance, writes the captured disks back, and restarts it (reproduces the disk state; the machine reboots).",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "snapshotId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Restored"
+          },
+          "404": {
+            "description": "Snapshot or instance not found"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Delete a disk/media snapshot",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "snapshotId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted"
+          }
+        }
+      }
+    },
+    "/api/instances/{id}/console": {
+      "get": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Read accumulated console output",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "Byte cursor from a prior read (default 0 = whole buffer)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Console output slice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "string"
+                    },
+                    "cursor": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Send keystrokes to the console",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "input"
+                ],
+                "properties": {
+                  "input": {
+                    "type": "string",
+                    "description": "Characters to send (use \\r for Enter)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Accepted"
+          }
+        }
+      }
+    },
+    "/api/instances/{id}/gpio": {
+      "get": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Read a running instance's GPIO ports (Story 5.8)",
+        "description": "The parallel (GPIO) cards the machine exposes, with each port's direction and current latched output byte (drive LEDs / read a printer).",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GPIO ports",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ports": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "cardId": {
+                            "type": "string"
+                          },
+                          "direction": {
+                            "type": "string",
+                            "enum": [
+                              "out",
+                              "in",
+                              "inout"
+                            ]
+                          },
+                          "output": {
+                            "type": "integer",
+                            "description": "0–255 latched output byte"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/instances/{id}/gpio/{cardId}/input": {
+      "post": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Drive a GPIO card's input pins (Story 5.8)",
+        "description": "Set the byte the CPU reads from a parallel card — sense switches. Applies to a running instance.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "value"
+                ],
+                "properties": {
+                  "value": {
+                    "type": "integer",
+                    "description": "0–255 input byte"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Applied"
+          },
+          "404": {
+            "description": "No such GPIO card on the instance"
+          }
+        }
+      }
+    },
+    "/api/instances/{id}/display": {
+      "get": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Read a running instance's video displays (Story 5.9)",
+        "description": "The video cards the machine exposes — each with a render descriptor (charGrid | bitmap) and a fresh frame (base64 of the video RAM the card maps). Poll for live output.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Displays",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "displays": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "cardId": {
+                            "type": "string"
+                          },
+                          "descriptor": {
+                            "type": "object",
+                            "additionalProperties": true
+                          },
+                          "state": {
+                            "type": "object",
+                            "additionalProperties": true
+                          },
+                          "frame": {
+                            "type": "string",
+                            "description": "base64 of the frame bytes"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/instances/{id}/frontpanel": {
+      "get": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Read a running instance's front-panel state (cockpit Phase 3)",
+        "description": "CPU registers/flags, halted/running, and the address+data bus — for the Altair-style front panel.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Front-panel state"
+          },
+          "409": {
+            "description": "Instance not running"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Drive the front panel (Altair controls)",
+        "description": "run / stop / step / reset / examine / examNext / deposit / depNext. `value` is the switch register (address for examine, data for deposit). Returns the new state.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "action"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "run",
+                      "stop",
+                      "step",
+                      "reset",
+                      "examine",
+                      "examNext",
+                      "deposit",
+                      "depNext"
+                    ]
+                  },
+                  "value": {
+                    "type": "integer",
+                    "description": "Switch register (0-0xFFFF address / 0-0xFF data)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "New front-panel state"
+          },
+          "400": {
+            "description": "Unknown action"
+          },
+          "409": {
+            "description": "Instance not running"
+          }
+        }
+      }
+    },
+    "/api/instances/{id}/keyboard": {
+      "get": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "List a running instance's keyboard cards (5.9)",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Keyboard cards with pending key counts"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Inject keys into a keyboard card (5.9)",
+        "description": "Feeds bytes to the guest's keyboard data port. Supply `byte`, `bytes`, or `text`; `cardId` targets one of several keyboard cards.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "byte": {
+                    "type": "integer",
+                    "description": "A single key byte (0-255)"
+                  },
+                  "bytes": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "description": "Several key bytes"
+                  },
+                  "text": {
+                    "type": "string",
+                    "description": "A string, sent one char at a time"
+                  },
+                  "cardId": {
+                    "type": "string",
+                    "description": "Target keyboard card (when the machine has more than one)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Keys queued"
+          },
+          "400": {
+            "description": "No key data",
+            "or ambiguous card": null
+          },
+          "404": {
+            "description": "No such keyboard card"
+          },
+          "409": {
+            "description": "Instance not running",
+            "or has no keyboard card": null
           }
         }
       }
@@ -3712,6 +5890,20 @@
         }
       }
     },
+    "/api/clients/cleanup-orphans": {
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Forget all orphaned machine-instance clients (deleted VMs)",
+        "description": "Clears the splinters / drive overrides / labels left behind by instance clients (`inst:<id>`) whose machine no longer exists.",
+        "responses": {
+          "200": {
+            "description": "The clientIds cleaned up"
+          }
+        }
+      }
+    },
     "/api/clients/{clientId}/drives/{drive}/splinter/commit": {
       "post": {
         "tags": [
@@ -3861,11 +6053,53 @@
         "tags": [
           "Catalog"
         ],
-        "summary": "List Card Definitions",
-        "description": "Returns every Card Definition in the Catalog (seed cards in Tier-1), with Identity, type, and manifest.",
+        "summary": "Browse Card Definitions",
+        "description": "Returns Card Definitions in the Catalog (seed cards in Tier-1), each with Identity, type, maker, derived capabilities, and manifest — optionally filtered. The `facets` object lists the type/maker/capability values present across the full (unfiltered) set so a UI can render its filters from one call.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by primitive kind (card | chip)."
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by card type (serial | floppy | memory | panel | other)."
+          },
+          {
+            "in": "query",
+            "name": "maker",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by maker (e.g. MITS, IMSAI)."
+          },
+          {
+            "in": "query",
+            "name": "capability",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter to cards carrying this derived capability tag."
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Free-text search over id/name/summary/maker/type."
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Array of Card Definitions",
+            "description": "Filtered Card Definitions plus facet options",
             "content": {
               "application/json": {
                 "schema": {
@@ -3875,6 +6109,239 @@
                       "type": "array",
                       "items": {
                         "$ref": "#/components/schemas/CardDefinition"
+                      }
+                    },
+                    "facets": {
+                      "type": "object",
+                      "properties": {
+                        "kinds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "types": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "makers": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "capabilities": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "Author a declarative card (no code) (Story 5.4)",
+        "description": "Create a Card Definition from a declarative behavior — a memory board (RAM/EPROM) or a CPU board — registered as source 'authored'. The host synthesizes its runtime bundle, so it seats and runs like a seed card.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "behavior"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string",
+                    "description": "semver; defaults 1.0.0"
+                  },
+                  "maker": {
+                    "type": "string"
+                  },
+                  "summary": {
+                    "type": "string"
+                  },
+                  "behavior": {
+                    "type": "object",
+                    "description": "{ resolvesTo: 'memory', memKind: 'ram'|'rom' } or { resolvesTo: 'cpu', cpuKind: 'i8080'|'z80' }"
+                  },
+                  "defaults": {
+                    "type": "object",
+                    "properties": {
+                      "base": {
+                        "type": "integer"
+                      },
+                      "size": {
+                        "type": "integer"
+                      },
+                      "resetVector": {
+                        "type": "integer"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The authored Card Definition"
+          },
+          "400": {
+            "description": "Invalid name/behavior/defaults"
+          },
+          "409": {
+            "description": "Shadows a built-in seed card"
+          }
+        }
+      }
+    },
+    "/api/catalog/cpus": {
+      "get": {
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "List the CPUs a Machine Profile can use (Story 5.3)",
+        "description": "The processors the engine can run, derived from the seed CPU cards, for the Profile builder's CPU picker.",
+        "responses": {
+          "200": {
+            "description": "Available CPUs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "cpus": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "example": "i8080"
+                          },
+                          "name": {
+                            "type": "string",
+                            "example": "Intel 8080"
+                          },
+                          "maker": {
+                            "type": "string"
+                          },
+                          "ref": {
+                            "type": "string",
+                            "description": "Seed CPU card Identity, if any"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/peripherals": {
+      "get": {
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "List peripheral endpoint types a card can bind to (Story 5.6)",
+        "description": "The vocabulary of endpoints a card's far side connects to (terminal, disk, clock, gpio, display, socket), with what's wired today.",
+        "responses": {
+          "200": {
+            "description": "Endpoint types",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "endpoints": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "available": {
+                            "type": "boolean"
+                          },
+                          "arrivesWith": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/catalog/kernels": {
+      "get": {
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "List behavior kernels an authored I/O card can use (Story 5.7)",
+        "description": "Trusted, parameterized device state machines (e.g. a serial UART) the host builds authored I/O cards from — no user code. Each names the peripheral endpoint it binds to.",
+        "responses": {
+          "200": {
+            "description": "Available kernels",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "kernels": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string"
+                          },
+                          "binding": {
+                            "type": "string"
+                          },
+                          "configSchema": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        }
                       }
                     }
                   }
@@ -3886,6 +6353,34 @@
       }
     },
     "/api/catalog/cards/{id}": {
+      "delete": {
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "Delete an authored card (Story 5.4)",
+        "description": "Removes an authored Card Definition. Refuses to delete built-in seed cards.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted"
+          },
+          "404": {
+            "description": "No such card"
+          },
+          "409": {
+            "description": "Not an authored card"
+          }
+        }
+      },
       "get": {
         "tags": [
           "Catalog"
@@ -3920,6 +6415,112 @@
           },
           "404": {
             "description": "Not found"
+          }
+        }
+      }
+    },
+    "/api/catalog/cards/{id}/detail": {
+      "get": {
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "Get a card's datasheet (detail)",
+        "description": "The Card Definition plus its default bus footprint (ports/IRQ), a generated Skills file (human- and agent-readable), the version list, and the used-by reverse index (populated once Machine Profiles exist).",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Card Identity (name@version)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The card datasheet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CardDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/api/catalog/cards/{id}/validate-config": {
+      "post": {
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "Validate a Card Instance config against the card's schema",
+        "description": "Define-time validation (FR-7) — returns the defaults-filled `resolved` config plus any `errors` (each naming the parameter and the specific violation). Does not throw on invalid values.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Card Identity (name@version)"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "config": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Validation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "resolved": {
+                      "type": "object",
+                      "additionalProperties": true
+                    },
+                    "errors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "param": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Card not in the Catalog"
           }
         }
       }

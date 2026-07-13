@@ -14,6 +14,7 @@ import { Dependencies } from '../types';
 import { safeResolvePath } from '../utils/safe-path';
 import { getClientMountRegistry } from '../client-mount-registry';
 import { getMountRegistry } from '../mount-registry';
+import { INSTANCE_CLIENT_PREFIX } from './instance-manager';
 import { ServiceError } from './service-error';
 
 /** Per-client bays mirror the operator UI's four drive slots. */
@@ -47,12 +48,19 @@ export interface ClientInfo {
   isMaster: boolean;
   hasSplinters: boolean;
   drives: ClientDriveInfo[];
+  /** This client is a virtual machine instance (its clientId is `inst:<id>`). */
+  isInstance: boolean;
+  /** The instance id, when `isInstance` (else null). */
+  instanceId: string | null;
+  /** Whether that instance still exists — false ⇒ an orphan left by a deleted machine. */
+  instanceExists: boolean;
 }
 
 async function buildClient(
   deps: Dependencies,
   clientId: string,
   connected: { id: string; connectedAt: number } | null,
+  liveInstanceClientIds: Set<string> = new Set(),
 ): Promise<ClientInfo> {
   const label = await deps.database.getClientLabel(clientId);
   const overrides = await deps.database.listClientMounts(clientId);
@@ -76,6 +84,7 @@ async function buildClient(
     }
   }
 
+  const isInstance = clientId.startsWith(INSTANCE_CLIENT_PREFIX);
   return {
     clientId,
     name: label?.name ?? '',
@@ -84,6 +93,9 @@ async function buildClient(
     isMaster: clientId === deps.writeMaster,
     hasSplinters: dirtyByDrive.size > 0,
     drives,
+    isInstance,
+    instanceId: isInstance ? clientId.slice(INSTANCE_CLIENT_PREFIX.length) : null,
+    instanceExists: isInstance && liveInstanceClientIds.has(clientId),
   };
 }
 
@@ -97,7 +109,12 @@ export async function listClients(deps: Dependencies): Promise<{ clients: Client
   const known = await deps.database.listKnownClientIds();
   const ids = Array.from(new Set([...known, ...connectedById.keys()])).sort();
 
-  const clients = await Promise.all(ids.map((id) => buildClient(deps, id, connectedById.get(id) ?? null)));
+  // Live machine-instance clientIds, to flag which `inst:` clients still have a
+  // machine behind them (the rest are orphans a deleted machine left behind).
+  const liveInstanceClientIds = new Set((deps.instanceManager?.list() ?? []).map((i) => i.clientId));
+  const clients = await Promise.all(
+    ids.map((id) => buildClient(deps, id, connectedById.get(id) ?? null, liveInstanceClientIds)),
+  );
   const anonymous = connected.filter((c) => !c.clientId).map((c) => ({ id: c.id, connectedAt: c.connectedAt }));
   return { clients, anonymous };
 }
@@ -144,4 +161,14 @@ export async function forgetClient(deps: Dependencies, clientId: string): Promis
   await deps.database.deleteClientLabel(clientId);
   getClientMountRegistry().clearClient(clientId);
   await deps.connectionManager?.syncClient(clientId);
+}
+
+/** Forget every instance client (`inst:<id>`) whose machine no longer exists —
+ * clearing the splinters / drive overrides / label a deleted VM left behind.
+ * Returns the clientIds cleaned up. */
+export async function cleanupOrphanInstanceClients(deps: Dependencies): Promise<string[]> {
+  const { clients } = await listClients(deps);
+  const orphans = clients.filter((c) => c.isInstance && !c.instanceExists).map((c) => c.clientId);
+  for (const id of orphans) await forgetClient(deps, id);
+  return orphans;
 }

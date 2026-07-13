@@ -27,7 +27,7 @@
     });
   }
 
-  type NavId = 'terminal' | 'disks' | 'clients' | 'cassettes' | 'scripts' | 'config';
+  type NavId = 'terminal' | 'disks' | 'clients' | 'cassettes' | 'catalog' | 'profiles' | 'machines' | 'scripts' | 'config';
 
   interface Props {
     active: NavId;
@@ -45,15 +45,36 @@
   const clientCount = $derived($serverStatus?.multiClient?.clients?.length ?? 0);
 
   type NavItem = { id: NavId; label: string; icon: string; badge: () => string | null };
-  const navItems: NavItem[] = $derived([
-    { id: 'terminal',  label: 'Terminal',  icon: 'monitor',  badge: () => null },
-    { id: 'disks',     label: 'Disks',     icon: 'save',     badge: () => driveBadge },
-    ...(multiEnabled
-      ? [{ id: 'clients' as NavId, label: 'Clients', icon: 'devices', badge: () => (clientCount > 0 ? String(clientCount) : null) }]
-      : []),
-    { id: 'cassettes', label: 'Cassettes', icon: 'album',    badge: () => null },
-    { id: 'scripts',   label: 'Scripts',   icon: 'terminal', badge: () => null },
-    { id: 'config',    label: 'Config',    icon: 'tune',     badge: () => null },
+  type NavGroup = { label: string; items: NavItem[] };
+  // Grouped by lifecycle — Build (author the machine) → Operate (run & serve it)
+  // → System — mirroring the `Build ·` / `Operate ·` page-header eyebrows.
+  const navGroups: NavGroup[] = $derived([
+    {
+      label: 'Build',
+      items: [
+        { id: 'catalog',  label: 'Card Catalog',  icon: 'grid_view', badge: () => null },
+        { id: 'profiles', label: 'Machine Profiles', icon: 'dns', badge: () => null },
+      ],
+    },
+    {
+      label: 'Operate',
+      items: [
+        { id: 'terminal',  label: 'Terminal',  icon: 'desktop_windows', badge: () => null },
+        { id: 'machines',  label: 'Virtual Machines',  icon: 'hub',       badge: () => null },
+        { id: 'disks',     label: 'Disks',     icon: 'save',    badge: () => driveBadge },
+        { id: 'cassettes', label: 'Cassettes', icon: 'album',   badge: () => null },
+        ...(multiEnabled
+          ? [{ id: 'clients' as NavId, label: 'Disk Clients', icon: 'devices', badge: () => (clientCount > 0 ? String(clientCount) : null) }]
+          : []),
+        { id: 'scripts',   label: 'Scripts',   icon: 'terminal', badge: () => null },
+      ],
+    },
+    {
+      label: 'System',
+      items: [
+        { id: 'config', label: 'Config', icon: 'tune', badge: () => null },
+      ],
+    },
   ]);
 
   function go(id: NavId): void {
@@ -64,82 +85,50 @@
 <nav
   aria-label="Primary navigation"
   style="
-    width: 220px;
-    flex: 0 0 220px;
+    width: 272px;
+    flex: 0 0 272px;
     background: var(--surface);
     border-right: 1px solid var(--border-1);
     display: flex;
     flex-direction: column;
-    padding: 16px 0;
+    padding: 22px 16px 16px;
     min-height: 0;
     overflow-y: auto;
   "
 >
-  <div style="padding: 0 16px 8px;">
-    <span class="fdc-label-strip" style="font-size: 9px;">Navigation</span>
-  </div>
-
-  <div style="display: flex; flex-direction: column; gap: 2px; padding: 0 8px;">
-    {#each navItems as item}
-      {@const isActive = item.id === active}
-      {@const badge = item.badge()}
-      <button
-        type="button"
-        aria-current={isActive ? 'page' : undefined}
-        onclick={() => go(item.id)}
-        style="
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 10px 12px;
-          border-radius: var(--radius-md);
-          background: {isActive ? 'var(--accent-bg)' : 'transparent'};
-          border: none;
-          color: {isActive ? 'var(--accent)' : 'var(--fg-2)'};
-          font: var(--text-label);
-          font-size: 13px;
-          font-weight: {isActive ? 600 : 500};
-          cursor: pointer;
-          text-align: left;
-          position: relative;
-          transition: background var(--dur-short) var(--ease-standard),
-                      color var(--dur-short) var(--ease-standard);
-        "
-      >
-        {#if isActive}
-          <span
-            aria-hidden="true"
-            style="
-              position: absolute;
-              left: -8px;
-              top: 8px;
-              bottom: 8px;
-              width: 3px;
-              border-radius: 999px;
-              background: var(--accent);
-              box-shadow: var(--led-halo-amber);
-            "
-          ></span>
-        {/if}
-        <Icon name={item.icon} filled={isActive} size={20} />
-        <span style="flex: 1;">{item.label}</span>
-        {#if badge}
-          <span
-            class="fdc-mono"
-            style="font-size: 11px; color: {isActive ? 'var(--accent)' : 'var(--fg-3)'};"
+  <div style="display: flex; flex-direction: column;">
+    {#each navGroups as group, gi}
+      <div class="nav-group-label" style="margin-top: {gi === 0 ? '0' : '22px'};">{group.label}</div>
+      <div style="display: flex; flex-direction: column; gap: 2px;">
+        {#each group.items as item}
+          {@const isActive = item.id === active}
+          {@const badge = item.badge()}
+          <button
+            type="button"
+            class="nav-item"
+            class:active={isActive}
+            aria-current={isActive ? 'page' : undefined}
+            onclick={() => go(item.id)}
           >
-            {badge}
-          </span>
-        {/if}
-      </button>
+            {#if isActive}
+              <span class="nav-item-bar" aria-hidden="true"></span>
+            {/if}
+            <span class="nav-item-icon"><Icon name={item.icon} size={24} /></span>
+            <span class="nav-item-label">{item.label}</span>
+            {#if badge}
+              <span class="nav-item-badge fdc-mono">{badge}</span>
+            {/if}
+          </button>
+        {/each}
+      </div>
     {/each}
   </div>
 
   <!-- Footer system info card -->
-  <div style="padding: 16px 16px 4px;">
+  <div style="margin-top: 18px;">
     <div
       class="card"
-      style="padding: 12px; background: var(--surface-variant); border-radius: 10px;"
+      style="padding: 14px 16px; background: var(--surface-variant); border-radius: 14px;"
     >
       <div style="display: flex; align-items: center; gap: 8px;">
         <Led color={$connected ? 'green' : 'off'} pulse={$connected} />
@@ -194,3 +183,88 @@
     </div>
   </div>
 </nav>
+
+<style>
+  /* Grouped nav visual refresh — see design project "Nav Sidebar.dc.html".
+     Colors are sourced from theme tokens so the rail survives light mode. */
+  .nav-group-label {
+    font-family: var(--font-data);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--fg-3);
+    padding: 0 10px 10px;
+  }
+
+  .nav-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    height: 44px;
+    padding: 0 12px;
+    border-radius: 10px;
+    background: transparent;
+    border: 1px solid transparent;
+    cursor: pointer;
+    text-align: left;
+    transition:
+      background var(--dur-short) var(--ease-standard),
+      border-color var(--dur-short) var(--ease-standard);
+  }
+  .nav-item:hover {
+    background: color-mix(in oklab, var(--fg-1) 6%, transparent);
+  }
+  .nav-item.active {
+    background: var(--accent-bg);
+    border-color: color-mix(in oklab, var(--accent) 30%, transparent);
+  }
+  .nav-item.active:hover {
+    background: color-mix(in oklab, var(--accent) 16%, transparent);
+  }
+
+  /* Left accent bar on the active row — reaches into the nav's 16px gutter. */
+  .nav-item-bar {
+    position: absolute;
+    left: -16px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 22px;
+    border-radius: 0 3px 3px 0;
+    background: var(--accent);
+  }
+
+  .nav-item-icon {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    color: var(--fg-3);
+  }
+  .nav-item-label {
+    flex: 1;
+    font-family: var(--font-sans);
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: -0.005em;
+    color: var(--fg-2);
+  }
+  .nav-item-badge {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--fg-3);
+  }
+
+  .nav-item.active .nav-item-icon,
+  .nav-item.active .nav-item-label,
+  .nav-item.active .nav-item-badge {
+    color: var(--accent);
+  }
+  .nav-item.active .nav-item-label {
+    font-weight: 600;
+  }
+</style>

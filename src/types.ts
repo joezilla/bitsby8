@@ -88,6 +88,10 @@ export interface Dependencies {
   writeMaster: string;
   connectionManager?: import('./services/connection-manager').ConnectionManager;
 
+  // Owns virtual Machine Instance lifecycle + consoles (Bitsby8). Instantiated
+  // in WebServer.setup once deps are assembled.
+  instanceManager?: import('./services/instance-manager').InstanceManager;
+
   // Mutable server state
   server: FdcServer | null;
   diskServingEnabled: boolean;

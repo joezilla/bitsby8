@@ -12,6 +12,8 @@ import {
   registerCardDefinition,
   listCardDefinitions,
   getCardDefinition,
+  browseCatalog,
+  deriveCapabilities,
   RegisterCardInput,
 } from '../src/services/catalog';
 
@@ -112,5 +114,91 @@ describe('catalog: list / get', () => {
     await expect(getCardDefinition(deps, 'nope@9.9.9')).rejects.toMatchObject({
       statusCode: 404,
     });
+  });
+});
+
+describe('catalog: capabilities (derived from manifest)', () => {
+  test('serial → serial-io, floppy → disk-controller, memory → memory-mapped + has-rom', () => {
+    expect(deriveCapabilities({ name: 's', version: '1.0.0', type: 'serial', configSchema: {} })).toEqual([
+      'serial-io',
+    ]);
+    expect(deriveCapabilities({ name: 'f', version: '1.0.0', type: 'floppy', configSchema: {} })).toEqual([
+      'disk-controller',
+    ]);
+    expect(
+      deriveCapabilities({ name: 'm', version: '1.0.0', type: 'memory', configSchema: {} }).sort(),
+    ).toEqual(['has-rom', 'memory-mapped']);
+  });
+
+  test('text hints add has-rom / interrupt-capable', () => {
+    const caps = deriveCapabilities({
+      name: 'x',
+      version: '1.0.0',
+      type: 'other',
+      summary: 'A boot PROM board with vectored interrupt support',
+      configSchema: {},
+    });
+    expect(caps).toContain('has-rom');
+    expect(caps).toContain('interrupt-capable');
+  });
+});
+
+describe('catalog: browse (filter + facets)', () => {
+  async function seed(deps: Dependencies) {
+    await registerCardDefinition(deps, sample); // mits-88-2sio, serial, MITS, card
+    await registerCardDefinition(deps, {
+      manifest: { ...sample.manifest, name: 'imsai-sio2', type: 'serial', kind: 'card', maker: 'IMSAI' },
+    });
+    await registerCardDefinition(deps, {
+      manifest: { ...sample.manifest, name: 'mits-88-dcdd', type: 'floppy', kind: 'card', maker: 'MITS' },
+    });
+    await registerCardDefinition(deps, {
+      manifest: { ...sample.manifest, name: 'motorola-6850', type: 'serial', kind: 'chip', maker: 'Motorola' },
+    });
+  }
+
+  test('facets reflect the full set regardless of the active filter', async () => {
+    const deps = await makeDeps();
+    await seed(deps);
+    const { facets } = await browseCatalog(deps, { type: 'floppy' });
+    expect(facets.kinds).toEqual(['card', 'chip']);
+    expect(facets.types).toEqual(['floppy', 'serial']);
+    expect(facets.makers).toEqual(['IMSAI', 'MITS', 'Motorola']);
+    expect(facets.capabilities).toEqual(['disk-controller', 'serial-io']);
+  });
+
+  test('kind classification: absent → card; explicit chip is preserved and filterable', async () => {
+    const deps = await makeDeps();
+    await seed(deps);
+    const chips = await browseCatalog(deps, { kind: 'chip' });
+    expect(chips.cards.map((c) => c.name)).toEqual(['motorola-6850']);
+    const cards = await browseCatalog(deps, { kind: 'card' });
+    expect(cards.cards.map((c) => c.name).sort()).toEqual(['imsai-sio2', 'mits-88-2sio', 'mits-88-dcdd']);
+    // sample manifest carries no `kind` → defaults to 'card'
+    expect(cards.cards.find((c) => c.name === 'mits-88-2sio')!.kind).toBe('card');
+  });
+
+  test('filters by type, maker, capability, and free-text q (case-insensitive)', async () => {
+    const deps = await makeDeps();
+    await seed(deps);
+
+    expect((await browseCatalog(deps, { type: 'serial' })).cards.map((c) => c.name).sort()).toEqual([
+      'imsai-sio2',
+      'mits-88-2sio',
+      'motorola-6850',
+    ]);
+    expect((await browseCatalog(deps, { maker: 'imsai' })).cards.map((c) => c.name)).toEqual(['imsai-sio2']);
+    expect(
+      (await browseCatalog(deps, { capability: 'disk-controller' })).cards.map((c) => c.name),
+    ).toEqual(['mits-88-dcdd']);
+    expect((await browseCatalog(deps, { q: 'DCDD' })).cards.map((c) => c.name)).toEqual(['mits-88-dcdd']);
+  });
+
+  test('listCardDefinitions honors the same filter (MCP parity)', async () => {
+    const deps = await makeDeps();
+    await seed(deps);
+    const cards = await listCardDefinitions(deps, { type: 'floppy' });
+    expect(cards.map((c) => c.name)).toEqual(['mits-88-dcdd']);
+    expect(cards[0].capabilities).toContain('disk-controller');
   });
 });

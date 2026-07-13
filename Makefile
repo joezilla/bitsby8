@@ -11,7 +11,8 @@ ARCH := all
 # Debian version — installs on the Pi are unambiguous and `dpkg -i` upgrades
 # cleanly instead of silently keeping the older payload.
 #
-#   upstream = 2.0.1 (bump manually for real semver events)
+#   upstream = 3.0.0~alpha (bump manually for real semver events; Debian uses
+#              `~` for pre-releases so 3.0.0~alpha sorts before 3.0.0)
 #   revision = <commit-count>+g<short-sha>[.dirty.<epoch>]
 #
 # Examples:
@@ -20,7 +21,7 @@ ARCH := all
 #
 # Debian revisions may only contain [A-Za-z0-9.+~], so we use `+` and `.`
 # as separators (never `-`, which delimits upstream/revision).
-VERSION_BASE := 2.0.1
+VERSION_BASE := 3.0.0~alpha
 GIT_COUNT    := $(shell git rev-list --count HEAD 2>/dev/null || echo 0)
 GIT_SHA      := $(shell git rev-parse --short=7 HEAD 2>/dev/null || echo unknown)
 GIT_DIRTY    := $(shell git diff-index --quiet HEAD 2>/dev/null || echo .dirty.$$(date +%s))

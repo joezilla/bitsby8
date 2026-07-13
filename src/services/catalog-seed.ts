@@ -22,6 +22,7 @@ export interface SeedManifestLike {
   name: string;
   version: string;
   type: string;
+  kind?: 'card' | 'chip';
   maker?: string;
   summary?: string;
   configSchema: Record<string, unknown>;
@@ -46,6 +47,7 @@ export async function seedCatalogFromBundles(
         name: m.name,
         version: m.version,
         type: m.type,
+        kind: m.kind,
         maker: m.maker,
         summary: m.summary,
         configSchema: m.configSchema,

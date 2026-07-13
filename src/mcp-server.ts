@@ -11,6 +11,44 @@ import { z } from 'zod';
 import { Dependencies } from './types';
 import { getStatus, getDrivesStatus, getTerminalStatus } from './services/status';
 import { listCardDefinitions, getCardDefinition } from './services/catalog';
+import { getCardDetail } from './services/card-detail';
+import { authorCard, deleteAuthoredCard } from './services/card-authoring';
+import { listPeripheralEndpoints } from './services/peripheral-registry';
+import { listKernels } from './services/bundle-registry';
+import { checkCardConfig } from './services/card-config';
+import {
+  listMachinePresets,
+  listInstanceStatus,
+  getInstanceStatus,
+  createTransientInstance,
+  defineInstance,
+  startInstance as startInstanceSvc,
+  stopInstance as stopInstanceSvc,
+  setInstanceSpeed,
+  destroyInstance as destroyInstanceSvc,
+  writeInstanceConsole,
+  readInstanceConsole,
+} from './services/instance-service';
+import {
+  snapshotInstance,
+  listInstanceSnapshots,
+  restoreInstanceSnapshot,
+} from './services/instance-snapshot-service';
+import { exportProfile, importBundle } from './services/bundle-service';
+import { burnEprom, eraseEprom } from './services/eprom-service';
+import {
+  createProfile,
+  createProfileFromPreset,
+  getProfile,
+  listProfiles,
+  listProfileVersions,
+  updateProfile,
+  cloneProfile,
+  renameProfile,
+  deleteProfile,
+  ProfileContent,
+} from './services/profile-service';
+import { validateProfile, autoAssign } from './services/collision-validator';
 import { enableDiskServing, disableDiskServing, broadcastStatus } from './services/disk-serving';
 import { listDiskImagesWithDetails, listCassettesWithDetails } from './services/file-listing';
 import { startRawReplay, startXmodemSend, cancelActiveTransfer } from './services/transfer';
@@ -1956,10 +1994,18 @@ export function createMcpServer(deps: Dependencies): McpServer {
 
   server.tool(
     'list_card_definitions',
-    'List all Card Definitions in the Catalog (Bitsby8) — seed S-100 cards with Identity, type, and manifest',
-    async () => {
+    'List Card Definitions in the Catalog (Bitsby8) — seed S-100 cards with Identity, type, maker, ' +
+      'derived capabilities, and manifest. Optional filters (all case-insensitive) narrow the list.',
+    {
+      kind: z.string().optional().describe('Primitive kind: card (S-100 board) | chip (component)'),
+      type: z.string().optional().describe('Card type: serial | floppy | memory | panel | other'),
+      maker: z.string().optional().describe('Maker, e.g. MITS or IMSAI'),
+      capability: z.string().optional().describe('A derived capability tag the card must carry'),
+      q: z.string().optional().describe('Free-text search over id/name/summary/maker/type'),
+    },
+    async ({ kind, type, maker, capability, q }) => {
       try {
-        const cards = await listCardDefinitions(deps);
+        const cards = await listCardDefinitions(deps, { kind, type, maker, capability, q });
         return { content: [{ type: 'text', text: JSON.stringify(cards, null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
@@ -1974,6 +2020,617 @@ export function createMcpServer(deps: Dependencies): McpServer {
       try {
         const card = await getCardDefinition(deps, id);
         return { content: [{ type: 'text', text: JSON.stringify(card, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+  server.tool(
+    'get_card_detail',
+    "Get a card's full datasheet (Bitsby8): the Card Definition + default bus footprint " +
+      '(ports/IRQ), a generated Skills file (how to program the card), the version list, and the ' +
+      'used-by reverse index. Identity is name@version (e.g. mits-88-2sio@1.0.0).',
+    { id: z.string().describe('Card Identity: name@version') },
+    async ({ id }) => {
+      try {
+        const detail = await getCardDetail(deps, id);
+        return { content: [{ type: 'text', text: JSON.stringify(detail, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'validate_card_config',
+    'Validate a Card Instance config against the card\'s Config Schema (Bitsby8, define-time). ' +
+      'Returns the defaults-filled `resolved` config and any `errors` (ranges/enums), without throwing.',
+    {
+      id: z.string().describe('Card Identity: name@version'),
+      config: z.record(z.string(), z.any()).optional().describe('The settings to validate'),
+    },
+    async ({ id, config }) => {
+      try {
+        const result = await checkCardConfig(deps, id, config ?? {});
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'list_peripherals',
+    'List the peripheral endpoint types a card can bind its far side to (Bitsby8 Story 5.6) — ' +
+      'terminal, disk, clock, gpio, display, socket — with what is wired today.',
+    async () => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify({ endpoints: listPeripheralEndpoints(deps) }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'list_card_kernels',
+    'List the behavior kernels an authored I/O card can be built from (Bitsby8 Story 5.7) — trusted, ' +
+      'parameterized devices (e.g. a serial UART) with no user code. Use a kernel id in author_card ' +
+      'behavior: { resolvesTo:"io", kernel:"<id>" }. Each names the peripheral endpoint it binds to.',
+    async () => {
+      try {
+        const kernels = (await listKernels()).map((k) => ({ id: k.id, label: k.label, type: k.type, binding: k.binding, configSchema: k.configSchema }));
+        return { content: [{ type: 'text', text: JSON.stringify({ kernels }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'author_card',
+    'Author a declarative Card Definition with NO code (Bitsby8 Story 5.4) — a memory board or a CPU ' +
+      'board. Registers it into the Catalog as source "authored"; it then seats on a backplane and runs ' +
+      'like a seed card. `behavior` is { resolvesTo:"memory", memKind:"ram"|"rom" } or ' +
+      '{ resolvesTo:"cpu", cpuKind:"i8080"|"z80" }. `defaults` seed the config schema (base/size or resetVector).',
+    {
+      name: z.string().describe('Card name (Identity is name@version)'),
+      version: z.string().optional().describe('semver; defaults 1.0.0'),
+      maker: z.string().optional(),
+      summary: z.string().optional(),
+      behavior: z.record(z.string(), z.any()).describe('Declarative behavior (see description)'),
+      defaults: z
+        .object({ base: z.number().optional(), size: z.number().optional(), resetVector: z.number().optional() })
+        .optional()
+        .describe('Default config values baked into the schema'),
+    },
+    async ({ name, version, maker, summary, behavior, defaults }) => {
+      try {
+        const doc = await authorCard(deps, {
+          name,
+          version,
+          maker,
+          summary,
+          behavior: behavior as never,
+          defaults,
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(doc, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'delete_authored_card',
+    'Delete an authored Card Definition (Bitsby8 Story 5.4). Refuses to delete built-in seed cards.',
+    { id: z.string().describe('Card Identity: name@version') },
+    async ({ id }) => {
+      try {
+        await deleteAuthoredCard(deps, id);
+        return { content: [{ type: 'text', text: JSON.stringify({ deleted: true, id }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  // ===========================================================================
+  // Machine Profiles (Bitsby8 Story 2.3) — declarative machines as versioned
+  // Primitives (dual Identity, immutable versions, clone). Same service as REST.
+  // ===========================================================================
+
+  server.tool(
+    'list_machine_profiles',
+    'List Machine Profiles (latest version of each) — declarative S-100 machines you can run via create_transient_instance({profileRef})',
+    async () => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(await listProfiles(deps), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'get_machine_profile',
+    'Get a Machine Profile by Identity (name@version)',
+    { id: z.string().describe('Profile Identity: name@version') },
+    async ({ id }) => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(await getProfile(deps, id), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'list_machine_profile_versions',
+    'List every version of a Machine Profile name (newest first) — prior versions stay resolvable after an edit',
+    { name: z.string().describe('Profile name') },
+    async ({ name }) => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(await listProfileVersions(deps, name), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'create_machine_profile',
+    'Create a Machine Profile. Easiest: pass a `preset` id (from list_machine_presets) + a `name` to ' +
+      'seed a full bootable machine (ROM + cards) you can then edit. Or pass an explicit content body ' +
+      '(cpuKind, clock, resetVector, memory[], cards[]).',
+    {
+      name: z.string().describe('Profile name (unique)'),
+      preset: z.string().optional().describe('Seed from a built-in preset id, e.g. imsai-cpm'),
+      notes: z.string().optional(),
+      cpuKind: z.enum(['i8080', 'z80']).optional(),
+      clock: z.any().optional().describe("{ hz: number } or the string 'max'"),
+      resetVector: z.number().optional(),
+      memory: z.array(z.record(z.string(), z.any())).optional(),
+      cards: z.array(z.record(z.string(), z.any())).optional(),
+      consoleCardId: z.string().optional(),
+    },
+    async ({ name, preset, notes, ...content }) => {
+      try {
+        const profile = preset
+          ? await createProfileFromPreset(deps, preset, name, notes)
+          : await createProfile(deps, { name, notes, ...content } as Parameters<typeof createProfile>[1]);
+        return { content: [{ type: 'text', text: JSON.stringify(profile, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'update_machine_profile',
+    'Save a change to a Machine Profile — writes a NEW version with a new sha256; prior versions remain ' +
+      'resolvable. Pass the base Identity (name@version) + a partial content patch.',
+    {
+      id: z.string().describe('Base Profile Identity: name@version'),
+      cpuKind: z.enum(['i8080', 'z80']).optional(),
+      clock: z.any().optional(),
+      resetVector: z.number().optional(),
+      memory: z.array(z.record(z.string(), z.any())).optional(),
+      cards: z.array(z.record(z.string(), z.any())).optional(),
+      consoleCardId: z.string().optional(),
+      notes: z.string().optional(),
+    },
+    async ({ id, ...patch }) => {
+      try {
+        const profile = await updateProfile(deps, id, patch as never);
+        return { content: [{ type: 'text', text: JSON.stringify(profile, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'export_machine_profile',
+    'Export a Machine Profile to a self-describing Bitsby8 bundle (FR-23) — the Profile with its ROM/media ' +
+      'inline + its content Identity + referenced cards pinned by Identity. Deterministic; no host device paths.',
+    { id: z.string().describe('Profile Identity: name@version') },
+    async ({ id }) => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(await exportProfile(deps, id), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'import_machine_profile_bundle',
+    'Import a Bitsby8 bundle (from export_machine_profile) into the Catalog (FR-24). Registers the ' +
+      'Machine Profile resolvable by Identity; requires its referenced cards present; REPORTS (never ' +
+      'overwrites) an already-present Identity. Pass the `bundle` object and an optional `name`.',
+    {
+      bundle: z.record(z.string(), z.any()).describe('A Bitsby8 bundle object'),
+      name: z.string().optional().describe('Optional import name (defaults to the bundle name)'),
+    },
+    async ({ bundle, name }) => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(await importBundle(deps, bundle, { name }), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'burn_eprom',
+    'Burn a ROM image into an EPROM card instance of a Machine Profile (FR-6). Pass base64 `image` ' +
+      '(a raw .bin or an Intel HEX file) and `addressing`: "file" honors the file\'s addresses, "base" ' +
+      'relocates them to the EPROM base. Persists a NEW Profile version with the burned bytes ' +
+      'content-addressed; returns a burn summary. Rejects an image that overflows the EPROM window.',
+    {
+      id: z.string().describe('Profile Identity: name@version'),
+      cardId: z.string().describe('EPROM card instance id within the profile'),
+      image: z.string().describe('base64-encoded file bytes (.bin or Intel HEX)'),
+      addressing: z.enum(['file', 'base']).optional().describe("'file' honors file addresses; 'base' relocates to the region base (default)"),
+      format: z.enum(['bin', 'ihex']).optional().describe('Override format detection'),
+      filename: z.string().optional().describe('Original filename (aids format detection)'),
+    },
+    async ({ id, cardId, image, addressing, format, filename }) => {
+      try {
+        const out = await burnEprom(deps, id, cardId, {
+          bytes: new Uint8Array(Buffer.from(image, 'base64')),
+          addressing: addressing ?? 'base',
+          format,
+          filename,
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'erase_eprom',
+    'Erase a burned EPROM card instance of a Machine Profile (FR-6) — drops the burned ROM override so ' +
+      'the card reverts to empty. Persists a new Profile version when something was erased.',
+    {
+      id: z.string().describe('Profile Identity: name@version'),
+      cardId: z.string().describe('EPROM card instance id within the profile'),
+    },
+    async ({ id, cardId }) => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(await eraseEprom(deps, id, cardId), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'clone_machine_profile',
+    'Clone a Machine Profile into an independent new one (new name, version 1.0.0) that can diverge freely',
+    {
+      id: z.string().describe('Source Profile Identity: name@version'),
+      name: z.string().describe('New profile name'),
+      notes: z.string().optional(),
+    },
+    async ({ id, name, notes }) => {
+      try {
+        const profile = await cloneProfile(deps, id, name, notes);
+        return { content: [{ type: 'text', text: JSON.stringify(profile, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'rename_machine_profile',
+    'Rename a Machine Profile in place across ALL its versions (preserves version history and content; ' +
+      'the content digest excludes the name). Fails if the target name already exists.',
+    {
+      id: z.string().describe('Profile Identity to rename: name@version'),
+      name: z.string().describe('New profile name'),
+    },
+    async ({ id, name }) => {
+      try {
+        const profile = await renameProfile(deps, id, name);
+        return { content: [{ type: 'text', text: JSON.stringify(profile, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'validate_machine_profile',
+    'Validate a Machine Profile for bus collisions (Bitsby8, define-time, FR-8) — pass a stored ' +
+      "`id` (name@version) or an inline `memory`+`cards` body. Returns every collision (port/IRQ/memory) " +
+      "naming both offenders + the resource, plus each card's footprint. ok:true means runnable.",
+    {
+      id: z.string().optional().describe('Stored Profile Identity: name@version'),
+      memory: z.array(z.record(z.string(), z.any())).optional().describe('Inline memory layout (with id)'),
+      cards: z.array(z.record(z.string(), z.any())).optional().describe('Inline card instances (id, ref, config)'),
+    },
+    async ({ id, memory, cards }) => {
+      try {
+        const content: ProfileContent = id
+          ? await getProfile(deps, id)
+          : {
+              cpuKind: 'i8080',
+              clock: 'max',
+              resetVector: 0,
+              memory: (memory ?? []) as never,
+              cards: (cards ?? []) as never,
+            };
+        return { content: [{ type: 'text', text: JSON.stringify(await validateProfile(deps, content), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'auto_assign_machine_profile',
+    'Auto-assign collision-free base ports for a Profile body (Bitsby8, FR-8). Pass inline ' +
+      '`memory`+`cards`; returns the updated `content`, any `unresolved` cards, and the `changes` applied.',
+    {
+      memory: z.array(z.record(z.string(), z.any())).optional(),
+      cards: z.array(z.record(z.string(), z.any())).optional(),
+    },
+    async ({ memory, cards }) => {
+      try {
+        const content: ProfileContent = {
+          cpuKind: 'i8080',
+          clock: 'max',
+          resetVector: 0,
+          memory: (memory ?? []) as never,
+          cards: (cards ?? []) as never,
+        };
+        return { content: [{ type: 'text', text: JSON.stringify(await autoAssign(deps, content), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'delete_machine_profile',
+    'Delete a Machine Profile — by default every version of the name; pass scope "version" to delete just one',
+    {
+      id: z.string().describe('Profile Identity: name@version'),
+      scope: z.enum(['version', 'all']).optional().describe('Delete just this version or all versions (default all)'),
+    },
+    async ({ id, scope }) => {
+      try {
+        await deleteProfile(deps, id, scope ?? 'all');
+        return { content: [{ type: 'text', text: JSON.stringify({ id, deleted: true, scope: scope ?? 'all' }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  // ===========================================================================
+  // Virtual Machine Instances (Bitsby8 Story 1.7) — the agentic dev loop.
+  // Same service layer as the REST routes: create-transient → console I/O →
+  // destroy, so an agent can drive a virtual S-100 machine end-to-end (FR-26/27/28).
+  // ===========================================================================
+
+  server.tool(
+    'list_machine_presets',
+    'List built-in Bitsby8 machine presets (ready-to-boot S-100 machines, e.g. imsai-cpm) usable with create_transient_instance',
+    async () => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(listMachinePresets(), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'list_machine_instances',
+    'List all virtual Machine Instances (Bitsby8) with status, driver provenance, CPU, effective/target ' +
+      'Hz, uptime, headless flag, and bound disks (with per-instance dirty state)',
+    async () => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(await listInstanceStatus(deps), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'get_machine_instance',
+    'Get one virtual Machine Instance by id (full status incl. uptime, headless, and bound disks)',
+    { id: z.string().describe('Instance id (uuid)') },
+    async ({ id }) => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(await getInstanceStatus(deps, id), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'create_transient_instance',
+    'Create AND start a transient virtual Machine Instance (memory-only, no residue on destroy). ' +
+      'Boots immediately; mount a boot disk first (e.g. on drive 0). Pass a stored `profileRef` ' +
+      '(name@version from list_machine_profiles), a `preset` id (from list_machine_presets), or an ' +
+      'inline `profile`. Marked driven-by Claude Code (MCP).',
+    {
+      profileRef: z.string().optional().describe('Stored Machine Profile ref: name@version (or bare name → latest)'),
+      preset: z.string().optional().describe('Machine preset id, e.g. imsai-cpm'),
+      profile: z
+        .record(z.string(), z.any())
+        .optional()
+        .describe('Inline MachineProfile (cpuKind, clock, resetVector, memory[], cards[], consoleCardId) — alternative to preset'),
+      speed: z.union([z.number(), z.literal('max')]).optional().describe('Launch speed: Hz (e.g. 2000000 for authentic 2 MHz) or "max"'),
+    },
+    async ({ profileRef, preset, profile, speed }) => {
+      try {
+        const info = await createTransientInstance(deps, { profileRef, preset, profile: profile as never, speed }, 'mcp');
+        return { content: [{ type: 'text', text: JSON.stringify(info, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'define_machine_instance',
+    'Define a persistent (DB-backed) virtual Machine Instance without starting it. Pass a stored `profileRef`, a `preset` id, or an inline `profile`.',
+    {
+      profileRef: z.string().optional().describe('Stored Machine Profile ref: name@version (or bare name → latest)'),
+      preset: z.string().optional().describe('Machine preset id, e.g. imsai-cpm'),
+      profile: z.record(z.string(), z.any()).optional().describe('Inline MachineProfile — alternative to preset'),
+      speed: z.union([z.number(), z.literal('max')]).optional().describe('Launch speed: Hz or "max"'),
+    },
+    async ({ profileRef, preset, profile, speed }) => {
+      try {
+        const info = await defineInstance(deps, { profileRef, preset, profile: profile as never, speed }, 'mcp');
+        return { content: [{ type: 'text', text: JSON.stringify(info, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'start_machine_instance',
+    'Start (or resume) a defined/stopped virtual Machine Instance',
+    { id: z.string().describe('Instance id') },
+    async ({ id }) => {
+      try {
+        const info = await startInstanceSvc(deps, id);
+        return { content: [{ type: 'text', text: JSON.stringify(info, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'stop_machine_instance',
+    'Stop a running virtual Machine Instance (halts the CPU; keeps the definition)',
+    { id: z.string().describe('Instance id') },
+    async ({ id }) => {
+      try {
+        const info = await stopInstanceSvc(deps, id);
+        return { content: [{ type: 'text', text: JSON.stringify(info, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'snapshot_machine_instance',
+    "Snapshot a virtual Machine Instance's disk/media state (Bitsby8, FR-18) — captures the machine " +
+      'definition + each bound drive\'s disk state as a restorable unit (execution/CPU state is not captured).',
+    { id: z.string().describe('Instance id'), label: z.string().optional() },
+    async ({ id, label }) => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(await snapshotInstance(deps, id, label), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'list_instance_snapshots',
+    'List disk/media snapshots for a Machine Instance (Bitsby8)',
+    { id: z.string().describe('Instance id') },
+    async ({ id }) => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(await listInstanceSnapshots(deps, id), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'restore_instance_snapshot',
+    'Restore a disk/media snapshot onto its instance (Bitsby8) — stops it, writes the captured disks ' +
+      'back, and restarts it. Reproduces the disk state; the machine reboots.',
+    { snapshotId: z.string().describe('Snapshot id') },
+    async ({ snapshotId }) => {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(await restoreInstanceSnapshot(deps, snapshotId), null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'set_instance_speed',
+    'Change a RUNNING virtual Machine Instance\'s CPU speed live (Bitsby8, FR-16) — no restart. ' +
+      'Pass Hz (e.g. 2000000 for 2 MHz, 4000000 for 4 MHz) or "max". Returns the instance with its new targetHz.',
+    {
+      id: z.string().describe('Instance id'),
+      speed: z.union([z.number(), z.literal('max')]).describe('Hz or "max"'),
+    },
+    async ({ id, speed }) => {
+      try {
+        const info = await setInstanceSpeed(deps, id, speed);
+        return { content: [{ type: 'text', text: JSON.stringify(info, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'destroy_machine_instance',
+    'Destroy a virtual Machine Instance (stops it if running; a transient leaves no residue)',
+    { id: z.string().describe('Instance id') },
+    async ({ id }) => {
+      try {
+        await destroyInstanceSvc(deps, id);
+        return { content: [{ type: 'text', text: JSON.stringify({ id, destroyed: true }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'write_instance_console',
+    'Send keystrokes to a running instance\'s console (RX). Use \\r for Enter, e.g. "DIR\\r".',
+    {
+      id: z.string().describe('Instance id'),
+      input: z.string().describe('Characters to send to the console (control chars allowed)'),
+    },
+    async ({ id, input }) => {
+      try {
+        writeInstanceConsole(deps, id, input);
+        return { content: [{ type: 'text', text: JSON.stringify({ id, wrote: input.length }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    'read_instance_console',
+    'Read accumulated console output from a running instance since `cursor` (0 = from the ' +
+      'start of the buffer). Returns { data, cursor }; pass the returned cursor next time to poll only new output.',
+    {
+      id: z.string().describe('Instance id'),
+      cursor: z.number().int().min(0).optional().describe('Byte cursor from a prior read (default 0 = whole buffer)'),
+    },
+    async ({ id, cursor }) => {
+      try {
+        const out = readInstanceConsole(deps, id, cursor ?? 0);
+        return { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${(error as Error).message}` }], isError: true };
       }

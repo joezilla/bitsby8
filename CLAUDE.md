@@ -4,6 +4,12 @@ Altair 8800 FDC+ Serial Drive Server: serves virtual floppy/hard-disk images to
 a real (or emulated) Altair over serial or a WebSocket FDC transport, with a
 Svelte web UI, a REST API, and an MCP server.
 
+> **AI agents:** see `_bmad-output/project-context.md` for the full
+> implementation ruleset (stack versions, the CJS↔ESM split, DI/service
+> conventions, testing contracts, security guards, and copy-on-write
+> semantics). This file remains authoritative for the config-layering and
+> "keep" conventions below.
+
 ## Configuration conventions
 
 Settings live at two layers, and the layer decides *where* they are managed:

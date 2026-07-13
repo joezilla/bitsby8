@@ -1,0 +1,848 @@
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { api } from '$lib/services/api';
+  import { showToast } from '$lib/stores/toast';
+  import { pendingRunInstance } from '$lib/stores/pendingRun';
+  import type { MachineProfile, CardDefinition, ProfileCardInstance, ProfileValidation, CpuInfo } from '$lib/types/api';
+  import Button from '$lib/components/shared/Button.svelte';
+  import Card from '$lib/components/shared/Card.svelte';
+  import Chip from '$lib/components/shared/Chip.svelte';
+  import Icon from '$lib/components/shared/Icon.svelte';
+  import HexInput from '$lib/components/shared/HexInput.svelte';
+  import Backplane from '$lib/components/profiles/Backplane.svelte';
+  import BurnEpromModal from '$lib/components/profiles/BurnEpromModal.svelte';
+  import MemoryRibbon from '$lib/components/profiles/MemoryRibbon.svelte';
+  import ProfileDisks from '$lib/components/profiles/ProfileDisks.svelte';
+
+  interface Props {
+    id: string;
+    onBack: () => void;
+    onChanged: (id: string | null) => void;
+    onDeleted: () => void;
+    onNavigate?: (page: 'machines') => void;
+  }
+  let { id, onBack, onChanged, onDeleted, onNavigate }: Props = $props();
+
+  let profile = $state<MachineProfile | null>(null);
+  let versions = $state<MachineProfile[]>([]);
+  let catalog = $state<CardDefinition[]>([]);
+  let loading = $state(true);
+  let busy = $state(false);
+
+  // Editable working state.
+  let clockMode = $state<'max' | 'hz'>('max');
+  let clockHz = $state(2000000);
+  let resetVector = $state(0);
+  let cpuKind = $state<string>('i8080');
+  let cpus = $state<CpuInfo[]>([]);
+  let notes = $state('');
+  let editCards = $state<ProfileCardInstance[]>([]);
+
+  const catalogTypeOf = (ref: string) =>
+    (catalog.find((c) => c.id === ref)?.manifest as { type?: string } | undefined)?.type;
+  // A CPU card seated in the backplane governs the CPU (resolver override), so the
+  // picker defers to it.
+  let cpuCard = $derived(editCards.find((c) => catalogTypeOf(c.ref) === 'cpu'));
+  let validation = $state<ProfileValidation | null>(null);
+  let validateToken = 0;
+  let launchSpeed = $state<'2000000' | '4000000' | 'max'>('2000000');
+
+  const hex = (n: number) => `0x${n.toString(16).toUpperCase()}`;
+  const clockLabel = (c: MachineProfile['clock']) => (c === 'max' ? 'max' : `${c.hz} Hz`);
+
+  // Card instance ids currently involved in a bus collision (for inline flags).
+  let offenderIds = $derived(
+    new Set((validation?.collisions ?? []).flatMap((c) => c.offenders)),
+  );
+
+  // Re-validate for bus collisions whenever the backplane changes.
+  $effect(() => {
+    const cards = editCards;
+    const memory = profile?.memory ?? [];
+    const token = ++validateToken;
+    api
+      .validateProfileBody({ cards, memory })
+      .then((v) => {
+        if (token === validateToken) validation = v;
+      })
+      .catch(() => {});
+  });
+
+  async function autoAssign() {
+    if (!profile) return;
+    try {
+      busy = true;
+      const res = await api.autoAssignProfile({ cards: editCards, memory: profile.memory });
+      editCards = res.content.cards;
+      if (res.unresolved.length) {
+        showToast(`Auto-assigned; ${res.unresolved.length} card(s) need manual fixing: ${res.unresolved.join(', ')}`, 'error');
+      } else {
+        showToast('Auto-assigned collision-free ports and memory', 'success');
+      }
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      busy = false;
+    }
+  }
+
+  let dirty = $derived.by(() => {
+    if (!profile) return false;
+    const curClock = clockMode === 'max' ? 'max' : { hz: clockHz };
+    const clockChanged = JSON.stringify(curClock) !== JSON.stringify(profile.clock);
+    const cardsChanged = JSON.stringify(editCards) !== JSON.stringify(profile.cards);
+    return (
+      clockChanged ||
+      resetVector !== profile.resetVector ||
+      cpuKind !== profile.cpuKind ||
+      (notes ?? '') !== (profile.notes ?? '') ||
+      cardsChanged
+    );
+  });
+
+  function syncEditable(p: MachineProfile) {
+    clockMode = p.clock === 'max' ? 'max' : 'hz';
+    clockHz = p.clock === 'max' ? 2000000 : p.clock.hz;
+    resetVector = p.resetVector;
+    cpuKind = p.cpuKind;
+    notes = p.notes ?? '';
+    editCards = structuredClone(p.cards);
+  }
+
+  async function load() {
+    try {
+      loading = true;
+      const { profile: p } = await api.getProfile(id);
+      profile = p;
+      syncEditable(p);
+      const [vers, cat, cpuList] = await Promise.all([
+        api.listProfileVersions(p.name),
+        catalog.length ? Promise.resolve({ cards: catalog }) : api.browseCatalog(),
+        cpus.length ? Promise.resolve({ cpus }) : api.listCpus(),
+      ]);
+      versions = vers.versions;
+      catalog = cat.cards;
+      cpus = cpuList.cpus;
+    } catch (err) {
+      showToast(`Failed to load profile: ${(err as Error).message}`, 'error');
+      onBack();
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function save() {
+    if (!profile) return;
+    try {
+      busy = true;
+      const patch: Record<string, unknown> = {
+        clock: clockMode === 'max' ? 'max' : { hz: clockHz },
+        resetVector,
+        cpuKind,
+        notes,
+        cards: editCards,
+      };
+      const { profile: np } = await api.updateProfile(profile.id, patch);
+      if (np.id === profile.id) {
+        showToast('No changes to save', 'info');
+      } else {
+        showToast(`Saved as ${np.version}`, 'success');
+      }
+      onChanged(np.id);
+      id = np.id;
+      await load();
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      busy = false;
+    }
+  }
+
+  // --- EPROM burning (Story 5.2) ---
+  let burnCardId = $state<string | null>(null);
+
+  /** The EPROM window (base/size) for a card, from its config or schema defaults. */
+  function burnRegionFor(cardId: string): { base: number; size: number } | undefined {
+    const card = editCards.find((c) => c.id === cardId);
+    if (!card) return undefined;
+    const schema = (catalog.find((c) => c.id === card.ref)?.manifest as { configSchema?: Record<string, { default?: number }> } | undefined)?.configSchema ?? {};
+    const num = (k: string) => {
+      const v = card.config?.[k];
+      return typeof v === 'number' ? v : (schema[k]?.default ?? 0);
+    };
+    return { base: num('base'), size: num('size') };
+  }
+
+  function openBurn(cardId: string) {
+    if (dirty) {
+      showToast('Save your backplane changes before burning an EPROM', 'error');
+      return;
+    }
+    burnCardId = cardId;
+  }
+
+  async function onBurned(newId: string) {
+    burnCardId = null;
+    onChanged(newId);
+    id = newId;
+    await load();
+  }
+
+  async function eraseRom(cardId: string) {
+    if (!profile) return;
+    if (dirty) {
+      showToast('Save your backplane changes before erasing an EPROM', 'error');
+      return;
+    }
+    if (!confirm(`Erase the burned ROM on "${cardId}"?`)) return;
+    try {
+      busy = true;
+      const res = await api.eraseEprom(profile.id, cardId);
+      if (res.erased) {
+        showToast('EPROM erased', 'success');
+        onChanged(res.profile.id);
+        id = res.profile.id;
+        await load();
+      } else {
+        showToast('Nothing to erase', 'info');
+      }
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function launch() {
+    if (!profile) return;
+    try {
+      busy = true;
+      const speed = launchSpeed === 'max' ? 'max' : Number(launchSpeed);
+      const { instance } = await api.launchTransient(profile.id, speed);
+      // Jump straight into the Run cockpit for the freshly-launched instance;
+      // the Machines page opens it once it appears in its polled list.
+      pendingRunInstance.set(instance.id);
+      onNavigate?.('machines');
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function exportBundle() {
+    if (!profile) return;
+    try {
+      busy = true;
+      const bundle = await api.exportProfile(profile.id);
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${profile.name}-${profile.version}.b8.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('Exported bundle', 'success');
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function clone() {
+    if (!profile) return;
+    const name = prompt(`Clone "${profile.name}" as:`, `${profile.name}-copy`);
+    if (!name) return;
+    try {
+      busy = true;
+      const { profile: np } = await api.cloneProfile(profile.id, name);
+      showToast(`Cloned to ${np.id}`, 'success');
+      onChanged(np.id);
+      id = np.id;
+      await load();
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function rename() {
+    if (!profile) return;
+    const next = prompt(`Rename "${profile.name}" to:`, profile.name);
+    if (!next || next.trim() === profile.name) return;
+    try {
+      busy = true;
+      const { profile: np } = await api.renameProfile(profile.id, next.trim());
+      showToast(`Renamed to ${np.name}`, 'success');
+      onChanged(np.id);
+      id = np.id;
+      await load();
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function remove() {
+    if (!profile) return;
+    if (!confirm(`Delete profile "${profile.name}" and all its versions?`)) return;
+    try {
+      busy = true;
+      await api.deleteProfile(profile.id);
+      showToast('Profile deleted', 'success');
+      onDeleted();
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      busy = false;
+    }
+  }
+
+  // A preset is a living template: it edits in place (no version churn) and can
+  // be reset to its shipped default.
+  const isPreset = $derived(profile?.source === 'preset');
+
+  async function resetToDefault() {
+    if (!profile) return;
+    if (!confirm(`Reset preset "${profile.name}" to its shipped default? Your edits to it are discarded.`)) return;
+    try {
+      busy = true;
+      const { profile: np } = await api.resetProfile(profile.id);
+      showToast('Preset reset to default', 'success');
+      onChanged(np.id);
+      id = np.id;
+      await load();
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      busy = false;
+    }
+  }
+
+  onMount(load);
+</script>
+
+<div class="fdc-page-body detail">
+  <button class="back" onclick={onBack}><Icon name="arrow_back" size={18} />Profiles</button>
+
+  {#if loading}
+    <p class="muted">Loading…</p>
+  {:else if profile}
+    {@const p = profile}
+    <header class="head">
+      <div class="head-main">
+        <span class="fdc-overline">{isPreset ? 'Preset · editable template' : 'Machine Profile'}</span>
+        <h1 class="title">{p.name}</h1>
+        <div class="idrow">
+          <Chip size="sm" color="amber">v{p.version}</Chip>
+          <span class="source">{p.source}</span>
+          <span class="digest fdc-mono" title={p.digest}>{p.digest}</span>
+        </div>
+      </div>
+      <div class="head-actions">
+        <label class="speed-pick" title="CPU speed at launch">
+          <span class="sr-only">Launch speed</span>
+          <select class="speed-select fdc-mono" bind:value={launchSpeed} disabled={busy}>
+            <option value="2000000">2 MHz</option>
+            <option value="4000000">4 MHz</option>
+            <option value="max">max</option>
+          </select>
+        </label>
+        <Button
+          variant="tonal"
+          icon="play_arrow"
+          onclick={launch}
+          disabled={busy || validation?.ok === false}
+          title={validation?.ok === false ? 'Resolve bus collisions before launching' : ''}
+        >
+          Launch
+        </Button>
+        <Button variant="ghost" icon="edit" onclick={rename} disabled={busy}>Rename</Button>
+        <Button variant="outline" icon="content_copy" onclick={clone} disabled={busy}>Clone</Button>
+        {#if isPreset}
+          <Button variant="ghost" icon="restart_alt" onclick={resetToDefault} disabled={busy}>Reset</Button>
+        {/if}
+        <Button variant="ghost" icon="download" onclick={exportBundle} disabled={busy}>Export</Button>
+        <Button variant="ghost" icon="delete" danger onclick={remove} disabled={busy}>Delete</Button>
+      </div>
+    </header>
+
+    {#if validation && !validation.ok}
+      <div class="validator-bar" role="alert">
+        <Icon name="error" size={20} />
+        <div class="vb-body">
+          <strong>{validation.collisions.length} bus collision{validation.collisions.length === 1 ? '' : 's'} — not runnable</strong>
+          <ul class="vb-list">
+            {#each validation.collisions as col (col.kind + col.resource + col.offenders.join())}
+              <li>
+                <span class="fdc-mono">{col.resource}</span> —
+                {#if col.offenders.length === 1}
+                  <span class="fdc-mono">{col.offenders[0]}</span> claims it more than once (check its port settings)
+                {:else}
+                  {col.offenders.join(' ✕ ')}
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        </div>
+        <Button variant="tonal" size="sm" icon="auto_fix_high" onclick={autoAssign} disabled={busy}>Auto-assign</Button>
+      </div>
+    {:else if validation?.ok}
+      <div class="validator-bar ok">
+        <Icon name="check_circle" size={18} />
+        <span>No bus collisions — runnable.</span>
+      </div>
+    {/if}
+
+    {#if validation?.warnings?.length}
+      <div class="validator-bar warn" role="status">
+        <Icon name="warning" size={18} />
+        <ul class="vb-list">
+          {#each validation.warnings as w (w)}<li>{w}</li>{/each}
+        </ul>
+      </div>
+    {/if}
+
+    <!-- spec bar (CPU · Clock · Reset vector · Console) -->
+    <div class="specbar">
+      <div class="spec-cell">
+        <div class="spec-lab">CPU</div>
+        <div class="spec-val">
+          {#if cpuCard}
+            {@const ck = cpus.find((c) => c.ref === cpuCard.ref)?.name ?? cpuKind}
+            <span class="fdc-mono">{ck}</span>
+            <span class="cpu-note">set by card <span class="fdc-mono">{cpuCard.id}</span></span>
+          {:else}
+            <select class="inp sm" bind:value={cpuKind} aria-label="CPU">
+              {#each cpus as c (c.kind)}<option value={c.kind}>{c.name}</option>{/each}
+            </select>
+          {/if}
+        </div>
+      </div>
+      <div class="spec-cell">
+        <div class="spec-lab">Clock</div>
+        <div class="spec-val">
+          <div class="clock-edit">
+            <label><input type="radio" bind:group={clockMode} value="max" /> max</label>
+            <label><input type="radio" bind:group={clockMode} value="hz" /> fixed</label>
+            {#if clockMode === 'hz'}
+              <input class="inp sm fdc-mono" type="number" bind:value={clockHz} min="1000" step="1000" />
+              <span class="unit">Hz</span>
+            {/if}
+          </div>
+        </div>
+      </div>
+      <div class="spec-cell">
+        <div class="spec-lab">Reset vector</div>
+        <div class="spec-val">
+          <HexInput value={resetVector} min={0} max={0xffff} ariaLabel="reset vector (hex)" onchange={(n) => (resetVector = n)} />
+        </div>
+      </div>
+      <div class="spec-cell">
+        <div class="spec-lab">Console card</div>
+        <div class="spec-val fdc-mono">{p.consoleCardId ?? '—'}</div>
+      </div>
+    </div>
+
+    <Card raised>
+      <h2 class="sec">Memory layout</h2>
+      {@const bands = validation?.memoryMap ?? p.memory.map((m) => ({ ...m, source: 'profile' as const }))}
+      <MemoryRibbon map={bands} {resetVector} />
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr><th>Region</th><th>Kind</th><th>Range</th><th>Source</th></tr></thead>
+          <tbody>
+            {#each [...bands].sort((a, b) => a.base - b.base) as m (m.id)}
+              <tr>
+                <td class="fdc-mono">{m.id}</td>
+                <td>{m.kind}</td>
+                <td class="fdc-mono">{hex(m.base)}–{hex(m.base + m.size - 1)}</td>
+                <td class="muted">{m.source === 'card' ? 'card' : 'profile'}</td>
+              </tr>
+            {/each}
+            {#if bands.length === 0}
+              <tr><td colspan="4" class="muted">No memory mapped. Add a RAM or EPROM card.</td></tr>
+            {/if}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+
+    <Card raised>
+      <div class="sec-row">
+        <h2 class="sec">S-100 backplane</h2>
+        <span class="pill">{editCards.length} card{editCards.length === 1 ? '' : 's'}</span>
+      </div>
+      <Backplane
+        cards={editCards}
+        {catalog}
+        offenders={offenderIds}
+        claims={validation?.claims ?? []}
+        collisions={validation?.collisions ?? []}
+        memory={p.memory}
+        onchange={(c) => (editCards = c)}
+        onburn={openBurn}
+        onerase={eraseRom}
+      />
+      <!-- inline notes + save footer -->
+      <div class="notes-save">
+        <label class="notes-field">
+          <span class="fdc-overline">Notes</span>
+          <input class="inp" bind:value={notes} placeholder="What is this machine for?" />
+        </label>
+        <div class="save-actions">
+          <span class="muted">
+            {#if !dirty}No unsaved changes.{:else if isPreset}Saving updates this preset in place.{:else}Saving writes a new version.{/if}
+          </span>
+          <Button variant="filled" icon="save" onclick={save} disabled={busy || !dirty}>
+            {isPreset ? 'Save preset' : 'Save new version'}
+          </Button>
+        </div>
+      </div>
+    </Card>
+
+    <Card raised>
+      <ProfileDisks profileId={p.id} />
+    </Card>
+
+    <Card raised>
+      <div class="sec-row">
+        <h2 class="sec">Versions</h2>
+        <span class="pill">{versions.length}</span>
+      </div>
+      <ul class="versions">
+        {#each versions as v (v.id)}
+          <li class:current={v.id === p.id}>
+            <span class="fdc-mono">v{v.version}</span>
+            {#if v.id === p.id}<Chip size="sm" color="green">current</Chip>{/if}
+            <span class="digest fdc-mono" title={v.digest}>{v.digest}</span>
+          </li>
+        {/each}
+      </ul>
+    </Card>
+  {/if}
+</div>
+
+{#if burnCardId && profile}
+  <BurnEpromModal
+    profileId={profile.id}
+    cardId={burnCardId}
+    region={burnRegionFor(burnCardId)}
+    onClose={() => (burnCardId = null)}
+    {onBurned}
+  />
+{/if}
+
+<style>
+  .detail {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+  .back {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 32px;
+    padding: 0 var(--space-2) 0 4px;
+    background: none;
+    border: none;
+    color: var(--fg-3);
+    font: var(--text-label);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+  }
+  .back:hover {
+    color: var(--fg-1);
+  }
+  .head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+  .head-main {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .fdc-overline {
+    color: var(--fg-3);
+    letter-spacing: 0.08em;
+  }
+  .title {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--fg-1);
+  }
+  .idrow {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .source {
+    font: var(--text-overline);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--fg-4);
+  }
+  .digest {
+    color: var(--fg-4);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 40vw;
+  }
+  .head-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+  .speed-select {
+    height: 36px;
+    padding: 0 var(--space-2);
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius-sm);
+    color: var(--fg-1);
+    font-size: 13px;
+  }
+  .speed-select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .validator-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--error) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--error) 40%, transparent);
+    color: var(--error);
+  }
+  .validator-bar.ok {
+    background: color-mix(in srgb, var(--success) 10%, transparent);
+    border-color: color-mix(in srgb, var(--success) 35%, transparent);
+    color: var(--success);
+    font: var(--text-body-sm);
+  }
+  .validator-bar.warn {
+    align-items: flex-start;
+    background: color-mix(in srgb, var(--warning) 12%, transparent);
+    border-color: color-mix(in srgb, var(--warning) 40%, transparent);
+    color: var(--warning);
+    font: var(--text-body-sm);
+    margin-top: var(--space-2);
+  }
+  .vb-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    color: var(--fg-1);
+  }
+  .vb-body strong {
+    color: var(--error);
+    font-size: 14px;
+  }
+  .vb-list {
+    margin: 0;
+    padding-left: var(--space-4);
+    font: var(--text-body-sm);
+    color: var(--fg-2);
+  }
+
+  /* horizontal spec bar (was the left-column Configuration card) */
+  .specbar {
+    display: flex;
+    align-items: stretch;
+    flex-wrap: wrap;
+    background: var(--surface-raised);
+    border: 1px solid var(--border-1);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+  .spec-cell {
+    flex: 1;
+    min-width: 170px;
+    padding: 13px 18px;
+    border-right: 1px solid var(--border-1);
+  }
+  .spec-cell:last-child {
+    border-right: none;
+  }
+  .spec-lab {
+    font: var(--text-overline);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--fg-3);
+    margin-bottom: 7px;
+  }
+  .spec-val {
+    color: var(--fg-1);
+    font-size: 14px;
+  }
+
+  .sec {
+    margin: 0 0 var(--space-2);
+    font: var(--text-title-sm);
+    color: var(--fg-1);
+  }
+  .sec-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+  .sec-row .sec {
+    margin: 0;
+  }
+  .pill {
+    font: var(--text-overline);
+    color: var(--info);
+    background: color-mix(in srgb, var(--info) 14%, transparent);
+    border-radius: var(--radius-xs);
+    padding: 1px 6px;
+  }
+
+  .clock-edit {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    font: var(--text-body-sm);
+    color: var(--fg-2);
+  }
+  .clock-edit label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+  }
+  .inp {
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius-sm);
+    color: var(--fg-1);
+    font: var(--text-body-sm);
+    padding: 6px var(--space-2);
+  }
+  .inp:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .inp.sm {
+    width: 120px;
+    height: 30px;
+    padding: 0 var(--space-2);
+  }
+  .unit {
+    color: var(--fg-3);
+    font-size: 12px;
+    margin-left: 6px;
+  }
+  .cpu-note {
+    color: var(--fg-3);
+    font-size: 12px;
+    margin-left: 8px;
+  }
+
+  /* inline notes + save footer inside the backplane card */
+  .notes-save {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--border-1);
+  }
+  .notes-field {
+    flex: 1;
+    min-width: 240px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .notes-field .inp {
+    width: 100%;
+    height: 40px;
+  }
+  .save-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex: none;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+  }
+  table.tbl {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  table.tbl th {
+    text-align: left;
+    font: var(--text-overline);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--fg-3);
+    padding: 0 var(--space-3) var(--space-2) 0;
+    border-bottom: 1px solid var(--border-2);
+    white-space: nowrap;
+  }
+  table.tbl td {
+    padding: var(--space-2) var(--space-3) var(--space-2) 0;
+    border-bottom: 1px solid var(--border-1);
+    color: var(--fg-2);
+  }
+
+  .versions {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .versions li {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 13px;
+    color: var(--fg-1);
+  }
+  .versions .digest {
+    margin-left: auto;
+  }
+
+  .muted {
+    color: var(--fg-3);
+    font: var(--text-body-sm);
+  }
+</style>

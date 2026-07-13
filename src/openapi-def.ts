@@ -10,7 +10,7 @@ export const openapiDefinition: Options = {
     openapi: '3.0.0',
     info: {
       title: 'FDC+ Serial Drive Server API',
-      version: '2.0.0',
+      version: '3.0.0-alpha',
       description:
         'REST API for the Altair 8800 FDC+ Serial Drive Server web interface. ' +
         'Manages disk image serving, CP/M filesystem browsing, cassette audio, ' +
@@ -51,6 +51,8 @@ export const openapiDefinition: Options = {
       { name: 'Snapshots', description: 'Point-in-time disk image snapshots and rollback' },
       { name: 'Settings', description: 'Operator-facing runtime feature settings (DB-backed, live)' },
       { name: 'Clients', description: 'Per-client drive-bay overrides and friendly names (multi-client serving)' },
+      { name: 'Profiles', description: 'Machine Profiles — declarative machines as versioned Primitives (Bitsby8)' },
+      { name: 'Instances', description: 'Virtual S-100 Machine Instances — lifecycle + console I/O (Bitsby8)' },
       { name: 'CP/M', description: 'CP/M filesystem browser' },
       { name: 'Cassettes', description: 'Cassette audio management' },
       { name: 'Terminal', description: 'Terminal serial port management' },
@@ -98,14 +100,191 @@ export const openapiDefinition: Options = {
             id: { type: 'string', example: 'mits-88-2sio@1.0.0', description: 'Identity: name@version.' },
             name: { type: 'string', example: 'mits-88-2sio' },
             version: { type: 'string', example: '1.0.0' },
-            digest: { type: 'string', example: 'sha256:…', description: 'Content digest (basic sha256; full rule in a later release).' },
+            digest: { type: 'string', example: 'sha256:…', description: 'Content-addressed Identity (AD-8): sha256 over a JCS canonical Merkle manifest.' },
             type: { type: 'string', example: 'serial' },
+            kind: { type: 'string', enum: ['card', 'chip'], example: 'card', description: 'Bus-ontology kind: S-100 board vs. component chip.' },
             maker: { type: 'string', nullable: true, example: 'MITS' },
             summary: { type: 'string', nullable: true },
+            capabilities: {
+              type: 'array',
+              items: { type: 'string' },
+              example: ['serial-io'],
+              description: 'Derived capability tags (from the manifest) — a browse/filter facet.',
+            },
             manifest: { type: 'object', description: 'The CardManifest (config schema, etc.).', additionalProperties: true },
             entry: { type: 'string', nullable: true, description: 'Reference to the pre-built behavior module.' },
             source: { type: 'string', example: 'seed', description: "Provenance: 'seed' | 'imported' | 'signed'." },
             createdAt: { type: 'string' },
+          },
+        },
+        CardDetail: {
+          type: 'object',
+          description: "A card's datasheet (Bitsby8) — definition + footprint + Skills file + versions + used-by.",
+          properties: {
+            card: { $ref: '#/components/schemas/CardDefinition' },
+            footprint: {
+              type: 'object',
+              nullable: true,
+              description: 'Default bus footprint (null if not derivable).',
+              properties: {
+                ports: { type: 'array', items: { type: 'integer' }, example: [16, 17, 18, 19] },
+                irq: { type: 'integer', nullable: true },
+              },
+            },
+            skills: { type: 'string', description: 'Generated Skills file (human- and agent-readable markdown).' },
+            versions: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  version: { type: 'string' },
+                  digest: { type: 'string' },
+                  source: { type: 'string' },
+                  createdAt: { type: 'string' },
+                },
+              },
+            },
+            usedBy: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Machine Profiles referencing this card (populated once Profiles exist).',
+            },
+          },
+        },
+        MachineProfile: {
+          type: 'object',
+          description: 'A declarative machine as a versioned Primitive (Bitsby8) — dual Identity (name@version + sha256) with immutable versions.',
+          properties: {
+            id: { type: 'string', example: 'my-imsai@1.0.0', description: 'Identity: name@version.' },
+            name: { type: 'string', example: 'my-imsai' },
+            version: { type: 'string', example: '1.0.0' },
+            digest: { type: 'string', example: 'sha256:…', description: 'Content digest; a change yields a new version + digest.' },
+            cpuKind: { type: 'string', enum: ['i8080', 'z80'] },
+            clock: { description: "Clock: { hz: number } or the string 'max'." },
+            resetVector: { type: 'integer', example: 65280 },
+            memory: {
+              type: 'array',
+              description: 'Memory/ROM layout; a ROM region carries its bytes as base64 in `image`.',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  base: { type: 'integer' },
+                  size: { type: 'integer' },
+                  kind: { type: 'string', enum: ['ram', 'rom', 'mmio'] },
+                  image: { type: 'string', nullable: true, description: 'base64 ROM contents' },
+                },
+              },
+            },
+            cards: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  ref: { type: 'string', description: 'Card Identity (name@version).' },
+                  config: { type: 'object', additionalProperties: true },
+                },
+              },
+            },
+            consoleCardId: { type: 'string', nullable: true },
+            notes: { type: 'string', nullable: true },
+            source: { type: 'string', example: 'user', description: "'user' | 'preset' | 'imported'." },
+            createdAt: { type: 'string' },
+          },
+        },
+        ProfileValidation: {
+          type: 'object',
+          description: 'Define-time bus-collision validation of a Profile (Bitsby8). ok:true → runnable.',
+          properties: {
+            ok: { type: 'boolean' },
+            collisions: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  kind: { type: 'string', enum: ['port', 'irq', 'memory'] },
+                  resource: { type: 'string', example: 'I/O port 0x10' },
+                  offenders: { type: 'array', items: { type: 'string' }, description: 'Colliding card instance ids (or memory region ids).' },
+                  port: { type: 'integer', nullable: true, description: 'The colliding I/O port (kind port only).' },
+                },
+              },
+            },
+            claims: {
+              type: 'array',
+              description: "Each card's claimed bus footprint at its config.",
+              items: {
+                type: 'object',
+                properties: {
+                  cardId: { type: 'string' },
+                  ref: { type: 'string' },
+                  ports: { type: 'array', items: { type: 'integer' } },
+                  irq: { type: 'integer', nullable: true },
+                },
+              },
+            },
+          },
+        },
+        InstanceSnapshot: {
+          type: 'object',
+          description: "An instance's disk/media snapshot (Bitsby8) — machine definition + per-drive disk state; execution state is not captured.",
+          properties: {
+            id: { type: 'string' },
+            instanceId: { type: 'string' },
+            profileRef: { type: 'string' },
+            label: { type: 'string', nullable: true },
+            disks: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  drive: { type: 'integer' },
+                  filename: { type: 'string', description: 'Base image the drive was bound to.' },
+                },
+              },
+            },
+            createdAt: { type: 'string' },
+          },
+        },
+        MachineInstance: {
+          type: 'object',
+          description: 'A virtual S-100 Machine Instance (Bitsby8) — a running or defined emulated machine.',
+          properties: {
+            id: { type: 'string', description: 'Instance id (uuid).' },
+            clientId: { type: 'string', example: 'inst:…', description: 'Reserved FDC serving clientId (inst:<uuid>).' },
+            profileRef: { type: 'string', example: 'preset:imsai-cpm', description: 'Where the profile came from (preset:<id> | inline).' },
+            transient: { type: 'boolean', description: 'Memory-only; leaves no DB/splinter residue on destroy.' },
+            status: { type: 'string', enum: ['defined', 'running', 'stopped'] },
+            driver: { type: 'string', enum: ['operator', 'api', 'mcp'], description: 'Provenance — who drove it into existence.' },
+            cpuKind: { type: 'string', example: 'i8080' },
+            effectiveHz: { type: 'number', nullable: true },
+            targetHz: { oneOf: [{ type: 'number' }, { type: 'string', enum: ['max'] }], nullable: true },
+            uptimeSeconds: { type: 'integer', nullable: true, description: 'Seconds since last start (running only).' },
+            headless: { type: 'boolean', description: 'Running with no live console subscriber (agent-spun, unattended).' },
+            disks: {
+              type: 'array',
+              description: 'Bound disks (operator mounts) with per-instance copy-on-write dirty state.',
+              items: {
+                type: 'object',
+                properties: {
+                  drive: { type: 'integer' },
+                  filename: { type: 'string' },
+                  readonly: { type: 'boolean' },
+                  dirty: { type: 'boolean' },
+                },
+              },
+            },
+          },
+        },
+        InstanceCreateRequest: {
+          type: 'object',
+          description: 'Create a Machine Instance from a stored Profile ref, a preset id, or an inline MachineProfile (exactly one).',
+          properties: {
+            profileRef: { type: 'string', example: 'my-imsai@1.0.0', description: 'Stored Machine Profile reference (name@version, or a bare name → latest).' },
+            preset: { type: 'string', example: 'imsai-cpm', description: 'Built-in preset id (see GET /api/instances/presets).' },
+            profile: { type: 'object', additionalProperties: true, description: 'Inline MachineProfile (cpuKind, clock, resetVector, memory[], cards[], consoleCardId).' },
+            speed: { oneOf: [{ type: 'number' }, { type: 'string', enum: ['max'] }], description: 'Launch speed: Hz (e.g. 2000000 for authentic 2 MHz) or "max".' },
           },
         },
         SystemInfo: {

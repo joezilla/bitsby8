@@ -11,7 +11,7 @@
 import type { MachineSpec, CardSpec, MemoryRegionSpec, CpuKind, Clock } from '@joezilla/8sim';
 import { Dependencies } from '../types';
 import { ServiceError } from './service-error';
-import { getSim, getSeedBundle } from './bundle-registry';
+import { getSim, getBundle } from './bundle-registry';
 
 /** A card installed in a Profile, referencing a Card Definition by Identity. */
 export interface ProfileCardInstance {
@@ -27,6 +27,9 @@ export interface MachineProfile {
   resetVector: number;
   memory: MemoryRegionSpec[];
   cards: ProfileCardInstance[];
+  /** Which Card Instance drives the operator console; defaults to the first
+   * card that exposes a serial console channel. */
+  consoleCardId?: string;
 }
 
 export interface ResolvedCardProvenance {
@@ -54,9 +57,18 @@ export async function resolveProfile(
   const sim = await getSim();
   const cards: CardSpec[] = [];
   const provenance: ResolvedCardProvenance[] = [];
+  // Card-emitted memory regions are hoisted into the machine's declared memory
+  // map (Story 5.1) — a memory card (RAM/EPROM) resolves to a region, namespaced
+  // by its instance id, so buildMachine validates it like any other region.
+  const memory: MemoryRegionSpec[] = [...profile.memory];
+  // A CPU card (the processor board) resolves to the machine's CPU. Zero CPU
+  // cards → the profile's implicit CPU (backward compatible); more than one is a
+  // collision the validator rejects. The card also carries the power-on jump.
+  let cpuKind: CpuKind = profile.cpuKind;
+  let resetVector = profile.resetVector;
 
   for (const inst of profile.cards) {
-    const bundle = await getSeedBundle(inst.ref);
+    const bundle = await getBundle(deps, inst.ref);
     if (!bundle) {
       throw new ServiceError(
         `Card bundle not found for ${inst.ref} (instance "${inst.id}")`,
@@ -78,6 +90,23 @@ export async function resolveProfile(
 
     cards.push({ id: inst.id, factory: bundle.cardFactory, config: cfg, claims: bundle.claims(cfg) });
 
+    if (bundle.memory) {
+      for (const region of bundle.memory(cfg)) {
+        const nsId = `${inst.id}/${region.id}`;
+        // A profile-declared region with this id overrides the card's default
+        // emit — that's how a burned EPROM image (Story 5.2) supplies real bytes
+        // in place of the card's zero-filled region.
+        if (memory.some((m) => m.id === nsId)) continue;
+        memory.push({ ...region, id: nsId });
+      }
+    }
+
+    if (bundle.cpu) {
+      const c = bundle.cpu(cfg);
+      cpuKind = c.kind;
+      if (c.resetVector != null) resetVector = c.resetVector;
+    }
+
     const rec = await deps.database.getCardDefinitionById(inst.ref);
     provenance.push({
       id: inst.id,
@@ -89,10 +118,10 @@ export async function resolveProfile(
   }
 
   const spec: MachineSpec = {
-    cpuKind: profile.cpuKind,
+    cpuKind,
     clock: profile.clock,
-    resetVector: profile.resetVector,
-    memory: profile.memory,
+    resetVector,
+    memory,
     cards,
   };
 
