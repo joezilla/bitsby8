@@ -1,10 +1,12 @@
-# FDC+ Serial Drive Server
+# BitsBy8
 
 <img src="images/mits-logo.svg" alt="MITS Altair 8800" width="180" align="right" />
 
-A TypeScript Serial Disk Server for the **FDC+ Enhanced Floppy Disk Controller** on the **MITS Altair 8800**. Serves virtual floppies, cassette audio, and a VT102 terminal over serial, with a Svelte 5 web UI for control.
+**BitsBy8** is a TypeScript serial disk server for the **FDC+ Enhanced Floppy Disk Controller** on the **MITS Altair 8800**. It serves virtual floppies, cassette audio, and a VT102 terminal over serial, with a Svelte 5 web UI for control.
 
 **Version:** 2.0.1-rc4 · **License:** GPL-3.0
+
+> **Note:** BitsBy8 is the product name. The CLI, systemd service, and Debian package are still named `fdcsds`, and the source repo is `fdcplus-web` — these keep their current names for now while the rename is in progress.
 
 ![Drives & Library page of the web UI: four drive bays across the top, disk-image library below.](images/ui-disks.png)
 
@@ -40,7 +42,7 @@ For a connected Altair (Pi target), see [Installation](#installation) and the GP
 
 ## Overview
 
-A TypeScript implementation of an FDC+ Serial Disk Server. It speaks the FDC+ wire protocol over serial so it works with the existing FDC+ Enhanced Floppy Disk Controller hardware on an unmodified Altair 8800. Features:
+BitsBy8 is a TypeScript serial disk server for the Altair 8800. It speaks the FDC+ wire protocol over serial so it works with the existing FDC+ Enhanced Floppy Disk Controller hardware on an unmodified Altair 8800. Features:
 
 - Modern async/await architecture with modular Express backend
 - Type-safe protocol implementation
