@@ -64,7 +64,7 @@
         { id: 'disks',     label: 'Disks',     icon: 'save',    badge: () => driveBadge },
         { id: 'cassettes', label: 'Cassettes', icon: 'album',   badge: () => null },
         ...(multiEnabled
-          ? [{ id: 'clients' as NavId, label: 'Clients', icon: 'devices', badge: () => (clientCount > 0 ? String(clientCount) : null) }]
+          ? [{ id: 'clients' as NavId, label: 'Disk Clients', icon: 'devices', badge: () => (clientCount > 0 ? String(clientCount) : null) }]
           : []),
         { id: 'scripts',   label: 'Scripts',   icon: 'terminal', badge: () => null },
       ],
