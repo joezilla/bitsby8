@@ -3471,116 +3471,6 @@
         }
       }
     },
-    "/api/instances/{id}/gpio": {
-      "get": {
-        "tags": [
-          "Instances"
-        ],
-        "summary": "Read a running instance's GPIO ports (Story 5.8)",
-        "description": "The parallel (GPIO) cards the machine exposes, with each port's direction and current latched output byte (drive LEDs / read a printer).",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "GPIO ports",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "ports": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "cardId": {
-                            "type": "string"
-                          },
-                          "direction": {
-                            "type": "string",
-                            "enum": [
-                              "out",
-                              "in",
-                              "inout"
-                            ]
-                          },
-                          "output": {
-                            "type": "integer",
-                            "description": "0–255 latched output byte"
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/instances/{id}/gpio/{cardId}/input": {
-      "post": {
-        "tags": [
-          "Instances"
-        ],
-        "summary": "Drive a GPIO card's input pins (Story 5.8)",
-        "description": "Set the byte the CPU reads from a parallel card — sense switches. Applies to a running instance.",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "cardId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "value"
-                ],
-                "properties": {
-                  "value": {
-                    "type": "integer",
-                    "description": "0–255 input byte"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Applied"
-          },
-          "404": {
-            "description": "No such GPIO card on the instance"
-          }
-        }
-      }
-    },
     "/api/instances/{id}/display": {
       "get": {
         "tags": [
@@ -5662,7 +5552,7 @@
           "Config"
         ],
         "summary": "Re-read runtime-toggleable knobs without restarting",
-        "description": "Best-effort re-read of `verbose`, `debug`, and `logFile` from\nthe current on-disk config. Serial / web / GPIO changes still\nneed a full restart. Returns 200 with the set of fields that\nactually took effect.\n",
+        "description": "Best-effort re-read of `verbose`, `debug`, and `logFile` from\nthe current on-disk config. Serial / web changes still\nneed a full restart. Returns 200 with the set of fields that\nactually took effect.\n",
         "responses": {
           "200": {
             "description": "Live-reload result"
@@ -6265,7 +6155,7 @@
           "Catalog"
         ],
         "summary": "List peripheral endpoint types a card can bind to (Story 5.6)",
-        "description": "The vocabulary of endpoints a card's far side connects to (terminal, disk, clock, gpio, display, socket), with what's wired today.",
+        "description": "The vocabulary of endpoints a card's far side connects to (terminal, disk, clock, display, socket), with what's wired today.",
         "responses": {
           "200": {
             "description": "Endpoint types",

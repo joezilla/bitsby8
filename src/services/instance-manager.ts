@@ -20,7 +20,6 @@ import { ServiceError } from './service-error';
 import { getSim } from './bundle-registry';
 import { resolveProfile, MachineProfile } from './resolver';
 import { ConsoleHub, ConsoleSubscriber, consoleSourceFromCard } from './console-hub';
-import { GpioPort, gpioSourceFromCard } from './gpio-hub';
 import { DisplaySurface, displaySourceFromCard } from './display-hub';
 import { KeyboardSink, keyboardSourceFromCard } from './keyboard-hub';
 import { profileNameOf } from './profile-disk-service';
@@ -54,8 +53,6 @@ interface RunningInstance {
   channel?: WebSocketLike;
   channelConnId?: string;
   console?: ConsoleHub;
-  /** GPIO ports the machine's parallel cards expose, by card instance id (5.8). */
-  gpio?: Map<string, GpioPort>;
   /** Display surfaces the machine's video cards expose, by card instance id (5.9). */
   display?: Map<string, DisplaySurface>;
   /** Keyboard sinks the machine's keyboard cards expose, by card instance id (5.9). */
@@ -281,14 +278,6 @@ export class InstanceManager {
       log.warn({ id: inst.id }, 'instance has no console channel — terminal will be empty');
     }
 
-    // Collect the GPIO ports the machine's parallel cards expose (Story 5.8).
-    const gpio = new Map<string, GpioPort>();
-    for (const c of machine.cards) {
-      const port = gpioSourceFromCard(c);
-      if (port) gpio.set(c.id, port);
-    }
-    inst.gpio = gpio.size ? gpio : undefined;
-
     // Collect the display surfaces the machine's video cards expose (Story 5.9).
     const display = new Map<string, DisplaySurface>();
     for (const c of machine.cards) {
@@ -328,7 +317,6 @@ export class InstanceManager {
     inst.channel = undefined;
     inst.channelConnId = undefined;
     inst.console = undefined;
-    inst.gpio = undefined;
     inst.display = undefined;
     inst.keyboard = undefined;
     inst.panelAddr = undefined;
@@ -348,17 +336,6 @@ export class InstanceManager {
   /** Subscribe to a running instance's console output; returns an unsubscribe fn. */
   subscribeConsole(id: string, sub: ConsoleSubscriber): () => void {
     return this.getConsole(id).subscribe(sub);
-  }
-
-  /** The GPIO ports of a running instance, with their current latched output (5.8). */
-  listGpio(id: string): Array<{ cardId: string; direction: string; output: number }> {
-    const inst = this.require(id);
-    if (!inst.gpio) return [];
-    return [...inst.gpio.entries()].map(([cardId, p]) => ({
-      cardId,
-      direction: p.direction,
-      output: p.read() & 0xff,
-    }));
   }
 
   /** The keyboard cards of a running instance, with their pending key count (5.9). */
@@ -442,18 +419,6 @@ export class InstanceManager {
       const f = s.frame();
       return { cardId, descriptor: s.descriptor, state: f.state, bytes: f.bytes };
     });
-  }
-
-  /** Drive a GPIO card's input pins (sense switches) on a running instance (5.8). */
-  setGpioInput(id: string, cardId: string, value: number): { cardId: string; input: number } {
-    const inst = this.require(id);
-    const port = inst.gpio?.get(cardId);
-    if (!port) {
-      throw new ServiceError(`Instance ${id} has no GPIO card "${cardId}" (not running?)`, 404);
-    }
-    const input = value & 0xff;
-    port.setInput(input);
-    return { cardId, input };
   }
 
   /** Send input to a running instance's console (RX). */

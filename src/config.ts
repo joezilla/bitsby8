@@ -2,19 +2,18 @@
  * Configuration File Module
  *
  * Zod-backed schema + loader. Every writable knob lives in one of the
- * per-section schemas (Serial / Web / Terminal / Logging / GPIO / Data)
+ * per-section schemas (Serial / Web / Terminal / Logging / Data)
  * so the config API can validate a single section without accepting the
  * whole document, and the frontend can render field constraints
  * straight from `GET /api/config/schema`.
  *
- * `.passthrough()` at the top level and on `gpioLeds` preserves fields
- * we don't (yet) recognise — nothing gets wiped by a UI round-trip.
+ * `.passthrough()` at the top level preserves fields we don't (yet)
+ * recognise — nothing gets wiped by a UI round-trip.
  */
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { z } from 'zod';
-import { GpioLedConfig } from './gpio';
 
 // ---------------------------------------------------------------------------
 // Section schemas
@@ -94,53 +93,6 @@ export const SystemSchema = z.object({
     .optional(),
 });
 
-// GPIO pin numbers are BCM (0-27 on Raspberry Pi). null = disabled.
-const GpioPinSchema = z.number().int().min(0).max(27).nullable().optional();
-const GpioDrivePinsSchema = z.object({
-  enable: GpioPinSchema,
-  headLoad: GpioPinSchema,
-  readOnly: GpioPinSchema,
-});
-const GpioTerminalPinsSchema = z.object({
-  rx: GpioPinSchema,
-  tx: GpioPinSchema,
-  connected: GpioPinSchema,
-});
-export const GpioSchema = z
-  .object({
-    enabled: z.boolean().default(false),
-    activeLow: z.boolean().optional(),
-    blinkDuration: z.number().int().positive().optional(),
-    activityBlinkDuration: z.number().int().positive().optional(),
-    activityLed: GpioPinSchema,
-    drive0: GpioDrivePinsSchema.optional(),
-    drive1: GpioDrivePinsSchema.optional(),
-    drive2: GpioDrivePinsSchema.optional(),
-    drive3: GpioDrivePinsSchema.optional(),
-    terminal: GpioTerminalPinsSchema.optional(),
-  })
-  .passthrough();
-
-// Variant used to parse the runtime override file. `enabled` is optional
-// with no default here — otherwise Zod would inject `enabled: false` when
-// the override document names `gpioLeds` without an explicit `enabled`
-// key, which then wins in the shallow merge and silently disables LEDs
-// the baseline had turned on.
-const GpioSchemaOverride = z
-  .object({
-    enabled: z.boolean().optional(),
-    activeLow: z.boolean().optional(),
-    blinkDuration: z.number().int().positive().optional(),
-    activityBlinkDuration: z.number().int().positive().optional(),
-    activityLed: GpioPinSchema,
-    drive0: GpioDrivePinsSchema.optional(),
-    drive1: GpioDrivePinsSchema.optional(),
-    drive2: GpioDrivePinsSchema.optional(),
-    drive3: GpioDrivePinsSchema.optional(),
-    terminal: GpioTerminalPinsSchema.optional(),
-  })
-  .passthrough();
-
 // ---------------------------------------------------------------------------
 // Top-level schema
 // ---------------------------------------------------------------------------
@@ -154,37 +106,16 @@ export const ConfigSchema = z
     ...TerminalSchema.shape,
     ...LoggingSchema.shape,
     ...DataSchema.shape,
-    gpioLeds: GpioSchema.optional(),
     system: SystemSchema.optional(),
   })
-  .passthrough()
-  .superRefine((cfg, ctx) => {
-    const pins = collectGpioPins(cfg.gpioLeds);
-    for (const [pin, paths] of pins) {
-      if (paths.length > 1) {
-        for (const p of paths) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: p,
-            message: `GPIO pin ${pin} is used more than once (also at: ${paths.filter(o => o !== p).map(o => o.join('.')).join(', ')})`,
-          });
-        }
-      }
-    }
-  });
+  .passthrough();
 
 /**
  * Permissive schema used to parse the runtime override file.
  *
- * Same shape as `ConfigSchema` but with the `gpioLeds` sub-schema
- * variant that does NOT default `enabled` to false. The override file
- * is a *partial* document — missing keys mean "fall through to the
- * baseline" — so we can't have Zod materialise defaults during load.
- *
- * The cross-cutting `superRefine` (GPIO pin dedup) intentionally isn't
- * attached here: overrides on their own are half-configs; the merged
- * baseline+override doc is what needs the dedup check, and that's
- * validated separately at write time.
+ * Same shape as `ConfigSchema`. The override file is a *partial*
+ * document — missing keys mean "fall through to the baseline" — so it
+ * stays fully passthrough and doesn't materialise defaults during load.
  */
 export const OverrideConfigSchema = z
   .object({
@@ -195,43 +126,11 @@ export const OverrideConfigSchema = z
     ...TerminalSchema.shape,
     ...LoggingSchema.shape,
     ...DataSchema.shape,
-    gpioLeds: GpioSchemaOverride.optional(),
     system: SystemSchema.optional(),
   })
   .passthrough();
 
 export type ConfigFile = z.infer<typeof ConfigSchema>;
-
-/** Map of pin → list of dotted paths that reference it. */
-function collectGpioPins(gpio: unknown): Map<number, (string | number)[][]> {
-  const pins = new Map<number, (string | number)[][]>();
-  if (!gpio || typeof gpio !== 'object') return pins;
-  const g = gpio as Record<string, unknown>;
-  const addPin = (pin: unknown, at: (string | number)[]) => {
-    if (typeof pin !== 'number') return;
-    const existing = pins.get(pin) ?? [];
-    existing.push(['gpioLeds', ...at]);
-    pins.set(pin, existing);
-  };
-  addPin(g.activityLed, ['activityLed']);
-  for (const key of ['drive0', 'drive1', 'drive2', 'drive3'] as const) {
-    const drive = g[key];
-    if (drive && typeof drive === 'object') {
-      const d = drive as Record<string, unknown>;
-      addPin(d.enable, [key, 'enable']);
-      addPin(d.headLoad, [key, 'headLoad']);
-      addPin(d.readOnly, [key, 'readOnly']);
-    }
-  }
-  const term = g.terminal;
-  if (term && typeof term === 'object') {
-    const t = term as Record<string, unknown>;
-    addPin(t.rx, ['terminal', 'rx']);
-    addPin(t.tx, ['terminal', 'tx']);
-    addPin(t.connected, ['terminal', 'connected']);
-  }
-  return pins;
-}
 
 // ---------------------------------------------------------------------------
 // Config file locations (default search order, highest to lowest priority)
@@ -429,9 +328,7 @@ function parseOverrideContent(content: string, filePath: string): OverrideConfig
 
 /**
  * Compute the effective runtime config by layering an override document
- * on top of a baseline. Shallow at the top level: `gpioLeds` in the
- * override replaces the baseline gpioLeds wholesale, matching how the
- * UI's GPIO save handler ships the full subtree.
+ * on top of a baseline. Shallow at the top level.
  *
  * Uses `Object.hasOwn` so an explicit `null` in the override (e.g.
  * unsetting `drive1`) beats a non-null baseline value. A truthiness
@@ -489,15 +386,6 @@ export function mergeConfig(configFile: ConfigFile | null, cmdLineOptions: any):
   if (cmdLineOptions.terminalBaud !== undefined) merged.terminalBaud = parseInt(cmdLineOptions.terminalBaud);
   if (cmdLineOptions.terminalAutoconnect !== undefined) merged.terminalAutoconnect = cmdLineOptions.terminalAutoconnect;
 
-  if (cmdLineOptions.gpioLeds !== undefined) {
-    if (!merged.gpioLeds) merged.gpioLeds = { enabled: false };
-    merged.gpioLeds.enabled = cmdLineOptions.gpioLeds;
-  }
-  if (cmdLineOptions.gpioActiveLow !== undefined) {
-    if (!merged.gpioLeds) merged.gpioLeds = { enabled: false };
-    merged.gpioLeds.activeLow = cmdLineOptions.gpioActiveLow;
-  }
-
   return merged;
 }
 
@@ -527,18 +415,6 @@ export function getExampleConfig(): string {
     apiKey: null as string | null,
     enableMcpHttp: false,
     enableWsTransport: true,
-    gpioLeds: {
-      enabled: true,
-      blinkDuration: 100,
-      activityBlinkDuration: 50,
-      activeLow: false,
-      activityLed: 4,
-      drive0: { enable: 17, headLoad: 27, readOnly: 22 },
-      drive1: { enable: 23, headLoad: 24, readOnly: 25 },
-      drive2: { enable: 5, headLoad: 6, readOnly: 13 },
-      drive3: { enable: 19, headLoad: 26, readOnly: 12 },
-      terminal: { rx: 16, tx: 20, connected: 21 },
-    },
   };
 
   return JSON.stringify(example, null, 2);
@@ -557,13 +433,3 @@ export function resolveDrivePath(drivePath: string, dataDir: string): string {
   if (path.isAbsolute(drivePath)) return drivePath;
   return path.resolve(dataDir, drivePath);
 }
-
-// ---------------------------------------------------------------------------
-// GpioLedConfig re-export
-// ---------------------------------------------------------------------------
-// The `GpioLedConfig` interface in `src/gpio/gpio-controller.ts` is the
-// runtime shape the controller expects. It happens to be structurally
-// compatible with the Zod-inferred type here (both have optional
-// per-drive pin maps and an optional `enabled: boolean`), so callers can
-// pass a parsed `ConfigFile["gpioLeds"]` straight in.
-export type { GpioLedConfig };

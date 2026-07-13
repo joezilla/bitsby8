@@ -34,7 +34,6 @@ import {
   resolveDataDir,
   resolveDrivePath,
 } from './config';
-import { getGpioLedController, DEFAULT_GPIO_CONFIG } from './gpio';
 import { getLogger } from './logger';
 import { resolvePortPath, listPortsWithPersistent } from './port-resolver';
 import * as path from 'path';
@@ -70,9 +69,6 @@ function printHelp(): void {
   console.log('  --terminal-baud <rate>    Terminal port baud rate (default: 9600)');
   console.log('  --terminal-autoconnect    Auto-connect terminal port on startup');
   console.log('  --terminal-only           Disable FDC drive serving (terminal mode only)');
-  console.log('  --gpio-leds               Enable GPIO LED status indicators (Raspberry Pi)');
-  console.log('  --no-gpio-leds            Disable GPIO LED status indicators');
-  console.log('  --gpio-active-low         Use active-low logic for LEDs');
   console.log('  --data-dir <path>         Data directory for dynamic content');
   console.log('  -c, --config <file>       Configuration file path (default: .fdcsds.config)');
   console.log('  --example-config          Print example configuration file and exit');
@@ -113,9 +109,6 @@ async function main(): Promise<void> {
     .option('--terminal-baud <rate>', 'Terminal port baud rate')
     .option('--terminal-autoconnect', 'Auto-connect terminal port on startup')
     .option('--terminal-only', 'Disable FDC drive serving (terminal mode only)')
-    .option('--gpio-leds', 'Enable GPIO LED status indicators (Raspberry Pi)')
-    .option('--no-gpio-leds', 'Disable GPIO LED status indicators')
-    .option('--gpio-active-low', 'Use active-low logic for LEDs')
     .option('-c, --config <file>', 'Configuration file path')
     .option('--config-readonly', 'Refuse UI config writes (kiosk/demo mode) — every PUT /api/config/* returns 423 Locked')
     .option('--data-dir <path>', 'Data directory for disks, cassettes, scripts, uploads, and database')
@@ -368,7 +361,6 @@ async function main(): Promise<void> {
   driveManager.setMountRegistry(getMountRegistry());
   const serialManager = getSerialPortManager();
   const terminalManager = getTerminalSerialManager();
-  const gpioController = getGpioLedController();
   const logger = getLogger();
 
   // Enable debug logging if requested
@@ -393,43 +385,6 @@ async function main(): Promise<void> {
     } catch (error) {
       console.error('Failed to initialize logging:', error);
       console.log('Continuing without file-based logging');
-    }
-  }
-
-  // Initialize GPIO LEDs if enabled
-  if (mergedOptions.gpioLeds?.enabled !== false && mergedOptions.gpioLeds !== undefined) {
-    try {
-      // Merge user config with defaults to preserve all pin configurations
-      const gpioConfig = {
-        ...DEFAULT_GPIO_CONFIG,
-        ...mergedOptions.gpioLeds,
-        // Merge nested drive configs
-        drive0: { ...DEFAULT_GPIO_CONFIG.drive0, ...mergedOptions.gpioLeds.drive0 },
-        drive1: { ...DEFAULT_GPIO_CONFIG.drive1, ...mergedOptions.gpioLeds.drive1 },
-        drive2: { ...DEFAULT_GPIO_CONFIG.drive2, ...mergedOptions.gpioLeds.drive2 },
-        drive3: { ...DEFAULT_GPIO_CONFIG.drive3, ...mergedOptions.gpioLeds.drive3 },
-        terminal: { ...DEFAULT_GPIO_CONFIG.terminal, ...mergedOptions.gpioLeds.terminal },
-      };
-      // Ensure enabled flag is set
-      if (gpioConfig.enabled === undefined) {
-        gpioConfig.enabled = true;
-      }
-
-      await gpioController.initialize(gpioConfig);
-
-      if (gpioController.isAvailable()) {
-        console.log('GPIO LED status indicators enabled');
-
-        // Blink all LEDs once as a startup test
-        console.log('Testing GPIO LEDs...');
-        await gpioController.blinkAllLeds(500);
-        console.log('GPIO LED test complete');
-      } else {
-        console.log('GPIO LED support not available on this platform (continuing without LEDs)');
-      }
-    } catch (error) {
-      console.error('Failed to initialize GPIO LEDs:', error);
-      console.log('Continuing without GPIO LED support');
     }
   }
 
@@ -707,11 +662,6 @@ async function main(): Promise<void> {
         await fs.rm(uploadsReplayDir, { recursive: true, force: true });
       } catch {
         // Best effort cleanup
-      }
-
-      // Cleanup GPIO LEDs
-      if (gpioController.isInitialized()) {
-        await gpioController.shutdown();
       }
 
       // Close database

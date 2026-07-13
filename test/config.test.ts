@@ -13,7 +13,6 @@ import {
   ConfigSchema,
   SerialSchema,
   WebSchema,
-  GpioSchema,
   OverrideConfigSchema,
   resolveDataDir,
   resolveDrivePath,
@@ -164,7 +163,6 @@ describe('Configuration Module', () => {
       const result = await loadConfigFile('test.config');
       expect(result?.config.dataDir).toBeNull();
       expect(result?.config.drive2).toBeNull();
-      expect(result?.config.gpioLeds?.enabled).toBe(true);
     });
 
     test('accepts a fully populated valid config', async () => {
@@ -207,35 +205,6 @@ describe('Configuration Module', () => {
 
     test('WebSchema rejects port out of range', () => {
       expect(() => WebSchema.parse({ webPort: 999999 })).toThrow();
-    });
-
-    test('GpioSchema fills in enabled default', () => {
-      expect(GpioSchema.parse({})).toEqual({ enabled: false });
-    });
-
-    test('ConfigSchema flags a GPIO pin used twice', () => {
-      const result = ConfigSchema.safeParse({
-        gpioLeds: {
-          enabled: true,
-          drive0: { enable: 17 },
-          drive1: { enable: 17 },
-        },
-      });
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(result.error.issues.some(i => /used more than once/i.test(i.message))).toBe(true);
-      }
-    });
-
-    test('ConfigSchema allows the same pin number in two independent drive fields when only one is set', () => {
-      const result = ConfigSchema.safeParse({
-        gpioLeds: {
-          enabled: true,
-          drive0: { enable: 17, headLoad: 27 },
-          drive1: { enable: null, headLoad: 24 },
-        },
-      });
-      expect(result.success).toBe(true);
     });
   });
 
@@ -293,7 +262,7 @@ describe('Configuration Module', () => {
       for (const key of [
         'dataDir', 'port', 'baud', 'drive0', 'drive1', 'drive2', 'drive3',
         'readonly', 'verbose', 'debug', 'logFile', 'web', 'webPort', 'webHost',
-        'terminalPort', 'terminalBaud', 'terminalAutoconnect', 'gpioLeds',
+        'terminalPort', 'terminalBaud', 'terminalAutoconnect',
       ]) {
         expect(ex).toHaveProperty(key);
       }
@@ -358,26 +327,6 @@ describe('Configuration Module', () => {
       const result = await loadOverridesFile('/tmp/o.json');
       expect(result?.config).toEqual({ webPort: 3001 });
     });
-
-    test('does NOT materialise gpioLeds.enabled=false when gpioLeds is absent', async () => {
-      // Regression: if the override schema wired GpioSchema.default(),
-      // Zod would inject `gpioLeds: { enabled: false }` even for docs
-      // that don't name gpioLeds. That would silently disable
-      // baseline-configured LEDs during merge.
-      mockReadFile.mockResolvedValue(JSON.stringify({ webPort: 3001 }));
-      const result = await loadOverridesFile('/tmp/o.json');
-      expect(result?.config).not.toHaveProperty('gpioLeds');
-    });
-
-    test('does NOT materialise gpioLeds.enabled=false when gpioLeds is named without an explicit enabled key', async () => {
-      // The whole point of GpioSchemaOverride vs GpioSchema.
-      mockReadFile.mockResolvedValue(
-        JSON.stringify({ gpioLeds: { blinkDuration: 200 } }),
-      );
-      const result = await loadOverridesFile('/tmp/o.json');
-      expect(result?.config.gpioLeds).toEqual({ blinkDuration: 200 });
-      expect(result?.config.gpioLeds).not.toHaveProperty('enabled');
-    });
   });
 
   describe('mergeConfigLayers', () => {
@@ -400,20 +349,15 @@ describe('Configuration Module', () => {
       expect(mergeConfigLayers(null, null)).toEqual({});
     });
 
-    test('replaces gpioLeds wholesale rather than deep-merging', () => {
-      const baseline: ConfigFile = {
-        gpioLeds: {
-          enabled: true,
-          drive0: { enable: 17, headLoad: 27, readOnly: 22 },
-        },
-      };
-      const override = { gpioLeds: { enabled: true, drive0: { enable: 5 } } };
-      const effective = mergeConfigLayers(baseline, override);
-      // headLoad/readOnly from baseline are NOT preserved — the UI
-      // ships the whole gpio subtree on save, and any deep-merge here
-      // would resurrect fields the user just deleted.
-      expect(effective.gpioLeds?.drive0).toEqual({ enable: 5 });
-      expect(effective.gpioLeds?.drive0).not.toHaveProperty('headLoad');
+    test('replaces a nested object value wholesale rather than deep-merging', () => {
+      // The merge is shallow at the top level: a nested object in the
+      // override replaces the baseline's wholesale, so fields the user
+      // deleted don't get resurrected by a surprise deep-merge.
+      const baseline = { nested: { a: 1, b: 2 } } as unknown as ConfigFile;
+      const override = { nested: { a: 9 } } as any;
+      const effective = mergeConfigLayers(baseline, override) as any;
+      expect(effective.nested).toEqual({ a: 9 });
+      expect(effective.nested).not.toHaveProperty('b');
     });
 
     test('an explicit null in the override erases the baseline value', () => {
@@ -429,19 +373,6 @@ describe('Configuration Module', () => {
   describe('OverrideConfigSchema', () => {
     test('accepts an empty override doc', () => {
       expect(() => OverrideConfigSchema.parse({})).not.toThrow();
-    });
-
-    test('does NOT run the GPIO pin-dedup superRefine (that fires on the effective doc)', () => {
-      // An override that names duplicated pins is fine on its own —
-      // the check runs against the *merged* baseline + override doc
-      // at write time, not against the override in isolation.
-      const result = OverrideConfigSchema.safeParse({
-        gpioLeds: {
-          drive0: { enable: 17 },
-          drive1: { enable: 17 },
-        },
-      });
-      expect(result.success).toBe(true);
     });
   });
 });

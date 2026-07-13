@@ -12,7 +12,7 @@
 
 import { Dependencies } from '../types';
 
-export type EndpointType = 'terminal' | 'disk' | 'display' | 'gpio' | 'keyboard' | 'clock' | 'socket';
+export type EndpointType = 'terminal' | 'disk' | 'display' | 'keyboard' | 'clock' | 'socket';
 
 export interface PeripheralEndpointType {
   type: EndpointType;
@@ -44,12 +44,6 @@ export function listPeripheralEndpoints(_deps: Dependencies): PeripheralEndpoint
       type: 'clock',
       label: 'Host clock',
       description: 'The host real-time clock — read by an RTC card.',
-      available: true,
-    },
-    {
-      type: 'gpio',
-      label: 'GPIO lanes',
-      description: 'Parallel byte lanes: sense switches, LEDs, a printer — and real hardware GPIO on the host.',
       available: true,
     },
     {

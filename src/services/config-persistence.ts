@@ -10,8 +10,8 @@
  *     500 from a mid-flight EACCES.
  *   - Zod-validate the merged override, then Zod-validate the effective
  *     (baseline + override) doc before the file hits disk. The second
- *     validation is what catches cross-layer rules like GPIO pin
- *     uniqueness spanning baseline and override.
+ *     validation is what catches any cross-layer rules spanning baseline
+ *     and override.
  *   - Atomic write: `<file>.tmp` → `fsync` → `rename`. If we crash
  *     mid-rename the original file is untouched.
  *   - Rotating backups `<file>.bak.1..3`. `bak.1` is the newest.
@@ -123,10 +123,9 @@ async function readCurrentOverride(
  * `overrideFilePath`, then atomically write the result back.
  *
  * `patch` is merged shallowly at the top level over the current
- * override (gpioLeds is replaced wholesale, same semantics as before).
- * The merged override is validated as a partial document; the effective
- * (baseline + newOverride) document is then validated against the full
- * `ConfigSchema` so cross-layer rules like GPIO pin uniqueness fire.
+ * override. The merged override is validated as a partial document; the
+ * effective (baseline + newOverride) document is then validated against
+ * the full `ConfigSchema` so any cross-layer rules fire.
  *
  * Returns the new *effective* config (what the daemon would see after a
  * restart) plus the override file's fresh mtime for ETag generation.

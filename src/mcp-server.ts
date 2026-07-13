@@ -2062,7 +2062,7 @@ export function createMcpServer(deps: Dependencies): McpServer {
   server.tool(
     'list_peripherals',
     'List the peripheral endpoint types a card can bind its far side to (Bitsby8 Story 5.6) — ' +
-      'terminal, disk, clock, gpio, display, socket — with what is wired today.',
+      'terminal, disk, clock, display, socket — with what is wired today.',
     async () => {
       try {
         return { content: [{ type: 'text', text: JSON.stringify({ endpoints: listPeripheralEndpoints(deps) }, null, 2) }] };

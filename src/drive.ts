@@ -13,7 +13,6 @@ import {
   DriveState,
   FdcError,
 } from './protocol';
-import { getGpioLedController } from './gpio';
 import { MountRegistry } from './mount-registry';
 import { IDriveEngine } from './drive-engine';
 
@@ -252,9 +251,6 @@ export class DriveManager implements IDriveEngine {
         console.log(`[DEBUG] DriveManager.mountDrive SUCCESS: drive=${drive}, fd=${fileHandle.fd}, filesize=${(await fileHandle.stat()).size} bytes`);
       }
 
-      // Update GPIO LEDs
-      getGpioLedController().updateDriveStatus(drive, driveState);
-
       return fileHandle.fd;
     } catch (error) {
       console.error(`Failed to mount drive ${drive} (${filename}):`, error);
@@ -314,9 +310,6 @@ export class DriveManager implements IDriveEngine {
       driveState.unavailableUntil =
         Date.now() + this.SWAP_INVALIDATE_WINDOW_MS;
     }
-
-    // Update GPIO LEDs
-    getGpioLedController().updateDriveStatus(drive, driveState);
   }
 
   /**
@@ -431,9 +424,6 @@ export class DriveManager implements IDriveEngine {
     if (driveState.mounted) {
       this.mountRegistry?.setReadonly(drive, flag);
     }
-
-    // Update GPIO LEDs
-    getGpioLedController().updateDriveStatus(drive, driveState);
   }
 
   /**

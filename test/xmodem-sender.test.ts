@@ -12,13 +12,6 @@ const mockedFs = fs as jest.Mocked<typeof fs>;
 
 // Mock transitive dependencies of terminal-serial.ts
 jest.mock('serialport', () => ({ SerialPort: jest.fn() }));
-jest.mock('../src/gpio', () => ({
-  getGpioLedController: () => ({
-    updateTerminalConnected: jest.fn(),
-    updateTerminalRx: jest.fn(),
-    updateTerminalTx: jest.fn(),
-  }),
-}));
 jest.mock('../src/port-resolver', () => ({
   resolvePortPath: jest.fn(),
   validatePortPath: jest.fn(),

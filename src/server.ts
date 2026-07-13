@@ -14,7 +14,6 @@ import {
 } from './protocol';
 import { IDriveEngine } from './drive-engine';
 import { IFdcTransport } from './transport';
-import { getGpioLedController } from './gpio';
 
 /**
  * FDC+ Server
@@ -180,9 +179,6 @@ export class FdcServer {
         if (this.verbose) {
           console.log(`[DEBUG] STAT: drive=${drive}, hdld=${driveState.hdld}, track=${driveState.track}, mounted=${driveState.mounted}, readonly=${driveState.readonly}`);
         }
-
-        // Update GPIO LEDs
-        getGpioLedController().updateDriveStatus(drive, driveState);
       }
     } else {
       // Invalid drive - clear all head loads
@@ -190,8 +186,6 @@ export class FdcServer {
         const driveState = this.driveManager.getDriveState(i);
         if (driveState) {
           driveState.hdld = false;
-          // Update GPIO LEDs
-          getGpioLedController().updateDriveStatus(i, driveState);
         }
       }
     }
@@ -219,9 +213,6 @@ export class FdcServer {
    * Reads track data from mounted disk image
    */
   private async handleReadCommand(cmd: CommandResponseBlock): Promise<void> {
-    // Flash activity LED
-    getGpioLedController().updateDriveActivity();
-
     // Extract parameters
     // param1: bits 0-11 = track, bits 12-15 = drive (high nibble of MSB)
     // param2: length
@@ -269,9 +260,6 @@ export class FdcServer {
    * Writes track data to mounted disk image
    */
   private async handleWriteCommand(cmd: CommandResponseBlock): Promise<void> {
-    // Flash activity LED
-    getGpioLedController().updateDriveActivity();
-
     // Extract parameters (same as READ)
     const drive = ByteUtils.MSB(cmd.param1) >> 4;
     const track = cmd.param1 & 0x0fff;

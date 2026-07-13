@@ -1,6 +1,6 @@
 /**
  * Per-machine Run cockpit layout — which console/monitor pane is maximized and
- * whether the Front Panel and GPIO panels are expanded. Keyed by instance id so
+ * whether the Front Panel is expanded. Keyed by instance id so
  * re-opening a machine's cockpit (or navigating away and back) restores its
  * collapsed/maximized state instead of snapping to defaults.
  *
@@ -17,11 +17,9 @@ export interface CockpitLayout {
   duo: DuoLayout;
   /** Front Panel expanded. */
   frontPanelOpen: boolean;
-  /** GPIO panel expanded. */
-  gpioOpen: boolean;
 }
 
-export const DEFAULT_LAYOUT: CockpitLayout = { duo: 'both', frontPanelOpen: true, gpioOpen: true };
+export const DEFAULT_LAYOUT: CockpitLayout = { duo: 'both', frontPanelOpen: true };
 
 const STORAGE_KEY = 'fdcplus.cockpitLayout';
 const MAX_ENTRIES = 50; // bound growth from stopped/relaunched instances

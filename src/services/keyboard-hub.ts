@@ -3,7 +3,7 @@
  *
  * A keyboard card (8sim's KeyboardCard) exposes a `.keyboard` surface — inject a
  * key press the guest reads from its data port. This is the input counterpart to
- * `consoleSourceFromCard` / `gpioSourceFromCard` / `displaySourceFromCard`: the
+ * `consoleSourceFromCard` / `displaySourceFromCard`: the
  * host detects a card's keyboard port and surfaces it so the cockpit can route
  * the operator's real keyboard into a serial-less video terminal.
  */

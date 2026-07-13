@@ -10,12 +10,12 @@ const deps = {} as unknown as Dependencies;
 describe('peripheral registry', () => {
   test('lists the full endpoint taxonomy', () => {
     const types = listPeripheralEndpoints(deps).map((e) => e.type).sort();
-    expect(types).toEqual<EndpointType[]>(['clock', 'disk', 'display', 'gpio', 'keyboard', 'socket', 'terminal']);
+    expect(types).toEqual<EndpointType[]>(['clock', 'disk', 'display', 'keyboard', 'socket', 'terminal']);
   });
 
-  test('terminal, disk, clock, gpio, display are wired today; socket names its story', () => {
+  test('terminal, disk, clock, display are wired today; socket names its story', () => {
     const byType = new Map(listPeripheralEndpoints(deps).map((e) => [e.type, e]));
-    for (const t of ['terminal', 'disk', 'clock', 'gpio', 'display', 'keyboard'] as EndpointType[]) {
+    for (const t of ['terminal', 'disk', 'clock', 'display', 'keyboard'] as EndpointType[]) {
       expect(byType.get(t)!.available).toBe(true);
     }
     expect(byType.get('socket')!.available).toBe(false);

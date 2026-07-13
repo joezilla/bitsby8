@@ -60,7 +60,7 @@
       !confirm(
         'Restart the daemon now?\n\n' +
           'The web UI will disconnect briefly while the process relaunches. ' +
-          'This is required for changes to serial ports, GPIO, or the web bind to take effect.',
+          'This is required for changes to serial ports or the web bind to take effect.',
       )
     ) {
       return;

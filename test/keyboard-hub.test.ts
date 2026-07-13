@@ -1,7 +1,7 @@
 /**
  * Tests for keyboard card detection (Bitsby8 Story 5.9): keyboardSourceFromCard
  * picks out a keyboard card's `.keyboard` surface (the input counterpart to
- * gpioSourceFromCard / displaySourceFromCard).
+ * displaySourceFromCard).
  */
 import { keyboardSourceFromCard } from '../src/services/keyboard-hub';
 

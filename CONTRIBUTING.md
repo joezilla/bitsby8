@@ -5,7 +5,7 @@ Thank you for considering a contribution. This project is a small, hobbyist-and-
 ## Before you start
 
 - If you're working with an AI assistant, the load-bearing context lives in `_bmad-output/project-context.md` (locally generated, gitignored).
-- The maintainer is solo. Hardware-touching PRs (serial, GPIO, FDC+ protocol) may sit until the maintainer can test on real Altair gear. Not a stall — a constraint. Account for it in expectations.
+- The maintainer is solo. Hardware-touching PRs (serial, FDC+ protocol) may sit until the maintainer can test on real Altair gear. Not a stall — a constraint. Account for it in expectations.
 
 ## How to send a PR
 
@@ -49,7 +49,7 @@ The server talks to vintage hardware that **cannot be patched**. The FDC+ wire p
 
 ## Hardware testing
 
-- CI runs only mock-backed tests. No real serial port, no real GPIO.
+- CI runs only mock-backed tests. No real serial port.
 - If your change is sensitive to actual hardware (timing, electrical, etc.), please describe what hardware you tested on and how.
 - The serial-mock test suite has a known intermittent race; CI retries the test job once. If you're adding to that suite, prefer `--runInBand` locally.
 

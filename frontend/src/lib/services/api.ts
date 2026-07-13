@@ -31,7 +31,6 @@ import type {
   TerminalSection,
   LoggingSection,
   DataSection,
-  GpioSection,
 } from '$lib/types/api';
 
 // -----------------------------------------------------------------------
@@ -443,12 +442,6 @@ export const api = {
       body: JSON.stringify(patch),
       headers: ifMatch ? { 'If-Match': ifMatch } : {},
     }),
-  putGpioConfig: (patch: { gpioLeds: GpioSection }, ifMatch?: string) =>
-    request<{ success: true; config: ConfigDoc; mtimeMs: number }>('/api/config/gpio', {
-      method: 'PUT',
-      body: JSON.stringify(patch),
-      headers: ifMatch ? { 'If-Match': ifMatch } : {},
-    }),
   restartDaemon: () =>
     request<{
       success?: boolean;
@@ -596,15 +589,6 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ label }),
     }),
-  listInstanceGpio: (id: string) =>
-    request<{ ports: { cardId: string; direction: 'out' | 'in' | 'inout'; output: number }[] }>(
-      `/api/instances/${encodeURIComponent(id)}/gpio`,
-    ),
-  setInstanceGpioInput: (id: string, cardId: string, value: number) =>
-    request<{ cardId: string; input: number }>(
-      `/api/instances/${encodeURIComponent(id)}/gpio/${encodeURIComponent(cardId)}/input`,
-      { method: 'POST', body: JSON.stringify({ value }) },
-    ),
   listInstanceDisplays: (id: string) =>
     request<{ displays: { cardId: string; descriptor: Record<string, unknown>; state: Record<string, number>; frame: string }[] }>(
       `/api/instances/${encodeURIComponent(id)}/display`,
