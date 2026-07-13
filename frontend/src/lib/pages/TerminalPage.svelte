@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
   import { Terminal } from '@xterm/xterm';
   import { FitAddon } from '@xterm/addon-fit';
   import { WebglAddon } from '@xterm/addon-webgl';
@@ -8,6 +9,7 @@
   import { api } from '$lib/services/api';
   import { showToast } from '$lib/stores/toast';
   import { terminalHealth } from '$lib/stores/terminalHealth';
+  import { terminalInstanceSession } from '$lib/stores/terminalSession';
   import Icon from '$lib/components/shared/Icon.svelte';
   import Select from '$lib/components/shared/Select.svelte';
   import type { SerialPortInfo, InstanceStatus } from '$lib/types/api';
@@ -139,7 +141,7 @@
     resizeObserver.observe(containerEl);
 
     loadPorts();
-    loadInstances();
+    loadInstances().then(restoreInstanceSession);
     api
       .getConfig()
       .then((config) => {
@@ -184,6 +186,23 @@
     }
   }
 
+  // Resume a virtual-instance console we were attached to before navigating
+  // away. The emulator kept running and the server buffered its output, so
+  // re-subscribing replays the scrollback — no "starting from scratch".
+  function restoreInstanceSession() {
+    const savedId = get(terminalInstanceSession);
+    if (!savedId) return;
+    if (instances.some((i) => i.id === savedId)) {
+      instanceSession = savedId;
+      selectedPort = INST_PREFIX + savedId;
+      socket.emit('instance:console:subscribe', { instanceId: savedId });
+      term?.focus();
+    } else {
+      // The instance was stopped/destroyed while we were away — drop the stale session.
+      terminalInstanceSession.set(null);
+    }
+  }
+
   function refresh() {
     loadPorts();
     loadInstances();
@@ -195,6 +214,7 @@
       // Virtual instance: subscribe to its emulated serial console.
       const id = selectedPort.slice(INST_PREFIX.length);
       instanceSession = id;
+      terminalInstanceSession.set(id); // persist so navigating away/back resumes it
       socket.emit('instance:console:subscribe', { instanceId: id });
       showToast('Connected to virtual instance', 'success');
       term?.focus();
@@ -219,6 +239,7 @@
     if (instanceSession) {
       socket.emit('instance:console:unsubscribe', { instanceId: instanceSession });
       instanceSession = null;
+      terminalInstanceSession.set(null); // explicit disconnect ends the persisted session
       showToast('Disconnected', 'info');
       return;
     }
