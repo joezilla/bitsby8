@@ -365,10 +365,9 @@ make
 
 ## 📝 Known Limitations
 
-1. **Blessed UI** may not display perfectly on all terminals
-2. **WebSocket** requires modern browser for web interface
-3. **Serial timing** may vary by platform (macOS vs Linux)
-4. **Large disk images** (>8MB) not fully tested
+1. **WebSocket** requires modern browser for web interface
+2. **Serial timing** may vary by platform (macOS vs Linux)
+3. **Large disk images** (>8MB) not fully tested
 
 ---
 
