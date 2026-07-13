@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { api } from '$lib/services/api';
+  import { socket } from '$lib/services/socket';
+  import { pageVisible } from '$lib/stores/pageVisible';
   import Icon from '$lib/components/shared/Icon.svelte';
   import { vdmGlyph, VDM_GLYPH_W, VDM_GLYPH_H } from './vdm-font';
 
@@ -10,15 +11,20 @@
     onClose?: () => void;
     /** Embedded in the Run cockpit (no modal chrome; fills its container). */
     embedded?: boolean;
+    /**
+     * Whether this monitor is actually on-screen. The cockpit keeps the panel
+     * mounted while maximizing the console (CSS-hidden), so gate the live
+     * stream on real visibility — no point pushing frames nobody can see.
+     */
+    active?: boolean;
   }
-  let { instanceId, title, onClose = () => {}, embedded = false }: Props = $props();
+  let { instanceId, title, onClose = () => {}, embedded = false, active = true }: Props = $props();
 
   type Display = { cardId: string; descriptor: Record<string, unknown>; state: Record<string, number>; frame: string };
   let displays = $state<Display[]>([]);
   let loading = $state(true);
   let canvas = $state<HTMLCanvasElement>();
   let off: HTMLCanvasElement | undefined; // offscreen native-res buffer (Dazzler)
-  let timer: ReturnType<typeof setInterval> | undefined;
 
   // Char cell + pixel scale for the phosphor look.
   const CELL_W = 7; // 5px glyph + 2px gap
@@ -157,24 +163,39 @@
     ctx.drawImage(off, 0, 0, cw, ch);
   }
 
-  async function poll() {
-    try {
-      displays = (await api.listInstanceDisplays(instanceId)).displays;
-      loading = false;
-      const d = displays[0];
-      const ctx = canvas?.getContext('2d');
-      if (d && ctx && d.descriptor.mode === 'charGrid') renderCharGrid(ctx, d);
-      else if (d && ctx && d.descriptor.mode === 'bitmap') renderDazzler(ctx, d);
-    } catch {
-      /* instance may have stopped */
-    }
+  function render() {
+    const d = displays[0];
+    const ctx = canvas?.getContext('2d');
+    if (d && ctx && d.descriptor.mode === 'charGrid') renderCharGrid(ctx, d);
+    else if (d && ctx && d.descriptor.mode === 'bitmap') renderDazzler(ctx, d);
+  }
+
+  // Server-pushed frames (see websocket/handlers.ts). Filter by instanceId
+  // since the socket is shared across the app.
+  function handleFrame(msg: { instanceId: string; displays: Display[] }) {
+    if (msg.instanceId !== instanceId) return;
+    displays = msg.displays;
+    loading = false;
+    render();
   }
 
   onMount(() => {
-    poll();
-    timer = setInterval(poll, 66); // ~15 fps
+    socket.on('instance:monitor:frame', handleFrame);
   });
-  onDestroy(() => timer && clearInterval(timer));
+  onDestroy(() => {
+    socket.emit('instance:monitor:unsubscribe', { instanceId });
+    socket.off('instance:monitor:frame', handleFrame);
+  });
+
+  // Stream only while the panel is genuinely visible — on-screen AND the tab
+  // isn't backgrounded. The $effect cleanup unsubscribes the moment either
+  // flips, so a hidden/minimized cockpit stops costing the server anything.
+  $effect(() => {
+    if (active && $pageVisible) {
+      socket.emit('instance:monitor:subscribe', { instanceId });
+      return () => socket.emit('instance:monitor:unsubscribe', { instanceId });
+    }
+  });
 </script>
 
 {#if !embedded}

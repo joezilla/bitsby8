@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { api } from '$lib/services/api';
+  import { socket } from '$lib/services/socket';
+  import { pageVisible } from '$lib/stores/pageVisible';
   import { showToast } from '$lib/stores/toast';
   import Icon from '$lib/components/shared/Icon.svelte';
   import type { FrontPanelState, FrontPanelAction } from '$lib/types/api';
@@ -15,20 +17,31 @@
   let panel = $state<FrontPanelState | null>(null);
   let switches = $state(0); // the operator's address/data register
   let base = $state<'oct' | 'hex'>('oct');
-  let timer: ReturnType<typeof setInterval> | undefined;
 
-  async function poll() {
-    try {
-      panel = await api.getFrontPanel(instanceId);
-    } catch {
-      /* instance may have stopped */
-    }
+  // Server-pushed state (see websocket/handlers.ts). Filter by instanceId
+  // since the socket is shared across the app.
+  function handleState(msg: { instanceId: string; state: FrontPanelState }) {
+    if (msg.instanceId === instanceId) panel = msg.state;
   }
+
   onMount(() => {
-    poll();
-    timer = setInterval(poll, 150); // ~7fps — enough to see the address bus move
+    socket.on('instance:frontpanel:state', handleState);
   });
-  onDestroy(() => timer && clearInterval(timer));
+  onDestroy(() => {
+    socket.emit('instance:frontpanel:unsubscribe', { instanceId });
+    socket.off('instance:frontpanel:state', handleState);
+  });
+
+  // Stream while the tab is visible. We deliberately do NOT gate on `open`:
+  // the collapsed header still shows the live RUNNING/STOPPED chip, and the
+  // socket-sampled panel is cheap (a CPU-register read + tiny emit, no
+  // per-request HTTP/auth cost). Backgrounding the tab still pauses it.
+  $effect(() => {
+    if ($pageVisible) {
+      socket.emit('instance:frontpanel:subscribe', { instanceId });
+      return () => socket.emit('instance:frontpanel:unsubscribe', { instanceId });
+    }
+  });
 
   async function act(action: FrontPanelAction) {
     try {

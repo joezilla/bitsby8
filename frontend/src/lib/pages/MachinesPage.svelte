@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { pageVisible } from '$lib/stores/pageVisible';
   import { api } from '$lib/services/api';
   import { showToast } from '$lib/stores/toast';
   import { pendingRunInstance } from '$lib/stores/pendingRun';
@@ -45,7 +45,8 @@
     }
   });
   let sparkData = $state<Record<string, number[]>>({}); // per-instance effectiveHz ring
-  let poll: ReturnType<typeof setInterval> | null = null;
+  // Toast only on the ok→fail edge so a rate-limit blip doesn't spam the corner.
+  let loadOk = true;
 
   let running = $derived(instances.filter((i) => i.status === 'running'));
   let aggregateMHz = $derived(running.reduce((s, i) => s + (i.effectiveHz ?? 0), 0) / 1e6);
@@ -69,16 +70,13 @@
 
   const uptimeFrom = (ms: number | null) => (ms == null ? '—' : uptimeLabel(Math.floor((Date.now() - ms) / 1000)));
 
-  async function load() {
+  // Instances + the effectiveHz sparkline rings. This is the hot path that
+  // polls; the cockpit uses it alone (monitor/front-panel stream over the
+  // socket, so no client list is needed there).
+  async function loadInstances() {
     try {
       const { instances: next } = await api.listInstances();
       instances = next;
-      // Physical/external clients live in the multi-client registry; tolerate its
-      // absence (single-server mode) without failing the instance view.
-      clients = await api
-        .getClients()
-        .then((r) => r.clients)
-        .catch(() => []);
       const nextSpark: Record<string, number[]> = {};
       for (const i of next) {
         const ring = (sparkData[i.id] ?? []).slice();
@@ -89,11 +87,24 @@
         nextSpark[i.id] = ring;
       }
       sparkData = nextSpark; // reassign → reactive
+      loadOk = true;
     } catch (err) {
-      showToast(`Failed to load instances: ${(err as Error).message}`, 'error');
+      if (loadOk) showToast(`Failed to load instances: ${(err as Error).message}`, 'error');
+      loadOk = false;
     } finally {
       loading = false;
     }
+  }
+
+  // Full refresh: instances + the physical/external client list. Used by
+  // explicit refreshes and the list view. Physical/external clients live in the
+  // multi-client registry; tolerate its absence (single-server mode).
+  async function load() {
+    await loadInstances();
+    clients = await api
+      .getClients()
+      .then((r) => r.clients)
+      .catch(() => []);
   }
 
   async function act(fn: () => Promise<unknown>, ok: string) {
@@ -132,12 +143,17 @@
     onNavigate?.('clients');
   }
 
-  onMount(() => {
-    load();
-    poll = setInterval(load, 1000);
-  });
-  onDestroy(() => {
-    if (poll) clearInterval(poll);
+  // Poll while the tab is visible. Inside the cockpit the monitor/front-panel
+  // stream over the socket, so we only need a slow instances-only poll to
+  // notice an external stop; on the list we refresh instances + clients at 1s.
+  // Backgrounding the tab tears the interval down entirely.
+  $effect(() => {
+    if (!$pageVisible) return;
+    const inCockpit = runFor !== null;
+    const tick = inCockpit ? loadInstances : load;
+    tick();
+    const id = setInterval(tick, inCockpit ? 2000 : 1000);
+    return () => clearInterval(id);
   });
 </script>
 

@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onDestroy } from 'svelte';
   import { api } from '$lib/services/api';
+  import { pageVisible } from '$lib/stores/pageVisible';
   import { showToast } from '$lib/stores/toast';
   import Icon from '$lib/components/shared/Icon.svelte';
 
@@ -31,9 +32,14 @@
     }
   }
 
-  onMount(() => {
+  // GPIO stays a REST poll (low frequency, and the component only mounts when
+  // the panel is expanded), but pause it while the tab is hidden so a
+  // backgrounded cockpit stops hitting the Pi.
+  $effect(() => {
+    if (!$pageVisible) return;
     poll();
     timer = setInterval(poll, 400); // GPIO is polled state, not a stream
+    return () => timer && clearInterval(timer);
   });
   onDestroy(() => timer && clearInterval(timer));
 

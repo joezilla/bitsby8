@@ -16,6 +16,7 @@
 import { Server as SocketIOServer } from 'socket.io';
 import { Dependencies } from '../types';
 import { getStatus, getTerminalStatus } from '../services/status';
+import { listInstanceDisplays, readInstanceFrontPanel } from '../services/instance-service';
 import { safeErrorMessage } from '../utils/safe-path';
 import { startRawReplay, startXmodemSend, cancelActiveTransfer } from '../services/transfer';
 import { safeResolvePath } from '../utils/safe-path';
@@ -29,10 +30,57 @@ export function setupWebSocket(io: SocketIOServer, deps: Dependencies): void {
     // Per-socket subscriptions to virtual instance consoles (Bitsby8).
     const consoleUnsubs = new Map<string, () => void>();
 
+    // Per-socket subscriptions to *sampled* instance state (monitor displays,
+    // front panel). Unlike the console — which is event-driven off the emulated
+    // serial output — these are snapshots with no natural change event, so the
+    // server samples them on a fixed cadence and pushes frames. This replaces
+    // the old client-side REST polling (a monitor at 15fps was ~900 req/min per
+    // viewer, which tripped the API rate limiter and pegged a Raspberry Pi's CPU
+    // with per-request auth/session overhead). Now the browser holds one socket
+    // and the server only does work while someone is actually subscribed.
+    const sampledUnsubs = new Map<string, () => void>();
+
+    /**
+     * Start a server-driven sampling loop keyed by `key`, pushing `read()` on
+     * `frameEvent` every `intervalMs`. Idempotent per key. Ends itself and
+     * emits `errorEvent` when the read throws (e.g. the instance stopped).
+     */
+    function startSampled(
+      key: string,
+      intervalMs: number,
+      read: () => unknown,
+      frameEvent: string,
+      errorEvent: string,
+    ): void {
+      if (!deps.instanceManager) {
+        socket.emit(errorEvent, { message: 'virtual instances are not available' });
+        return;
+      }
+      if (sampledUnsubs.has(key)) return; // already streaming to this socket
+      let timer: ReturnType<typeof setInterval> | undefined;
+      const stop = (): void => {
+        if (timer) clearInterval(timer);
+        sampledUnsubs.delete(key);
+      };
+      const tick = (): void => {
+        try {
+          socket.emit(frameEvent, read());
+        } catch (error) {
+          stop();
+          socket.emit(errorEvent, { message: safeErrorMessage(error) });
+        }
+      };
+      timer = setInterval(tick, intervalMs);
+      sampledUnsubs.set(key, stop);
+      tick(); // push one frame immediately so the panel isn't blank until the first tick
+    }
+
     // Handle disconnect
     socket.on('disconnect', () => {
       for (const off of consoleUnsubs.values()) off();
       consoleUnsubs.clear();
+      for (const off of sampledUnsubs.values()) off();
+      sampledUnsubs.clear();
     });
 
     // --- Virtual instance console (Bitsby8, AD-6) ---
@@ -72,6 +120,36 @@ export function setupWebSocket(io: SocketIOServer, deps: Dependencies): void {
     socket.on('instance:console:unsubscribe', ({ instanceId }: { instanceId: string }) => {
       consoleUnsubs.get(instanceId)?.();
       consoleUnsubs.delete(instanceId);
+    });
+
+    // --- Virtual instance monitor (video displays) — server-pushed frames ---
+    // ~12fps: smooth enough for a VDM/Dazzler, far lighter on the Pi than the
+    // old 15fps REST poll (and no per-frame HTTP auth/session cost).
+    socket.on('instance:monitor:subscribe', ({ instanceId }: { instanceId: string }) => {
+      startSampled(
+        `monitor:${instanceId}`,
+        80,
+        () => ({ instanceId, displays: listInstanceDisplays(deps, instanceId) }),
+        'instance:monitor:frame',
+        'instance:monitor:error',
+      );
+    });
+    socket.on('instance:monitor:unsubscribe', ({ instanceId }: { instanceId: string }) => {
+      sampledUnsubs.get(`monitor:${instanceId}`)?.();
+    });
+
+    // --- Virtual instance front panel — server-pushed state ---
+    socket.on('instance:frontpanel:subscribe', ({ instanceId }: { instanceId: string }) => {
+      startSampled(
+        `frontpanel:${instanceId}`,
+        150,
+        () => ({ instanceId, state: readInstanceFrontPanel(deps, instanceId) }),
+        'instance:frontpanel:state',
+        'instance:frontpanel:error',
+      );
+    });
+    socket.on('instance:frontpanel:unsubscribe', ({ instanceId }: { instanceId: string }) => {
+      sampledUnsubs.get(`frontpanel:${instanceId}`)?.();
     });
 
     // Handle status request

@@ -142,7 +142,7 @@
           <span class="ptitle"><Icon name="monitor" size={16} /> Monitor <span class="psub">VDM</span></span>
           <span class="hright"><button class="mx" title="Maximize console" onclick={() => (duo = 'cmax')}>hide ❯</button></span>
         </div>
-        <div class="pbody"><MonitorPanel instanceId={instance.id} title={instance.profileRef} embedded /></div>
+        <div class="pbody"><MonitorPanel instanceId={instance.id} title={instance.profileRef} embedded active={duo !== 'cmax'} /></div>
         <button class="rail" onclick={() => (duo = 'both')}>
           <span class="exp">❮</span><span class="railtxt">MONITOR</span><span></span>
         </button>
