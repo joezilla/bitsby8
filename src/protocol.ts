@@ -6,7 +6,7 @@
 // Application constants
 export const FDCSDS_NAME = 'FDC+ Serial Drive Server';
 export const FDCSDS_COPYRIGHT = 'TypeScript port by JoeZilla';
-export const FDCSDS_VERSION = '2.0.0';
+export const FDCSDS_VERSION = '3.0.0-alpha';
 
 // Drive configuration
 export const MAX_DRIVES = 16;

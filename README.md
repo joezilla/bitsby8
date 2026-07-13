@@ -6,7 +6,7 @@
 
 It serves virtual floppy and hard-disk images to a real Altair through its **FDC+ Enhanced Floppy Disk Controller** over a serial cable — and it can also build and boot fully **virtual S-100 machines** right in your browser, no hardware required. Everything runs from a single Svelte web UI, with a REST API and an MCP server for AI assistants on the side.
 
-**Version:** 2.0.1-rc4 · **License:** GPL-3.0 · **Platforms:** Linux (Raspberry Pi & x86), macOS
+**Version:** 3.0.0-alpha · **License:** GPL-3.0 · **Platforms:** Linux (Raspberry Pi & x86), macOS
 
 > **Note:** BitsBy8 is the product name. The CLI, systemd service, and Debian package are still named `fdcsds`, and the source repo is `fdcplus-web` — these keep their current names for now while the rename is in progress.
 

@@ -10,7 +10,7 @@ export const openapiDefinition: Options = {
     openapi: '3.0.0',
     info: {
       title: 'FDC+ Serial Drive Server API',
-      version: '2.0.0',
+      version: '3.0.0-alpha',
       description:
         'REST API for the Altair 8800 FDC+ Serial Drive Server web interface. ' +
         'Manages disk image serving, CP/M filesystem browsing, cassette audio, ' +

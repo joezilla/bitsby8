@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "FDC+ Serial Drive Server API",
-    "version": "2.0.0",
+    "version": "3.0.0-alpha",
     "description": "REST API for the Altair 8800 FDC+ Serial Drive Server web interface. Manages disk image serving, CP/M filesystem browsing, cassette audio, terminal serial connections, script replay, and XMODEM transfers.\n\n## Socket.IO Events\n\nThe server also exposes real-time events via Socket.IO (not covered by OpenAPI).\n\n### Server → Client\n\n| Event | Payload | Description |\n|-------|---------|-------------|\n| `status` | `ServerStatus` | Periodic server status broadcast (1s interval) |\n| `terminal:data` | `number[]` | Incoming serial data as byte array |\n| `terminal:status` | `TerminalStatus` | Terminal connection status change |\n| `terminal:error` | `{message: string}` | Terminal error |\n| `replay:progress` | `ReplayProgress` | Transfer progress update |\n| `replay:status` | `{active, mode, progress}` | Transfer status on connect |\n\n### Client → Server\n\n| Event | Payload | Description |\n|-------|---------|-------------|\n| `request-status` | _(none)_ | Request current server status |\n| `terminal:write` | `string` | Send keyboard input to terminal serial port |\n| `terminal:control` | `{type, value}` | Set DTR/RTS control signals |\n| `replay:start` | `ReplayStartParams` | Start raw replay or XMODEM send |\n| `replay:cancel` | _(none)_ | Cancel active transfer |"
   },
   "servers": [
