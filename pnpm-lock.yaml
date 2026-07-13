@@ -602,7 +602,7 @@ packages:
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
 
   '@joezilla/8sim@0.10.0':
-    resolution: {integrity: sha512-oAC6EwUkIwpGP/WWDueQY3BeMnkLRHX7Q/4TiYE1Wx/YEBrob9QcsNOtPHu8D4PhERKG5iR/su6iyFrs4DKUsw==, tarball: https://npm.pkg.github.com/download/@joezilla/8sim/0.10.0/8441f08d2e579f4a2ddd094c04674a2b50efe477}
+    resolution: {integrity: sha512-C/3f7+G3zEW0GXGLPcke1y5tyrO911o6x6CTnN5hLjmCwniLXw2+Ibs6Un+PLwvokeStGEQq5K06Yl9hYCUXtw==}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
