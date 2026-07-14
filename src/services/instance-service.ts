@@ -12,7 +12,6 @@ import type { InstanceInfo, InstanceDriver, InstanceManager, FrontPanelAction } 
 import { MachineProfile } from './resolver';
 import { getPreset, listPresets, MachinePreset } from './presets';
 import { resolveProfileRef } from './profile-service';
-import { getMountRegistry } from '../mount-registry';
 import { getClientMountRegistry } from '../client-mount-registry';
 import * as path from 'path';
 
@@ -30,13 +29,11 @@ export type InstanceStatus = InstanceInfo & { disks: DiskBinding[] };
 /** Enumerate an instance's bound disks (operator mounts) with its splinter
  * dirty state (copy-on-write writes are tracked per `inst:<uuid>` clientId). */
 async function disksFor(deps: Dependencies, clientId: string): Promise<DiskBinding[]> {
-  // The instance's effective drives: the global operator mounts overlaid with
-  // this instance's per-client overrides (its profile's startup disks win on the
-  // drives they bind; the rest inherit the global mount).
+  // A VM instance owns its drives outright — its profile's startup disks and any
+  // per-instance overrides, both materialized into the client mount registry at
+  // launch. It does NOT inherit the shared served spindle (the global operator
+  // mounts): that muddle is what Epic 6 evicts. Empty drives stay empty.
   const effective = new Map<number, { filename: string; readonly: boolean }>();
-  for (const [drive, entry] of getMountRegistry().all()) {
-    effective.set(drive, { filename: entry.filename, readonly: entry.readonly });
-  }
   for (const [drive, entry] of getClientMountRegistry().forClient(clientId)) {
     effective.set(drive, { filename: entry.filename, readonly: entry.readonly });
   }

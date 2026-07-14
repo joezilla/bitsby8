@@ -90,6 +90,23 @@ describe('DriveSession per-client mount resolution', () => {
     await fs.rm(dir, { recursive: true, force: true });
   });
 
+  // Epic 6: a self-contained client (a VM instance) owns its drives and does
+  // NOT inherit the shared served spindle.
+  test('inheritsGlobal:false owns its drives — no fallback to the global mount', async () => {
+    const { dir, over, registry, clientMounts } = await setup();
+    // Global is mounted on drive 0; this instance defines only drive 1.
+    clientMounts.set('inst:x', 1, over, false);
+    const s = new DriveSession({ clientId: 'inst:x', registry, clientMounts, inheritsGlobal: false });
+    await s.sync();
+
+    expect(s.isMounted(0)).toBe(false); // global on drive 0 is NOT inherited
+    expect(s.isMounted(1)).toBe(true);  // its own drive 1 is mounted
+    expect((await s.readTrack(1, 0, LEN)).equals(Buffer.alloc(LEN, 0x22))).toBe(true);
+
+    await s.dispose();
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
   test('clearing the override falls back to the global mount', async () => {
     const { dir, over, registry, clientMounts } = await setup();
     clientMounts.set('a', 0, over, false);

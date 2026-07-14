@@ -55,6 +55,12 @@ export interface DriveSessionOptions {
   /** When true, this session writes the base image directly (no splinter) —
    *  the designated "master" client. */
   writesMaster?: boolean;
+  /** When false, a drive with no per-client entry resolves to *nothing* rather
+   *  than falling back to the shared served spindle (the global mount). Set for
+   *  a self-contained client — a VM instance — whose drives come only from its
+   *  own definition. Clients that share the served set (the serial box, external
+   *  FDC clients) leave this true. Default true. */
+  inheritsGlobal?: boolean;
 }
 
 export class DriveSession implements IDriveEngine {
@@ -65,6 +71,7 @@ export class DriveSession implements IDriveEngine {
   private readonly database: Database | null;
   private readonly persistent: boolean;
   private readonly writesMaster: boolean;
+  private readonly inheritsGlobal: boolean;
   private drives = new Map<number, SessionDrive>();
 
   constructor(opts: DriveSessionOptions) {
@@ -73,6 +80,7 @@ export class DriveSession implements IDriveEngine {
     this.clientMounts = opts.clientMounts ?? null;
     this.database = opts.database ?? null;
     this.writesMaster = !!opts.writesMaster;
+    this.inheritsGlobal = opts.inheritsGlobal ?? true;
     // A splinter persists only when we have both a stable id and a DB to
     // record it in; otherwise it's an ephemeral fork discarded on disconnect.
     // The master client never splinters, so persistence doesn't apply to it.
@@ -116,17 +124,21 @@ export class DriveSession implements IDriveEngine {
 
   /**
    * Resolve the effective mount for a drive: this client's per-drive override
-   * if present, else the global mount. Returns null when neither is mounted.
-   * The `version` bumps whenever the effective mount changes (or flips between
-   * override and global), which drives re-open + swap-window in sync().
+   * if present, else the global mount (unless this is a self-contained client,
+   * which owns its drives and never inherits the shared spindle). Returns null
+   * when nothing is mounted. The `version` bumps whenever the effective mount
+   * changes (or flips between override and global), which drives re-open +
+   * swap-window in sync().
    */
   private resolveEffective(drive: number): { filename: string; version: string } | null {
     if (this.clientId && this.clientMounts) {
       const o = this.clientMounts.get(this.clientId, drive);
       if (o) return { filename: o.filename, version: `c${o.epoch}` };
     }
-    const g = this.registry.get(drive);
-    if (g) return { filename: g.filename, version: `g${g.epoch}` };
+    if (this.inheritsGlobal) {
+      const g = this.registry.get(drive);
+      if (g) return { filename: g.filename, version: `g${g.epoch}` };
+    }
     return null;
   }
 

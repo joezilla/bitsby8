@@ -36,7 +36,11 @@ export interface ClientDriveInfo {
   drive: number;
   filename: string | null;
   readonly: boolean;
-  source: 'override' | 'global' | 'none';
+  // 'override' — an operator-pinned per-client override (DB).
+  // 'global'   — inherited from the shared served spindle (external clients).
+  // 'profile'  — comes from this VM instance's own definition (its startup disks).
+  // 'none'     — empty.
+  source: 'override' | 'global' | 'profile' | 'none';
   dirty: boolean;
 }
 
@@ -70,21 +74,38 @@ async function buildClient(
     splinters.filter((s) => s.client_id === clientId).map((s) => [s.drive, s.dirty === 1]),
   );
 
+  const isInstance = clientId.startsWith(INSTANCE_CLIENT_PREFIX);
   const global = getMountRegistry();
+  // A VM instance owns its drives from its profile definition (materialized into
+  // the client mount registry at launch) and does NOT inherit the shared served
+  // spindle. External clients inherit that spindle as before.
+  const profileDrives = isInstance
+    ? getClientMountRegistry().forClient(clientId)
+    : new Map<number, { filename: string; readonly: boolean }>();
+
   const drives: ClientDriveInfo[] = [];
   for (let d = 0; d < CLIENT_BAYS; d++) {
     const ov = overrideByDrive.get(d);
-    const g = global.get(d);
+    const dirty = dirtyByDrive.get(d) ?? false;
     if (ov) {
-      drives.push({ drive: d, filename: ov.filename, readonly: ov.readonly === 1, source: 'override', dirty: dirtyByDrive.get(d) ?? false });
-    } else if (g) {
-      drives.push({ drive: d, filename: path.basename(g.filename), readonly: g.readonly, source: 'global', dirty: dirtyByDrive.get(d) ?? false });
+      drives.push({ drive: d, filename: ov.filename, readonly: ov.readonly === 1, source: 'override', dirty });
+    } else if (isInstance) {
+      const reg = profileDrives.get(d);
+      if (reg) {
+        drives.push({ drive: d, filename: path.basename(reg.filename), readonly: reg.readonly, source: 'profile', dirty });
+      } else {
+        drives.push({ drive: d, filename: null, readonly: false, source: 'none', dirty: false });
+      }
     } else {
-      drives.push({ drive: d, filename: null, readonly: false, source: 'none', dirty: false });
+      const g = global.get(d);
+      if (g) {
+        drives.push({ drive: d, filename: path.basename(g.filename), readonly: g.readonly, source: 'global', dirty });
+      } else {
+        drives.push({ drive: d, filename: null, readonly: false, source: 'none', dirty: false });
+      }
     }
   }
 
-  const isInstance = clientId.startsWith(INSTANCE_CLIENT_PREFIX);
   return {
     clientId,
     name: label?.name ?? '',
