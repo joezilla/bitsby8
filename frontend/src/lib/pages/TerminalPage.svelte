@@ -5,14 +5,17 @@
   import { FitAddon } from '@xterm/addon-fit';
   import { WebglAddon } from '@xterm/addon-webgl';
   import '@xterm/xterm/css/xterm.css';
-  import { socket, terminalStatus } from '$lib/services/socket';
+  import { socket, terminalStatus, replayProgress } from '$lib/services/socket';
   import { api } from '$lib/services/api';
   import { showToast } from '$lib/stores/toast';
   import { terminalHealth } from '$lib/stores/terminalHealth';
   import { terminalInstanceSession } from '$lib/stores/terminalSession';
   import Icon from '$lib/components/shared/Icon.svelte';
   import Select from '$lib/components/shared/Select.svelte';
-  import type { SerialPortInfo, InstanceStatus } from '$lib/types/api';
+  import Input from '$lib/components/shared/Input.svelte';
+  import Button from '$lib/components/shared/Button.svelte';
+  import Modal from '$lib/components/shared/Modal.svelte';
+  import type { SerialPortInfo, InstanceStatus, ScriptInfo } from '$lib/types/api';
 
   // Terminal instance (imperative, not reactive)
   let containerEl: HTMLDivElement;
@@ -45,6 +48,17 @@
       : `${selectedBaud} ${selectedDataBits}${parityChar(selectedParity)}${selectedStopBits}`,
   );
 
+  // Connection picker (anchored popover — target choice + connect in one gesture).
+  let connMenuOpen = $state(false);
+  const hasTargets = $derived(ports.length > 0 || instances.length > 0);
+  const connectedLabel = $derived.by(() => {
+    if (instanceSession) {
+      const inst = instances.find((i) => i.id === instanceSession);
+      return inst ? inst.profileRef : 'virtual console';
+    }
+    return selectedPort || 'serial';
+  });
+
   // Key mapping settings (loaded from config, saved via PUT /api/config/terminal)
   let showSettings = $state(false);
   let keySettings = $state({
@@ -57,6 +71,25 @@
   // CRT phosphor mode — off (plain) / amber / green.
   type CrtMode = 'off' | 'amber' | 'green';
   let crtMode = $state<CrtMode>('off');
+
+  // ── Scripts menu (notebook): record the outgoing keystroke stream to a new
+  // script, or replay a saved script into the current connection. Kept behind a
+  // single toolbar icon so the header stays slim. ─────────────────────────────
+  let scriptsMenuOpen = $state(false);
+  let scripts = $state<ScriptInfo[]>([]);
+  let replayMode = $state<'raw' | 'xmodem'>('raw');
+  // Recording captures what you *send* (replayable input), not device output.
+  let recording = $state(false);
+  let recordBuf = ''; // plain string — avoid per-keystroke reactivity churn
+  let recordBytes = $state(0);
+  let showSaveScript = $state(false);
+  let saveName = $state('');
+  // Frontend-driven replay into a virtual-instance console (the backend replay
+  // engine only reaches the hardware serial port).
+  let feReplay = $state<{ sent: number; total: number } | null>(null);
+  let feCancel = false;
+  const backendReplay = $derived($replayProgress);
+  const replaying = $derived(feReplay !== null || backendReplay?.state === 'running');
 
   const crtThemes: Record<CrtMode, Record<string, string>> = {
     off: { background: '#0c0e12', foreground: '#c8d0dc', cursor: '#c8d0dc', cursorAccent: '#0c0e12' },
@@ -125,6 +158,10 @@
         socket.emit('instance:console:write', { instanceId: instanceSession, data: out });
       } else if ($terminalStatus?.connected) {
         socket.emit('terminal:write', out);
+      }
+      if (recording) {
+        recordBuf += out;
+        recordBytes = recordBuf.length;
       }
       if (keySettings.localEcho) term?.write(out);
     });
@@ -208,6 +245,20 @@
     loadInstances();
   }
 
+  // Open the connection picker and refresh its target lists so they're current.
+  function toggleConnMenu() {
+    connMenuOpen = !connMenuOpen;
+    if (connMenuOpen) refresh();
+  }
+
+  // Pick = connect: choosing a target connects to it (switching disconnects first).
+  async function pickTarget(target: string) {
+    connMenuOpen = false;
+    if (isConnected) await disconnect();
+    selectedPort = target;
+    await connect();
+  }
+
   async function connect() {
     if (!selectedPort) return;
     if (selectedPort.startsWith(INST_PREFIX)) {
@@ -255,6 +306,114 @@
     term?.clear();
   }
 
+  // ── Scripts: record + replay ────────────────────────────────────────────────
+  async function toggleScriptsMenu() {
+    scriptsMenuOpen = !scriptsMenuOpen;
+    if (scriptsMenuOpen) {
+      try {
+        scripts = (await api.listScripts()).scripts;
+      } catch {
+        /* leave the previous list */
+      }
+    }
+  }
+
+  function startRecording() {
+    recordBuf = '';
+    recordBytes = 0;
+    recording = true;
+    scriptsMenuOpen = false;
+    showToast('Recording keystrokes — everything you send is captured', 'info');
+  }
+
+  function stopRecording() {
+    recording = false;
+    scriptsMenuOpen = false;
+    if (recordBuf.length === 0) {
+      showToast('Nothing was recorded', 'warning');
+      return;
+    }
+    saveName = '';
+    showSaveScript = true;
+  }
+
+  async function saveRecordedScript() {
+    const name = saveName.trim();
+    if (!name) {
+      showToast('Give the script a name', 'warning');
+      return;
+    }
+    try {
+      await api.createScript(name, recordBuf);
+      showToast(`Saved ${name} (${recordBuf.length} bytes)`, 'success');
+      showSaveScript = false;
+    } catch (e) {
+      showToast((e as Error).message || 'Save failed', 'error');
+    }
+  }
+
+  async function replay(name: string) {
+    scriptsMenuOpen = false;
+    // Backend replay engine only reaches the hardware serial port; drive a
+    // virtual-instance console from the client instead.
+    if (instanceSession) {
+      await replayIntoInstance(name);
+      return;
+    }
+    try {
+      await api.startReplay(name, replayMode);
+      showToast(`Replaying ${name} (${replayMode})`, 'success');
+    } catch (e) {
+      showToast((e as Error).message || 'Replay failed', 'error');
+    }
+  }
+
+  async function replayIntoInstance(name: string) {
+    try {
+      const s = await api.getScript(name);
+      const content: string = (s as { content?: string }).content ?? '';
+      if (!content) {
+        showToast('Script is empty or binary — raw replay only', 'warning');
+        return;
+      }
+      feCancel = false;
+      feReplay = { sent: 0, total: content.length };
+      const CHUNK = 48;
+      for (let i = 0; i < content.length; i += CHUNK) {
+        if (feCancel || !instanceSession) break;
+        socket.emit('instance:console:write', {
+          instanceId: instanceSession,
+          data: content.slice(i, i + CHUNK),
+        });
+        feReplay = { sent: Math.min(i + CHUNK, content.length), total: content.length };
+        await new Promise((r) => setTimeout(r, 30)); // paced like typing
+      }
+      const cancelled = feCancel;
+      feReplay = null;
+      showToast(cancelled ? 'Replay cancelled' : `Replayed ${name}`, cancelled ? 'info' : 'success');
+    } catch (e) {
+      feReplay = null;
+      showToast((e as Error).message || 'Replay failed', 'error');
+    }
+  }
+
+  async function cancelReplay() {
+    feCancel = true;
+    if (backendReplay?.state === 'running') {
+      try {
+        await api.cancelReplay();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  function onDocClick(e: MouseEvent) {
+    const t = e.target as HTMLElement;
+    if (scriptsMenuOpen && !t.closest('[data-scripts-menu]')) scriptsMenuOpen = false;
+    if (connMenuOpen && !t.closest('[data-conn-menu]')) connMenuOpen = false;
+  }
+
   async function saveSettings() {
     settingsSaving = true;
     try {
@@ -278,46 +437,69 @@
   }
 </script>
 
+<svelte:window onclick={onDocClick} />
+
 <div class="term-page" class:fullscreen={isFullscreen}>
   <!-- Streamlined single-line toolbar (nowrap) -->
   <div class="toolbar">
     <div class="title">Terminal</div>
 
-    <!-- Compact status pill; the line summary lives in its tooltip + the body. -->
-    <div class="status-pill" class:on={isConnected} title={lineSummary}>
-      <span class="sdot"></span>
-      <span class="slabel">{isConnected ? 'Connected' : 'Disconnected'}</span>
-    </div>
-
-    <div class="tright">
-      <Select bind:value={selectedPort} class="port-select">
-        <option value="">— Select port —</option>
-        {#if ports.length}
-          <optgroup label="Hardware ports">
-            {#each ports as port}
-              <option value={port.recommended}>{port.recommended}</option>
-            {/each}
-          </optgroup>
-        {/if}
-        {#if instances.length}
-          <optgroup label="Virtual instances · serial console">
-            {#each instances as inst}
-              <option value={INST_PREFIX + inst.id}>{inst.profileRef} · {inst.id.slice(0, 8)}</option>
-            {/each}
-          </optgroup>
-        {/if}
-      </Select>
-
+    <!-- Connection: target picker + connect/disconnect, in one control -->
+    <div class="conn" data-conn-menu>
       {#if isConnected}
-        <button class="connect-btn" onclick={disconnect}>
-          <Icon name="link_off" size={18} />Disconnect
+        <button class="conn-pill on" onclick={toggleConnMenu} title="Switch target">
+          <span class="sdot on"></span>
+          <span class="conn-name fdc-mono">{connectedLabel}</span>
+          <span class="conn-sub">{lineSummary}</span>
+        </button>
+        <button class="conn-x" title="Disconnect" aria-label="Disconnect" onclick={disconnect}>
+          <Icon name="link_off" size={16} />
         </button>
       {:else}
-        <button class="connect-btn accent" disabled={!selectedPort} onclick={connect}>
-          <Icon name="link" size={18} />Connect
+        <button class="conn-pill accent" onclick={toggleConnMenu}>
+          <Icon name="bolt" size={16} /><span class="conn-name">Connect…</span>
+          <Icon name="expand_more" size={16} />
         </button>
       {/if}
 
+      {#if connMenuOpen}
+        <div class="conn-pop" role="menu">
+          {#if ports.length}
+            <div class="pop-sec">
+              <span class="pop-lab">Serial ports</span>
+              {#each ports as port}
+                <button class="pop-row" class:cur={!instanceSession && selectedPort === port.recommended} onclick={() => pickTarget(port.recommended)}>
+                  <Icon name="cable" size={16} />
+                  <span class="pop-name fdc-mono">{port.recommended}</span>
+                  <span class="pop-meta fdc-mono">{selectedBaud} {selectedDataBits}{parityChar(selectedParity)}{selectedStopBits}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+          {#if instances.length}
+            <div class="pop-sec">
+              <span class="pop-lab">Virtual machines</span>
+              {#each instances as inst}
+                <button class="pop-row" class:cur={instanceSession === inst.id} onclick={() => pickTarget(INST_PREFIX + inst.id)}>
+                  <Icon name="dns" size={16} />
+                  <span class="pop-name fdc-mono">{inst.profileRef}</span>
+                  <span class="pop-meta">console</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+          {#if !hasTargets}
+            <div class="pop-empty">No serial ports or running machines. Launch a machine, or connect a device — then Refresh.</div>
+          {/if}
+          <div class="pop-div"></div>
+          <button class="pop-row" onclick={() => { refresh(); }}>
+            <Icon name="refresh" size={16} /><span>Refresh targets</span>
+          </button>
+        </div>
+      {/if}
+    </div>
+
+    <div class="tright">
       <span class="vdiv"></span>
 
       <!-- CRT phosphor segmented control -->
@@ -336,6 +518,62 @@
       <button class="tbtn" title="Refresh ports" aria-label="Refresh ports" onclick={refresh}><Icon name="refresh" size={20} /></button>
       <button class="tbtn" title="Clear terminal" aria-label="Clear terminal" onclick={clearTerminal}><Icon name="ink_eraser" size={20} /></button>
       <button class="tbtn" title="Toggle fullscreen" aria-label="Toggle fullscreen" onclick={toggleFullscreen}><Icon name={isFullscreen ? 'fullscreen_exit' : 'fullscreen'} size={20} /></button>
+
+      <!-- Scripts: record / replay — tucked behind one notebook icon -->
+      <div class="tb-menu" data-scripts-menu>
+        <button class="tbtn" class:active={scriptsMenuOpen} class:rec={recording} title="Scripts — record &amp; replay" aria-label="Scripts" onclick={toggleScriptsMenu}>
+          <Icon name="menu_book" size={20} />
+          {#if recording}<span class="rec-dot" aria-hidden="true"></span>{/if}
+        </button>
+        {#if scriptsMenuOpen}
+          <div class="tb-pop" role="menu">
+            <div class="pop-sec">
+              <span class="pop-lab">Record</span>
+              {#if recording}
+                <button class="pop-row" onclick={stopRecording}>
+                  <Icon name="stop_circle" size={16} /><span>Stop &amp; save</span>
+                  <span class="pop-meta fdc-mono">{recordBytes} B</span>
+                </button>
+              {:else}
+                <button class="pop-row" disabled={!isConnected} onclick={startRecording}>
+                  <Icon name="fiber_manual_record" size={16} /><span>Record to new script</span>
+                </button>
+              {/if}
+            </div>
+            <div class="pop-div"></div>
+            <div class="pop-sec">
+              <div class="pop-head">
+                <span class="pop-lab">Replay</span>
+                {#if !instanceSession}
+                  <span class="pop-seg">
+                    <button class:on={replayMode === 'raw'} onclick={() => (replayMode = 'raw')}>raw</button>
+                    <button class:on={replayMode === 'xmodem'} onclick={() => (replayMode = 'xmodem')}>xmodem</button>
+                  </span>
+                {/if}
+              </div>
+              {#if replaying}
+                <div class="pop-progress">
+                  <span class="fdc-mono">{feReplay ? `${feReplay.sent}/${feReplay.total} B` : `${backendReplay?.bytesSent ?? 0} B sent`}</span>
+                  <button class="pop-cancel" onclick={cancelReplay}>Cancel</button>
+                </div>
+              {:else if !isConnected}
+                <div class="pop-empty">Connect first to replay.</div>
+              {:else if scripts.length === 0}
+                <div class="pop-empty">No scripts yet — record one, or add on the Scripts page.</div>
+              {:else}
+                <div class="pop-list">
+                  {#each scripts as s (s.name)}
+                    <button class="pop-row" onclick={() => replay(s.name)}>
+                      <Icon name="play_arrow" size={16} /><span class="pop-name fdc-mono">{s.name}</span>
+                    </button>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          </div>
+        {/if}
+      </div>
+
       <button class="tbtn" title="Terminal settings" aria-label="Terminal settings" onclick={() => (showSettings = true)}><Icon name="settings" size={20} /></button>
     </div>
   </div>
@@ -378,6 +616,19 @@
     {/if}
   </div>
 </div>
+
+{#if showSaveScript}
+  <Modal title="Save recorded script" icon="menu_book" size="sm" onClose={() => (showSaveScript = false)}>
+    <p style="margin: 0; font: var(--text-body-sm); color: var(--fg-3);">
+      Captured <strong>{recordBytes}</strong> bytes of input. Name it to save as a replayable script.
+    </p>
+    <Input placeholder="e.g. cpm-boot-session" bind:value={saveName} />
+    {#snippet footer()}
+      <Button variant="ghost" onclick={() => (showSaveScript = false)}>Cancel</Button>
+      <Button variant="filled" icon="save" onclick={saveRecordedScript}>Save script</Button>
+    {/snippet}
+  </Modal>
+{/if}
 
 {#if showSettings}
   <div role="dialog" aria-modal="true" class="modal-root">
@@ -494,40 +745,35 @@
     color: var(--fg-1);
   }
 
-  .status-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 9px;
-    padding: 6px 12px;
-    border-radius: 999px;
-    flex: none;
-    background: color-mix(in oklab, var(--error) 12%, transparent);
-    border: 1px solid color-mix(in oklab, var(--error) 24%, transparent);
+  /* Connection control — target picker + connect/disconnect in one pill. */
+  .conn { position: relative; display: inline-flex; align-items: center; gap: 4px; flex: none; }
+  .sdot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-4); flex: none; }
+  .sdot.on { background: var(--success); box-shadow: 0 0 6px var(--success); }
+  .conn-pill {
+    display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px;
+    border-radius: 9px; background: transparent; border: 1px solid var(--border-2);
+    color: var(--fg-2); font-size: 13.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
+    max-width: 300px;
   }
-  .status-pill.on {
-    background: color-mix(in oklab, var(--success) 12%, transparent);
-    border-color: color-mix(in oklab, var(--success) 26%, transparent);
+  .conn-pill:hover { background: color-mix(in oklab, var(--fg-1) 6%, transparent); }
+  .conn-pill.accent { background: var(--accent); border-color: var(--accent); color: var(--fg-on-accent); }
+  .conn-pill.accent:hover { background: var(--accent-hover); }
+  .conn-pill.on { color: var(--fg-1); }
+  .conn-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .conn-sub { font: var(--text-overline); color: var(--fg-4); text-transform: none; letter-spacing: 0; flex: none; }
+  .conn-x {
+    display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 38px;
+    border-radius: 9px; background: transparent; border: 1px solid var(--border-2); color: var(--fg-3); cursor: pointer;
   }
-  .sdot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--error);
+  .conn-x:hover { color: var(--error); border-color: color-mix(in oklab, var(--error) 40%, var(--border-2)); }
+  .conn-pop {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; width: 300px;
+    background: var(--surface-raised); border: 1px solid var(--border-2);
+    border-radius: var(--radius-md); box-shadow: var(--elev-4); padding: 8px;
+    display: flex; flex-direction: column; gap: 6px;
   }
-  .status-pill.on .sdot {
-    background: var(--success);
-  }
-  .slabel {
-    font-family: var(--font-data);
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: var(--error);
-  }
-  .status-pill.on .slabel {
-    color: var(--success);
-  }
+  .conn-pop .pop-row.cur { color: var(--accent); }
+  .conn-pop .pop-row.cur .pop-name { color: var(--accent); }
 
   .tright {
     margin-left: auto;
@@ -537,43 +783,6 @@
     min-width: 0;
     flex-wrap: nowrap;
     justify-content: flex-end;
-  }
-
-  :global(.port-select) {
-    flex: 1;
-    min-width: 110px;
-    max-width: 230px;
-  }
-
-  .connect-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    height: 38px;
-    padding: 0 16px;
-    border-radius: 9px;
-    background: transparent;
-    border: 1px solid var(--border-2);
-    color: var(--fg-2);
-    font-size: 13.5px;
-    font-weight: 600;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  .connect-btn:hover {
-    background: color-mix(in oklab, var(--fg-1) 6%, transparent);
-  }
-  .connect-btn.accent {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: var(--fg-on-accent);
-  }
-  .connect-btn.accent:hover:not(:disabled) {
-    background: var(--accent-hover);
-  }
-  .connect-btn:disabled {
-    opacity: 0.5;
-    cursor: default;
   }
 
   .vdiv {
@@ -633,6 +842,44 @@
     background: color-mix(in oklab, var(--fg-1) 6%, transparent);
     color: var(--fg-1);
   }
+  .tbtn.active { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 40%, var(--border-1)); }
+  .tbtn.rec { color: var(--error); border-color: color-mix(in oklab, var(--error) 45%, var(--border-1)); }
+
+  /* Scripts popover */
+  .tb-menu { position: relative; display: inline-flex; }
+  .rec-dot {
+    position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--error); box-shadow: 0 0 5px var(--error); animation: rec-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes rec-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+  @media (prefers-reduced-motion: reduce) { .rec-dot { animation: none; } }
+  .tb-pop {
+    position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; width: 264px;
+    background: var(--surface-raised); border: 1px solid var(--border-2);
+    border-radius: var(--radius-md); box-shadow: var(--elev-4); padding: 8px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .pop-sec { display: flex; flex-direction: column; gap: 4px; }
+  .pop-head { display: flex; align-items: center; justify-content: space-between; }
+  .pop-lab { font: var(--text-overline); text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg-4); padding: 2px 4px; }
+  .pop-div { height: 1px; background: var(--border-1); margin: 2px 0; }
+  .pop-row {
+    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+    padding: 8px; border-radius: var(--radius-sm); background: transparent; border: none;
+    color: var(--fg-2); cursor: pointer; font: var(--text-body-sm);
+  }
+  .pop-row:hover:not(:disabled) { background: color-mix(in oklab, var(--fg-1) 6%, transparent); color: var(--fg-1); }
+  .pop-row:disabled { opacity: 0.4; cursor: default; }
+  .pop-meta { margin-left: auto; font-size: 11px; color: var(--fg-4); }
+  .pop-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+  .pop-list { display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; }
+  .pop-empty { padding: 8px; font: var(--text-body-sm); color: var(--fg-3); }
+  .pop-progress { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; font-size: 12px; color: var(--fg-2); }
+  .pop-cancel { background: none; border: 1px solid var(--border-2); border-radius: var(--radius-sm); color: var(--fg-2); cursor: pointer; padding: 3px 10px; font-size: 12px; }
+  .pop-cancel:hover { color: var(--error); border-color: color-mix(in oklab, var(--error) 40%, var(--border-2)); }
+  .pop-seg { display: inline-flex; border: 1px solid var(--border-2); border-radius: var(--radius-sm); overflow: hidden; }
+  .pop-seg button { background: transparent; border: none; color: var(--fg-3); cursor: pointer; padding: 2px 8px; font: var(--text-overline); text-transform: uppercase; }
+  .pop-seg button.on { background: var(--accent-bg); color: var(--accent); }
 
   /* Terminal body */
   .term-body {
