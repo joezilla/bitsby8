@@ -37,6 +37,10 @@ export interface ProfileContent {
   consoleCardId?: string;
 }
 
+/** Run-cockpit front-panel LED grouping. A machine-definition display default —
+ *  metadata, not hardware: never enters the content digest or the 8sim spec. */
+export type PanelBase = 'oct' | 'hex';
+
 /** A Profile as returned to REST/MCP: Identity + content + provenance. */
 export interface ProfileDoc extends ProfileContent {
   id: string;
@@ -44,6 +48,7 @@ export interface ProfileDoc extends ProfileContent {
   version: string;
   digest: string;
   notes: string | null;
+  panelBase: PanelBase;
   source: string;
   createdAt: string;
 }
@@ -94,6 +99,7 @@ function toDoc(rec: MachineProfileRecord): ProfileDoc {
     version: rec.version,
     digest: rec.digest,
     notes: rec.notes,
+    panelBase: rec.panel_base === 'hex' ? 'hex' : 'oct',
     source: rec.source,
     createdAt: rec.created_at,
     ...contentOf(rec),
@@ -177,6 +183,7 @@ async function persist(
   content: ProfileContent,
   source: string,
   notes: string | null,
+  panelBase: PanelBase,
 ): Promise<ProfileDoc> {
   validateContent(content);
   const id = `${name}@${version}`;
@@ -188,6 +195,7 @@ async function persist(
     cpu_kind: content.cpuKind,
     profile: JSON.stringify(content),
     notes,
+    panel_base: panelBase === 'hex' ? 'hex' : 'oct', // coerce untrusted input
     source,
   });
   const rec = await deps.database.getMachineProfileById(id);
@@ -198,18 +206,18 @@ async function persist(
 /** Create a Profile from an explicit content body (version 1.0.0). */
 export async function createProfile(
   deps: Dependencies,
-  input: { name: string; notes?: string } & ProfileContent,
+  input: { name: string; notes?: string; panelBase?: PanelBase } & ProfileContent,
 ): Promise<ProfileDoc> {
   validateName(input.name);
   const name = input.name.trim();
   if ((await deps.database.listMachineProfileVersions(name)).length > 0) {
     throw new ServiceError(`A profile named "${name}" already exists`, 409);
   }
-  const { name: _n, notes, ...rest } = input;
+  const { name: _n, notes, panelBase, ...rest } = input;
   const content = rest as ProfileContent;
   // Validate + fill defaults for each Card Instance against its Config Schema.
   content.cards = await resolveProfileCards(deps, content.cards ?? []);
-  return persist(deps, name, '1.0.0', content, 'user', notes ?? null);
+  return persist(deps, name, '1.0.0', content, 'user', notes ?? null, panelBase ?? 'oct');
 }
 
 /** Create a Profile seeded from a built-in machine preset (carries ROM + cards). */
@@ -231,7 +239,7 @@ export async function createProfileFromPreset(
   // does — so a preset-derived profile is byte-identical (and content-addresses
   // the same) as the same machine created or imported any other way.
   content.cards = await resolveProfileCards(deps, content.cards);
-  return persist(deps, trimmed, '1.0.0', content, 'preset', notes ?? null);
+  return persist(deps, trimmed, '1.0.0', content, 'preset', notes ?? null, 'oct');
 }
 
 export async function getProfile(deps: Dependencies, id: string): Promise<ProfileDoc> {
@@ -262,10 +270,10 @@ export async function listProfileVersions(deps: Dependencies, name: string): Pro
 export async function updateProfile(
   deps: Dependencies,
   id: string,
-  patch: Partial<ProfileContent> & { notes?: string },
+  patch: Partial<ProfileContent> & { notes?: string; panelBase?: PanelBase },
 ): Promise<ProfileDoc> {
   const base = await getProfile(deps, id);
-  const { notes: patchNotes, ...contentPatch } = patch;
+  const { notes: patchNotes, panelBase: patchPanelBase, ...contentPatch } = patch;
   // A cards patch is re-validated against each card's Config Schema; unchanged
   // cards carry over already-validated.
   const cards = contentPatch.cards
@@ -280,7 +288,9 @@ export async function updateProfile(
     consoleCardId: 'consoleCardId' in contentPatch ? contentPatch.consoleCardId : base.consoleCardId,
   };
   const newNotes = patchNotes !== undefined ? patchNotes : base.notes;
-  if (digestOf(newContent) === base.digest && newNotes === base.notes) {
+  const newPanelBase: PanelBase =
+    patchPanelBase !== undefined ? (patchPanelBase === 'hex' ? 'hex' : 'oct') : base.panelBase;
+  if (digestOf(newContent) === base.digest && newNotes === base.notes && newPanelBase === base.panelBase) {
     return base; // nothing changed → no new version
   }
   // A preset is a living template: editing it updates the row in place (no
@@ -292,10 +302,11 @@ export async function updateProfile(
       cpu_kind: newContent.cpuKind,
       profile: JSON.stringify(newContent),
       notes: newNotes ?? null,
+      panel_base: newPanelBase,
     });
     return getProfile(deps, base.id);
   }
-  return persist(deps, base.name, await nextVersion(deps, base.name), newContent, 'user', newNotes ?? null);
+  return persist(deps, base.name, await nextVersion(deps, base.name), newContent, 'user', newNotes ?? null, newPanelBase);
 }
 
 /** Seed (or reset) a preset as a source:'preset' profile. Resolves card configs
@@ -317,10 +328,11 @@ export async function upsertPresetProfile(
       cpu_kind: content.cpuKind,
       profile: JSON.stringify(content),
       notes,
+      panel_base: existing.panel_base === 'hex' ? 'hex' : 'oct',
     });
     return getProfile(deps, existing.id);
   }
-  return persist(deps, name, '1.0.0', content, 'preset', notes);
+  return persist(deps, name, '1.0.0', content, 'preset', notes, 'oct');
 }
 
 /** Clone a Profile into an independent one under a new name (version 1.0.0). */
@@ -336,8 +348,8 @@ export async function cloneProfile(
   if ((await deps.database.listMachineProfileVersions(trimmed)).length > 0) {
     throw new ServiceError(`A profile named "${trimmed}" already exists`, 409);
   }
-  const { id: _i, name: _n, version: _v, digest: _d, createdAt: _c, source: _s, notes: _no, ...content } = src;
-  return persist(deps, trimmed, '1.0.0', content as ProfileContent, 'user', notes ?? null);
+  const { id: _i, name: _n, version: _v, digest: _d, createdAt: _c, source: _s, notes: _no, panelBase, ...content } = src;
+  return persist(deps, trimmed, '1.0.0', content as ProfileContent, 'user', notes ?? null, panelBase);
 }
 
 /**

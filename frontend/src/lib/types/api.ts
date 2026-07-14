@@ -208,6 +208,8 @@ export interface MachineProfile {
   cards: ProfileCardInstance[];
   consoleCardId?: string;
   notes: string | null;
+  /** Run-cockpit front-panel LED grouping default (metadata, not hardware). */
+  panelBase: 'oct' | 'hex';
   source: string;
   createdAt: string;
 }
@@ -307,6 +309,8 @@ export interface InstanceStatus {
   targetHz?: number | 'max';
   uptimeSeconds?: number;
   headless: boolean;
+  /** Run-cockpit front-panel LED grouping default, from the profile. */
+  panelBase: 'oct' | 'hex';
   disks: DiskBinding[];
 }
 

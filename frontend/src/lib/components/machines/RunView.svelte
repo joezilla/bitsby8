@@ -161,7 +161,7 @@
 
   <div class="stack">
     <!-- Live Altair-style front panel — CPU introspection + examine/deposit/step -->
-    <FrontPanel instanceId={instance.id} bind:open={frontPanelOpen} />
+    <FrontPanel instanceId={instance.id} bind:open={frontPanelOpen} initialBase={instance.panelBase} />
 
     <!-- Drives — this VM's own bays (swap/eject/insert live) -->
     <div class="panel">

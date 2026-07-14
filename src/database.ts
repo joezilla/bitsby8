@@ -124,6 +124,8 @@ export interface MachineProfileRecord {
   cpu_kind: string;
   profile: string; // JSON (MachineProfile with memory images base64-encoded)
   notes: string | null;
+  /** Run-cockpit LED grouping default ('oct' | 'hex') — metadata, not digested. */
+  panel_base: string;
   source: string; // 'user' | 'preset' | 'imported'
   created_at: string;
 }
@@ -289,6 +291,12 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (profile_name, drive)
   );
   CREATE INDEX IF NOT EXISTS idx_profile_disks_filename ON profile_disks(filename);`,
+
+  // Migration 11: per-profile front-panel base (oct/hex) — a display default for
+  // the run cockpit's LED grouping. It's a machine-definition preference, not
+  // hardware: stored alongside `notes`, OUTSIDE the content digest, so it never
+  // rebuilds the profile's identity or reaches the 8sim spec.
+  `ALTER TABLE machine_profiles ADD COLUMN panel_base TEXT NOT NULL DEFAULT 'oct';`,
 ];
 
 export class Database {
@@ -901,9 +909,9 @@ export class Database {
     this.ensureInitialized();
     // Versions are immutable — a colliding (name, version) is a conflict, not an upsert.
     this.db!.prepare(
-      `INSERT INTO machine_profiles (id, name, version, digest, cpu_kind, profile, notes, source, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
-    ).run(rec.id, rec.name, rec.version, rec.digest, rec.cpu_kind, rec.profile, rec.notes, rec.source);
+      `INSERT INTO machine_profiles (id, name, version, digest, cpu_kind, profile, notes, panel_base, source, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+    ).run(rec.id, rec.name, rec.version, rec.digest, rec.cpu_kind, rec.profile, rec.notes, rec.panel_base, rec.source);
   }
 
   async getMachineProfileById(id: string): Promise<MachineProfileRecord | undefined> {
@@ -917,12 +925,12 @@ export class Database {
    * version. Used only for preset templates, which are living, not versioned. */
   async updateMachineProfileContent(
     id: string,
-    fields: { digest: string; cpu_kind: string; profile: string; notes: string | null },
+    fields: { digest: string; cpu_kind: string; profile: string; notes: string | null; panel_base: string },
   ): Promise<void> {
     this.ensureInitialized();
     this.db!.prepare(
-      'UPDATE machine_profiles SET digest = ?, cpu_kind = ?, profile = ?, notes = ? WHERE id = ?'
-    ).run(fields.digest, fields.cpu_kind, fields.profile, fields.notes, id);
+      'UPDATE machine_profiles SET digest = ?, cpu_kind = ?, profile = ?, notes = ?, panel_base = ? WHERE id = ?'
+    ).run(fields.digest, fields.cpu_kind, fields.profile, fields.notes, fields.panel_base, id);
   }
 
   /** All versions of a profile name, newest-created first. `rowid` is a

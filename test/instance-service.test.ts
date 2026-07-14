@@ -151,6 +151,7 @@ describe('instance-service', () => {
     const info = await createTransientInstance(deps, { profile, speed: 2000000 }, 'api');
     expect(info.targetHz).toBe(2000000);
     expect(info.effectiveHz).toBe(2000000);
+    expect(info.panelBase).toBe('oct'); // inline profiles default to octal grouping
     await destroyInstance(deps, info.id);
   });
 

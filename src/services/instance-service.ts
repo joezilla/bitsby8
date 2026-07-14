@@ -83,14 +83,16 @@ function normalizeSpeed(speed: unknown): number | 'max' | undefined {
   throw new ServiceError(`speed must be a positive Hz number or 'max', got ${JSON.stringify(speed)}`, 400);
 }
 
-/** Resolve a machine spec from a stored Profile, a preset, or an inline profile. */
+/** Resolve a machine spec from a stored Profile, a preset, or an inline profile.
+ *  `panelBase` is the run-cockpit LED grouping default — carried from a stored
+ *  profile's metadata; presets/inline default to 'oct'. */
 async function resolveSpec(
   deps: Dependencies,
   input: InstanceSpecInput,
-): Promise<{ profile: MachineProfile; profileRef: string }> {
+): Promise<{ profile: MachineProfile; profileRef: string; panelBase: 'oct' | 'hex' }> {
   if (input.profileRef) {
     const { profile, doc } = await resolveProfileRef(deps, input.profileRef);
-    return { profile, profileRef: doc.id };
+    return { profile, profileRef: doc.id, panelBase: doc.panelBase };
   }
   if (input.preset) {
     const preset: MachinePreset | undefined = getPreset(input.preset);
@@ -100,10 +102,10 @@ async function resolveSpec(
         404,
       );
     }
-    return { profile: preset.build(), profileRef: `preset:${preset.id}` };
+    return { profile: preset.build(), profileRef: `preset:${preset.id}`, panelBase: 'oct' };
   }
   if (input.profile) {
-    return { profile: input.profile, profileRef: 'inline' };
+    return { profile: input.profile, profileRef: 'inline', panelBase: 'oct' };
   }
   throw new ServiceError('A `profileRef`, `preset`, or inline `profile` is required', 400);
 }
@@ -135,8 +137,8 @@ export async function createTransientInstance(
   input: InstanceSpecInput,
   driver: InstanceDriver,
 ): Promise<InstanceInfo> {
-  const { profile, profileRef } = await resolveSpec(deps, input);
-  return manager(deps).createTransient(profile, profileRef, driver, normalizeSpeed(input.speed));
+  const { profile, profileRef, panelBase } = await resolveSpec(deps, input);
+  return manager(deps).createTransient(profile, profileRef, driver, normalizeSpeed(input.speed), panelBase);
 }
 
 export async function defineInstance(
@@ -144,8 +146,8 @@ export async function defineInstance(
   input: InstanceSpecInput,
   driver: InstanceDriver,
 ): Promise<InstanceInfo> {
-  const { profile, profileRef } = await resolveSpec(deps, input);
-  return manager(deps).define(profile, profileRef, driver, normalizeSpeed(input.speed));
+  const { profile, profileRef, panelBase } = await resolveSpec(deps, input);
+  return manager(deps).define(profile, profileRef, driver, normalizeSpeed(input.speed), panelBase);
 }
 
 export async function startInstance(deps: Dependencies, id: string): Promise<InstanceInfo> {

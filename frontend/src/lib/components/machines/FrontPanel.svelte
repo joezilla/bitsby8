@@ -11,12 +11,16 @@
     instanceId: string;
     /** Expanded state — bindable so the cockpit can persist it per machine. */
     open?: boolean;
+    /** LED grouping default from the machine definition; the OCT/HEX toggle
+     *  still overrides it in-session. */
+    initialBase?: 'oct' | 'hex';
   }
-  let { instanceId, open = $bindable(true) }: Props = $props();
+  let { instanceId, open = $bindable(true), initialBase = 'oct' }: Props = $props();
 
   let panel = $state<FrontPanelState | null>(null);
   let switches = $state(0); // the operator's address/data register
-  let base = $state<'oct' | 'hex'>('oct');
+  // svelte-ignore state_referenced_locally -- one-time seed from the profile default
+  let base = $state<'oct' | 'hex'>(initialBase);
 
   // Server-pushed state (see websocket/handlers.ts). Filter by instanceId
   // since the socket is shared across the app.

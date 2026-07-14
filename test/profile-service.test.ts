@@ -337,3 +337,33 @@ describe('presets as editable profiles (Story 5.2)', () => {
     expect((await getProfile(deps, preset.id)).resetVector).toBe(0); // preset untouched
   });
 });
+
+describe('profile-service: panel base (display metadata, not hardware)', () => {
+  test('defaults to oct; stores an explicit base; NOT part of the content digest', async () => {
+    const deps = await makeDeps();
+    const oct = await createProfile(deps, { name: 'panel-oct', ...content });
+    expect(oct.panelBase).toBe('oct');
+
+    const hex = await createProfile(deps, { name: 'panel-hex', panelBase: 'hex', ...content });
+    expect(hex.panelBase).toBe('hex');
+    // Same hardware, different display default ⇒ identical content digest.
+    expect(hex.digest).toBe(oct.digest);
+  });
+
+  test('changing only panelBase makes a new version with the same digest', async () => {
+    const deps = await makeDeps();
+    const v1 = await createProfile(deps, { name: 'panel-upd', ...content });
+    expect(v1.panelBase).toBe('oct');
+    const v2 = await updateProfile(deps, v1.id, { panelBase: 'hex' });
+    expect(v2.panelBase).toBe('hex');
+    expect(v2.version).not.toBe(v1.version); // versions immutably
+    expect(v2.digest).toBe(v1.digest); // hardware identity unchanged
+  });
+
+  test('clone preserves the source panelBase', async () => {
+    const deps = await makeDeps();
+    const src = await createProfile(deps, { name: 'panel-src', panelBase: 'hex', ...content });
+    const clone = await cloneProfile(deps, src.id, 'panel-clone');
+    expect(clone.panelBase).toBe('hex');
+  });
+});

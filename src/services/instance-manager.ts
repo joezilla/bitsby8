@@ -49,6 +49,8 @@ interface RunningInstance {
   speed?: CpuSpeed;
   startedAt?: number; // epoch ms when the machine last started (running only)
   profile: MachineProfile;
+  /** Run-cockpit LED grouping default, from the profile's metadata (not the spec). */
+  panelBase: 'oct' | 'hex';
   machine?: Machine;
   channel?: WebSocketLike;
   channelConnId?: string;
@@ -100,6 +102,8 @@ export interface InstanceInfo {
   /** Running with no live console subscriber — an agent-spun machine nobody is
    * watching. Clears when a human attaches. */
   headless: boolean;
+  /** Run-cockpit LED grouping default ('oct' | 'hex'), from the profile. */
+  panelBase: 'oct' | 'hex';
 }
 
 export class InstanceManager {
@@ -121,8 +125,9 @@ export class InstanceManager {
     profileRef = 'inline',
     driver: InstanceDriver = 'api',
     speed?: CpuSpeed,
+    panelBase: 'oct' | 'hex' = 'oct',
   ): Promise<InstanceInfo> {
-    const inst = this.register(profile, profileRef, false, driver, speed);
+    const inst = this.register(profile, profileRef, false, driver, speed, panelBase);
     await this.deps.database.upsertMachineInstance({
       id: inst.id,
       profile_ref: profileRef,
@@ -139,8 +144,9 @@ export class InstanceManager {
     profileRef = 'inline',
     driver: InstanceDriver = 'api',
     speed?: CpuSpeed,
+    panelBase: 'oct' | 'hex' = 'oct',
   ): Promise<InstanceInfo> {
-    const inst = this.register(profile, profileRef, true, driver, speed);
+    const inst = this.register(profile, profileRef, true, driver, speed, panelBase);
     await this.startInstance(inst);
     return this.info(inst);
   }
@@ -201,6 +207,7 @@ export class InstanceManager {
     transient: boolean,
     driver: InstanceDriver,
     speed?: CpuSpeed,
+    panelBase: 'oct' | 'hex' = 'oct',
   ): RunningInstance {
     const id = randomUUID();
     const inst: RunningInstance = {
@@ -212,6 +219,7 @@ export class InstanceManager {
       driver,
       speed,
       profile,
+      panelBase,
     };
     this.instances.set(id, inst);
     return inst;
@@ -450,6 +458,7 @@ export class InstanceManager {
       targetHz: i.machine?.runner.targetHz,
       uptimeSeconds: i.startedAt ? Math.floor((Date.now() - i.startedAt) / 1000) : undefined,
       headless: i.status === 'running' && (i.console?.subscriberCount ?? 0) === 0,
+      panelBase: i.panelBase,
     };
   }
 }
