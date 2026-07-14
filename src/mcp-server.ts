@@ -98,11 +98,14 @@ const VALID_BAUD_RATES = Object.values(BaudRate).filter(
 );
 
 /**
- * Create and configure the MCP server with all FDC+ tools and resources.
+ * Create and configure the MCP server with all BitsBy8 tools and resources.
  */
 export function createMcpServer(deps: Dependencies): McpServer {
   const server = new McpServer({
-    name: 'fdcplus',
+    // The advertised MCP server identity. The `mcp__<name>__*` tool prefix a
+    // client sees comes from the label the client registers this server under,
+    // not from here — so re-add the server as `bitsby8` client-side to match.
+    name: 'bitsby8',
     version: '2.0.0',
   });
 
@@ -110,7 +113,7 @@ export function createMcpServer(deps: Dependencies): McpServer {
   // Resources
   // ===========================================================================
 
-  server.resource('status', 'fdcplus://status', async (uri) => ({
+  server.resource('status', 'bitsby8://status', async (uri) => ({
     contents: [{
       uri: uri.href,
       mimeType: 'application/json',
@@ -118,7 +121,7 @@ export function createMcpServer(deps: Dependencies): McpServer {
     }],
   }));
 
-  server.resource('drives', 'fdcplus://drives', async (uri) => ({
+  server.resource('drives', 'bitsby8://drives', async (uri) => ({
     contents: [{
       uri: uri.href,
       mimeType: 'application/json',
@@ -126,7 +129,7 @@ export function createMcpServer(deps: Dependencies): McpServer {
     }],
   }));
 
-  server.resource('images', 'fdcplus://images', async (uri) => ({
+  server.resource('images', 'bitsby8://images', async (uri) => ({
     contents: [{
       uri: uri.href,
       mimeType: 'application/json',
@@ -134,7 +137,7 @@ export function createMcpServer(deps: Dependencies): McpServer {
     }],
   }));
 
-  server.resource('terminal', 'fdcplus://terminal', async (uri) => ({
+  server.resource('terminal', 'bitsby8://terminal', async (uri) => ({
     contents: [{
       uri: uri.href,
       mimeType: 'application/json',
