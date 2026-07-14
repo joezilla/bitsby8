@@ -369,6 +369,14 @@ export const api = {
     }),
   deleteScript: (name: string) =>
     request(`/api/scripts/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  uploadScript: async (file: File) => {
+    const form = new FormData();
+    form.append('file', file); // field name must match scripts route's multer
+    const res = await fetch('/api/scripts/upload', { method: 'POST', body: form });
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    return body as { success: boolean; name: string; size: number };
+  },
 
   // Replay
   startReplay: (scriptName: string, mode = 'raw', options?: any) =>

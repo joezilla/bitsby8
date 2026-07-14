@@ -1574,7 +1574,7 @@
           "Scripts"
         ],
         "summary": "Get script content",
-        "description": "Returns script metadata and content. Text files (.txt) include content; binary files return metadata only.",
+        "description": "Returns script metadata and content. Text scripts include content; binary scripts (those containing NUL bytes) return metadata only.",
         "parameters": [
           {
             "in": "path",

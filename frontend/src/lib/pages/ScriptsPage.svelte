@@ -148,13 +148,7 @@
     const file = input.files?.[0];
     if (!file) return;
     try {
-      const form = new FormData();
-      form.append('script', file);
-      const res = await fetch('/api/scripts/upload', { method: 'POST', body: form });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(body.error || res.statusText);
-      }
+      await api.uploadScript(file);
       showToast(`Uploaded "${file.name}"`, 'success');
       await loadScripts();
     } catch (err: any) {
