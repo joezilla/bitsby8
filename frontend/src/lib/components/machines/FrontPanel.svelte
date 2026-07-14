@@ -30,6 +30,7 @@
   onDestroy(() => {
     socket.emit('instance:frontpanel:unsubscribe', { instanceId });
     socket.off('instance:frontpanel:state', handleState);
+    if (raf) cancelAnimationFrame(raf);
   });
 
   // Stream while the tab is visible. We deliberately do NOT gate on `open`:
@@ -56,11 +57,50 @@
   const fmt = (v: number, od: number, hd: number) =>
     oct ? (v >>> 0).toString(8).padStart(od, '0') : (v >>> 0).toString(16).toUpperCase().padStart(hd, '0');
 
-  function led(on: boolean, sz: number): string {
-    return on
-      ? `width:${sz}px;height:${sz}px;box-sizing:border-box;border:1px solid transparent;border-radius:50%;background:radial-gradient(circle at 38% 32%,#ffe3a6 0%,#ffb020 46%,#e8860a 100%);box-shadow:inset 0 -2px 3px rgba(120,50,0,.5),inset 0 1px 2px rgba(255,255,255,.7)`
-      : `width:${sz}px;height:${sz}px;box-sizing:border-box;border-radius:50%;background:radial-gradient(circle at 38% 32%,#39301f,#1a130a 82%);box-shadow:inset 0 1px 2px rgba(0,0,0,.75),inset 0 -1px 1px rgba(255,190,90,.06);border:1px solid rgba(0,0,0,.45)`;
+  // ── LED inertia (Step A) ───────────────────────────────────────────────────
+  // A real panel LED is an RC low-pass filter: its brightness tracks the *duty
+  // cycle* of its bit and fades on discharge. We mimic that — each LED eases
+  // toward its target (fast attack, slow release) via a rAF loop, so a bit that
+  // toggles fast settles to a steady partial glow instead of strobing. When the
+  // machine is halted (single-step / examine) we snap to the exact 0/1 so the
+  // panel reads precisely — Step B will feed true duty cycles from the backend.
+  const ON = 'border-radius:50%;background:radial-gradient(circle at 38% 32%,#ffe3a6 0%,#ffb020 46%,#e8860a 100%);box-shadow:inset 0 -2px 3px rgba(120,50,0,.5),inset 0 1px 2px rgba(255,255,255,.7);';
+  const OFF = 'border-radius:50%;background:radial-gradient(circle at 38% 32%,#39301f,#1a130a 82%);box-shadow:inset 0 1px 2px rgba(0,0,0,.75),inset 0 -1px 1px rgba(255,190,90,.06);border:1px solid rgba(0,0,0,.45);';
+
+  const REDUCED =
+    typeof window !== 'undefined' &&
+    !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const RISE = 0.5; // fast attack
+  const FALL = 0.1; // slow release — the capacitor bleeding down
+
+  let bright = $state<Record<string, number>>({});
+  let raf = 0;
+
+  function tick() {
+    const t = targets;
+    let moving = false;
+    for (const k in t) {
+      const cur = bright[k] ?? 0;
+      const tgt = t[k];
+      const next = cur + (tgt - cur) * (tgt > cur ? RISE : FALL);
+      const v = Math.abs(tgt - next) < 0.004 ? tgt : next;
+      if (v !== cur) { bright[k] = v; moving = true; }
+    }
+    raf = moving ? requestAnimationFrame(tick) : 0;
   }
+
+  // Drive the loop while running; snap to exact state the moment it halts so
+  // stepping is pixel-accurate. Re-runs whenever targets change (each sample).
+  $effect(() => {
+    const running = !!panel?.running;
+    const t = targets;
+    if (REDUCED || !running) {
+      for (const k in t) bright[k] = t[k];
+      if (raf) { cancelAnimationFrame(raf); raf = 0; }
+      return;
+    }
+    if (!raf) raf = requestAnimationFrame(tick);
+  });
 
   // Status LEDs. The machine-cycle lamps decode the 8080 status byte latched
   // per instruction (the debug value when single-stepping); INTE/INT/RUN/WAIT
@@ -105,11 +145,29 @@
     return out;
   });
 
+  // Flat 0/1 goal per LED — the values the inertia loop eases toward.
+  const targets = $derived.by(() => {
+    const t: Record<string, number> = {};
+    for (const s of statusLeds) t['s' + s.k] = s.on ? 1 : 0;
+    const addr = panel?.addr ?? 0;
+    const data = panel?.data ?? 0;
+    for (let i = 0; i < 16; i++) t['a' + i] = (addr >> i) & 1;
+    for (let i = 0; i < 8; i++) t['d' + i] = (data >> i) & 1;
+    return t;
+  });
+
   const CTRL: [FrontPanelAction, string][] = [
     ['run', 'RUN'], ['stop', 'STOP'], ['step', 'SINGLE STEP'], ['examine', 'EXAMINE'],
     ['examNext', 'EXAM NEXT'], ['deposit', 'DEPOSIT'], ['depNext', 'DEP NEXT'], ['reset', 'RESET'],
   ];
 </script>
+
+{#snippet ledDim(key: string, sz: number)}
+  <span class="fp2-led" style="width:{sz}px;height:{sz}px;">
+    <span class="fp2-led-off" style={OFF}></span>
+    <span class="fp2-led-on" style="{ON}opacity:{Math.max(0, Math.min(1, bright[key] ?? 0))};"></span>
+  </span>
+{/snippet}
 
 <div class="fp2" class:collapsed={!open}>
   <div class="fp2-title">
@@ -135,7 +193,7 @@
         <div class="fp2-lab">STATUS</div>
         <div class="fp2-sleds">
           {#each statusLeds as s (s.k)}
-            <div class="fp2-sled"><span style={led(s.on, 16)}></span><small>{s.k}</small></div>
+            <div class="fp2-sled">{@render ledDim('s' + s.k, 16)}<small>{s.k}</small></div>
           {/each}
         </div>
         <div class="fp2-pc"><span class="l">PC</span><span class="v">{fmt(panel?.pc ?? 0, oct ? 6 : 4, 4)}</span></div>
@@ -157,10 +215,10 @@
                 {#each g.bits as b (b.i)}
                   <div class="fp2-col">
                     <div class="fp2-dcell">
-                      {#if b.low}<span class="fp2-dlab">D{b.i}</span><span style={led(b.dOn, 20)}></span>{/if}
+                      {#if b.low}<span class="fp2-dlab">D{b.i}</span>{@render ledDim('d' + b.i, 20)}{/if}
                     </div>
                     <div class="fp2-gap6"></div>
-                    <div class="fp2-acell"><span style={led(b.aOn, 20)}></span></div>
+                    <div class="fp2-acell">{@render ledDim('a' + b.i, 20)}</div>
                     <div class="fp2-conn"><i></i></div>
                     <div class="fp2-scell">
                       <button class="fp2-switch" onclick={() => toggle(b.i)} title="switch bit {b.i}" aria-label="switch bit {b.i}">
@@ -245,6 +303,11 @@
   .fp2-dlab { font-family: var(--mono); font-size: 9px; color: #6d7580; }
   .fp2-gap6 { height: 6px; }
   .fp2-acell { height: 26px; display: flex; align-items: center; justify-content: center; }
+  /* Layered LED: a dark base with a lit face whose opacity = the eased brightness
+     (Step A inertia), so the glow fades smoothly instead of hard on/off. */
+  .fp2-led { position: relative; display: inline-block; vertical-align: middle; flex: none; }
+  .fp2-led-off, .fp2-led-on { position: absolute; inset: 0; box-sizing: border-box; }
+  .fp2-led-on { pointer-events: none; }
   .fp2-conn { height: 14px; display: flex; justify-content: center; align-items: center; }
   .fp2-conn i { width: 0; height: 12px; border-left: 1px dashed rgba(255,255,255,.18); }
   .fp2-scell { height: 48px; display: flex; align-items: center; justify-content: center; }
