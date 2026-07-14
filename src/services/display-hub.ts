@@ -3,7 +3,7 @@
  *
  * A video card (8sim's VdmCard, later Dazzler) exposes a `.display` surface —
  * a descriptor (how to render) plus a `frame()` the host reads each refresh.
- * This is the display counterpart to `consoleSourceFromCard` / `gpioSourceFromCard`:
+ * This is the display counterpart to `consoleSourceFromCard`:
  * the host detects a card's display and a canvas viewer renders its frames.
  */
 

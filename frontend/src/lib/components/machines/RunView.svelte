@@ -7,7 +7,6 @@
   import Button from '$lib/components/shared/Button.svelte';
   import InstanceConsole from '$lib/components/machines/InstanceConsole.svelte';
   import MonitorPanel from '$lib/components/machines/MonitorPanel.svelte';
-  import GpioPanel from '$lib/components/machines/GpioPanel.svelte';
   import FrontPanel from '$lib/components/machines/FrontPanel.svelte';
   import { getCockpitLayout, setCockpitLayout } from '$lib/stores/cockpitLayout';
   import { onMount } from 'svelte';
@@ -28,12 +27,11 @@
   // Console + monitor layout: both 50/50, or one maximized (the other a rail).
   let duo = $state<'both' | 'cmax' | 'mmax'>(saved.duo);
   let frontPanelOpen = $state(saved.frontPanelOpen);
-  let gpioOpen = $state(saved.gpioOpen);
   let busy = $state(false);
 
   // Persist any change back to the per-machine layout store.
   $effect(() => {
-    setCockpitLayout(instance.id, { duo, frontPanelOpen, gpioOpen });
+    setCockpitLayout(instance.id, { duo, frontPanelOpen });
   });
 
   // Does this machine have a keyboard input card? If so, physical keystrokes
@@ -156,17 +154,6 @@
         Keyboard routes to the serial console — typing hits the SIO port even when the monitor is maximized.
       {/if}
     </p>
-
-    <!-- GPIO -->
-    <div class="panel">
-      <button class="fphead" onclick={() => (gpioOpen = !gpioOpen)}>
-        <span class="ptitle"><span class="chev" class:open={gpioOpen}>▶</span><Icon name="toggle_on" size={16} /> GPIO</span>
-        <span class="psub">gpio</span>
-      </button>
-      {#if gpioOpen}
-        <GpioPanel instanceId={instance.id} title={instance.profileRef} embedded />
-      {/if}
-    </div>
   </div>
 </div>
 

@@ -401,41 +401,13 @@ export interface DataSection {
   terminalOnly?: boolean;
 }
 
-export interface GpioDrivePins {
-  enable?: number | null;
-  headLoad?: number | null;
-  readOnly?: number | null;
-}
-
-export interface GpioTerminalPins {
-  rx?: number | null;
-  tx?: number | null;
-  connected?: number | null;
-}
-
-export interface GpioSection {
-  enabled?: boolean;
-  activeLow?: boolean;
-  blinkDuration?: number;
-  activityBlinkDuration?: number;
-  activityLed?: number | null;
-  drive0?: GpioDrivePins;
-  drive1?: GpioDrivePins;
-  drive2?: GpioDrivePins;
-  drive3?: GpioDrivePins;
-  terminal?: GpioTerminalPins;
-}
-
-export interface ConfigDoc
-  extends SerialSection,
-    WebSection,
-    McpSection,
-    DiskServingSection,
-    TerminalSection,
-    LoggingSection,
-    DataSection {
-  gpioLeds?: GpioSection;
-}
+export type ConfigDoc = SerialSection &
+  WebSection &
+  McpSection &
+  DiskServingSection &
+  TerminalSection &
+  LoggingSection &
+  DataSection;
 
 export interface ConfigStatus {
   // Read-only baseline shipped by the package (e.g. /etc/fdcsds/fdcsds.config.json).

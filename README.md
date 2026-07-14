@@ -8,7 +8,7 @@ It serves virtual floppy and hard-disk images to a real Altair through its **FDC
 
 **Version:** 3.0.0-alpha · **License:** GPL-3.0 · **Platforms:** Linux (Raspberry Pi & x86), macOS
 
-> **Note:** BitsBy8 is the product name. The CLI, systemd service, and Debian package are still named `fdcsds`, and the source repo is `fdcplus-web` — these keep their current names for now while the rename is in progress.
+> **Note:** BitsBy8 is the product name. The systemd service and Debian package are still named `fdcsds`, and the source repo is `fdcplus-web` — these keep their current names for now while the rename is in progress.
 
 ![BitsBy8 web UI — the Drives & Library page: four drive bays across the top, disk-image library below.](images/ui-disks.png)
 
@@ -18,7 +18,7 @@ It serves virtual floppy and hard-disk images to a real Altair through its **FDC
 
 **Serve disks to a real Altair.** Mount up to four floppies (plus larger hard-disk images) and serve them to an unmodified Altair 8800 through its FDC+ controller over serial — or over a WebSocket link to an Altair *simulator*. Drives can be read-only or copy-on-write, and multiple machines can share the same library at once.
 
-**Run virtual machines.** Assemble an S-100 computer from a catalog of emulated cards — CPU (8080/Z80), RAM, disk, serial, video, GPIO — save it as a reusable **Machine Profile**, and boot it in the browser. Each running machine gets a live serial console, an Altair-style **front panel**, and a **video monitor** (VDM-1 character display / Cromemco Dazzler graphics). Snapshot a machine and restore it later.
+**Run virtual machines.** Assemble an S-100 computer from a catalog of emulated cards — CPU (8080/Z80), RAM, disk, serial, video — save it as a reusable **Machine Profile**, and boot it in the browser. Each running machine gets a live serial console, an Altair-style **front panel**, and a **video monitor** (VDM-1 character display / Cromemco Dazzler graphics). Snapshot a machine and restore it later.
 
 **One place to drive it all.** The web UI, a full REST API, and an MCP server (90+ tools) all reach the same live state, so you can operate BitsBy8 by hand, from scripts, or from an AI assistant.
 
@@ -28,7 +28,7 @@ At a glance:
 - 🖥️ **Virtual S-100 machines** — card catalog, machine profiles, and a run cockpit with console, front panel, and video monitor
 - ⌨️ **VT102 terminal** in the browser for a real serial console or a virtual machine's console — reconnects where you left off
 - 🧑‍🤝‍🧑 **Multi-client serving** so several machines (real and virtual) share one disk library
-- 📼 **Cassette audio** playback and 🔴 **GPIO status LEDs** on a Raspberry Pi
+- 📼 **Cassette audio** playback
 - 🤖 **AI assistant integration** via MCP (stdio or HTTP), plus OpenAPI/Swagger docs at `/api/docs`
 
 ---
@@ -105,7 +105,6 @@ A few setup notes:
 
 - **Serial permissions (Linux):** add your user to the `dialout` group (`sudo usermod -aG dialout $USER`, then log out and back in).
 - **Stable port names:** USB port names like `/dev/ttyUSB0` can shuffle across reboots. Run `fdcsds --show-persistent-paths` to get a stable `/dev/serial/by-id/...` path for your config.
-- **GPIO status LEDs:** add `--gpio-leds` on a Raspberry Pi for real-time drive/terminal indicators — wiring and pin maps in [docs/GPIO-LEDS.md](docs/GPIO-LEDS.md).
 - **No physical FDC+?** An Altair *simulator* can connect over WebSocket instead of serial — see [docs/WS-FDC-TRANSPORT.md](docs/WS-FDC-TRANSPORT.md).
 
 Generate a starter config any time with `fdcsds --example-config > .fdcsds.config`, and run `fdcsds --help` for the full option list.
@@ -119,13 +118,13 @@ Open the UI and everything is in the left sidebar:
 | Section | What it's for |
 |---|---|
 | **Disks** | Mount/unmount images across the four drive bays, toggle read-only, browse and upload the disk library, take snapshots |
-| **Virtual Machines** | Boot machine profiles and drive them in the run cockpit — serial console, Altair front panel, video monitor, GPIO |
+| **Virtual Machines** | Boot machine profiles and drive them in the run cockpit — serial console, Altair front panel, video monitor |
 | **Card Catalog** / **Machine Profiles** | Assemble S-100 machines from emulated cards and save them as reusable profiles |
 | **Terminal** | A VT102 console for a real serial port or a running virtual machine |
 | **Cassettes** | Play cassette-tape audio images |
 | **Disk Clients** | See and manage the machines currently sharing your disks (multi-client serving) |
 | **Scripts** | Replay canned input / XMODEM transfers to a machine |
-| **Config** | Server settings — serial defaults, web/API, MCP, GPIO |
+| **Config** | Server settings — serial defaults, web/API, MCP |
 
 More detail in [docs/WEB-INTERFACE.md](docs/WEB-INTERFACE.md).
 
@@ -160,7 +159,6 @@ The data directory (`/var/lib/fdcsds` on a `.deb` install) holds your disk libra
 
 - [DEBIAN-PACKAGE.md](DEBIAN-PACKAGE.md) — building and installing the Debian package
 - [docs/WEB-INTERFACE.md](docs/WEB-INTERFACE.md) — web UI walkthrough
-- [docs/GPIO-LEDS.md](docs/GPIO-LEDS.md) — LED wiring and configuration
 - [docs/WS-FDC-TRANSPORT.md](docs/WS-FDC-TRANSPORT.md) — WebSocket disk transport for simulators
 - [docs/PROTOCOL.md](docs/PROTOCOL.md) — the FDC+ serial disk protocol
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — common issues
@@ -174,7 +172,7 @@ GPL-3.0.
 
 ## Credits
 
-- **BitsBy8 software** (disk server, web interface, virtual machines, MCP server, GPIO LEDs): Joe Toppe, 2024–present.
+- **BitsBy8 software** (disk server, web interface, virtual machines, MCP server): Joe Toppe, 2024–present.
 - **FDC+ Enhanced Floppy Disk Controller hardware:** Mike Douglas / [deramp.com](http://www.deramp.com). BitsBy8 talks to that controller over serial; the hardware itself is a separate product.
 
 See [AUTHORS](AUTHORS) for the full contributor list.

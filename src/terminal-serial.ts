@@ -4,7 +4,6 @@
  */
 
 import { SerialPort } from 'serialport';
-import { getGpioLedController } from './gpio';
 import { resolvePortPath, validatePortPath, listPortsWithPersistent, PortInfo } from './port-resolver';
 
 /**
@@ -157,8 +156,6 @@ export class TerminalSerialManager {
               reject(error);
             }
           } else {
-            // Update GPIO connected status
-            getGpioLedController().updateTerminalConnected(true);
             resolve();
           }
         }
@@ -166,9 +163,6 @@ export class TerminalSerialManager {
 
       // Setup data handler - forward incoming data to interceptor or callback
       this.port.on('data', (data: Buffer) => {
-        // Blink RX LED
-        getGpioLedController().updateTerminalRx();
-
         // MCP tap: always buffer incoming bytes and notify MCP waiters
         this.mcpRxChunks.push(data);
         this.mcpRxSize += data.length;
@@ -216,8 +210,6 @@ export class TerminalSerialManager {
         } else {
           this.port = null;
           this.clearMcpBuffer();
-          // Update GPIO connected status
-          getGpioLedController().updateTerminalConnected(false);
           resolve();
         }
       });
@@ -235,9 +227,6 @@ export class TerminalSerialManager {
     if (!this.port || !this.port.isOpen) {
       throw new Error('Serial port not open');
     }
-
-    // Blink TX LED
-    getGpioLedController().updateTerminalTx();
 
     const verbose = this._verbose;
     const len = Buffer.isBuffer(data) ? data.length : data.length;

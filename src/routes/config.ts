@@ -9,7 +9,6 @@
  * - `PUT  /api/config/web`      | Per-section writes → merged, validated, atomically
  * - `PUT  /api/config/terminal` | written back to the config file the daemon loaded at
  * - `PUT  /api/config/logging`  | startup. Restart is not triggered here (Phase 2).
- * - `PUT  /api/config/gpio`     |
  * - `PUT  /api/config/data`     /
  */
 
@@ -31,7 +30,6 @@ import {
   TerminalSchema,
   LoggingSchema,
   DataSchema,
-  GpioSchema,
 } from '../config';
 import { setMcpHttpEnabled, isMcpHttpEnabled, activeMcpSessionCount } from '../mcp-http';
 import { writePartialConfig, rollbackConfig, ConfigWriteError } from '../services/config-persistence';
@@ -101,9 +99,6 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
       // Data & mode
       dataDir: safe.dataDir,
       terminalOnly: safe.terminalOnly,
-
-      // GPIO
-      gpioLeds: safe.gpioLeds,
     });
   });
 
@@ -157,7 +152,6 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
             terminal: toJSONSchema(TerminalSchema),
             logging: toJSONSchema(LoggingSchema),
             data: toJSONSchema(DataSchema),
-            gpio: toJSONSchema(GpioSchema),
           },
         });
         return;
@@ -356,7 +350,7 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
    *     summary: Re-read runtime-toggleable knobs without restarting
    *     description: |
    *       Best-effort re-read of `verbose`, `debug`, and `logFile` from
-   *       the current on-disk config. Serial / web / GPIO changes still
+   *       the current on-disk config. Serial / web changes still
    *       need a full restart. Returns 200 with the set of fields that
    *       actually took effect.
    *     responses:
@@ -495,10 +489,6 @@ export function registerConfigRoutes(router: Router, deps: Dependencies): void {
   // Disk serving (WS/TCP transport): dedicated handler — applied live,
   // and disabling it drops any active virtual FDC client.
   registerDiskServingConfigPut(router, deps);
-
-  // GPIO comes in as a full { gpioLeds: {...} } shape — the section
-  // schema is the inner object, so wrap it here.
-  registerSectionPut(router, deps, '/api/config/gpio', z.object({ gpioLeds: GpioSchema }));
 }
 
 /**

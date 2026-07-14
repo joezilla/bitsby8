@@ -11,7 +11,6 @@
   import Sparkline from '$lib/components/machines/Sparkline.svelte';
   import InstanceConsole from '$lib/components/machines/InstanceConsole.svelte';
   import SnapshotsModal from '$lib/components/machines/SnapshotsModal.svelte';
-  import GpioPanel from '$lib/components/machines/GpioPanel.svelte';
   import MonitorPanel from '$lib/components/machines/MonitorPanel.svelte';
   import RunView from '$lib/components/machines/RunView.svelte';
 
@@ -25,7 +24,6 @@
   let loading = $state(true);
   let consoleFor = $state<InstanceStatus | null>(null);
   let snapshotsFor = $state<InstanceStatus | null>(null);
-  let gpioFor = $state<InstanceStatus | null>(null);
   let monitorFor = $state<InstanceStatus | null>(null);
   let runFor = $state<InstanceStatus | null>(null);
   // Leave the cockpit if its machine is stopped or destroyed elsewhere.
@@ -307,10 +305,6 @@
     </div>
   {/if}
 </div>
-
-{#if gpioFor}
-  <GpioPanel instanceId={gpioFor.id} title={gpioFor.profileRef} onClose={() => (gpioFor = null)} />
-{/if}
 
 {#if monitorFor}
   <MonitorPanel instanceId={monitorFor.id} title={monitorFor.profileRef} onClose={() => (monitorFor = null)} />

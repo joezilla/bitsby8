@@ -56,8 +56,8 @@ export interface Dependencies {
   overrideConfigFilePath: string | null;
 
   // The parsed baseline config as-loaded from `packageConfigFilePath`.
-  // Passed to `writePartialConfig` so cross-layer validation (GPIO pin
-  // uniqueness spanning baseline + override) fires on every save.
+  // Passed to `writePartialConfig` so cross-layer validation fires on
+  // every save (the merged baseline + override doc is what's checked).
   baselineConfig: ConfigFile | null;
 
   // Millisecond epoch captured once at process start. The UI polls

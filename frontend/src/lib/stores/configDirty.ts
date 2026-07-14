@@ -19,8 +19,7 @@ export type SectionId =
   | 'web'
   | 'mcp'
   | 'terminal'
-  | 'logging'
-  | 'gpio';
+  | 'logging';
 
 interface SectionState {
   dirty: boolean;
@@ -33,7 +32,6 @@ const initial: Record<SectionId, SectionState> = {
   mcp: { dirty: false, restartPending: false },
   terminal: { dirty: false, restartPending: false },
   logging: { dirty: false, restartPending: false },
-  gpio: { dirty: false, restartPending: false },
 };
 
 export const configSections = writable<Record<SectionId, SectionState>>(initial);

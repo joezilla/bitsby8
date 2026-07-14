@@ -31,13 +31,12 @@
   "author": "Joe Toppe (TypeScript version)",
   "license": "GPL-3.0",
   "dependencies": {
-    "@joezilla/8sim": "^0.10.0",
+    "@joezilla/8sim": "^0.12.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/multer": "^2.0.0",
     "@types/play-sound": "^1.1.2",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.9.0",
-    "blessed": "^0.1.81",
     "commander": "^11.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
@@ -55,12 +54,8 @@
     "ws": "^8.21.0",
     "zod": "^4.4.3"
   },
-  "optionalDependencies": {
-    "onoff": "^6.0.3"
-  },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
-    "@types/blessed": "^0.1.25",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.0",
     "@types/express": "^4.17.25",

@@ -111,7 +111,7 @@ export function registerCatalogRoutes(router: Router, deps: Dependencies): void 
    *   get:
    *     tags: [Catalog]
    *     summary: List peripheral endpoint types a card can bind to (Story 5.6)
-   *     description: The vocabulary of endpoints a card's far side connects to (terminal, disk, clock, gpio, display, socket), with what's wired today.
+   *     description: The vocabulary of endpoints a card's far side connects to (terminal, disk, clock, display, socket), with what's wired today.
    *     responses:
    *       200:
    *         description: Endpoint types

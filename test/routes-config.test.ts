@@ -180,41 +180,6 @@ describe('config routes', () => {
       expect(afterMtime).toBe(beforeMtime);
     });
 
-    test('rejects a GPIO patch that reuses a pin across drives', async () => {
-      const filePath = await makeTempOverride({});
-      const { app } = buildApp({ overrideConfigFilePath: filePath });
-      const res = await request(app)
-        .put('/api/config/gpio')
-        .send({
-          gpioLeds: {
-            enabled: true,
-            drive0: { enable: 17 },
-            drive1: { enable: 17 },
-          },
-        });
-      expect(res.status).toBe(400);
-      expect(res.body.code).toBe('VALIDATION_FAILED');
-      expect(res.body.issues.some((i: any) => /used more than once/i.test(i.message))).toBe(true);
-    });
-
-    test('a GPIO save replaces baseline gpioLeds wholesale (documents the layer semantics)', async () => {
-      // The UI's GPIO save handler always ships the full gpioLeds
-      // subtree, so the layer merge replaces baseline gpioLeds
-      // wholesale. Confirming that here so the semantic doesn't
-      // regress into a surprising deep-merge some day.
-      const filePath = await makeTempOverride({});
-      const baselineConfig = {
-        gpioLeds: { enabled: true, drive0: { enable: 17, headLoad: 27, readOnly: 22 } },
-      };
-      const { app } = buildApp({ overrideConfigFilePath: filePath, baselineConfig });
-      const res = await request(app)
-        .put('/api/config/gpio')
-        .send({ gpioLeds: { enabled: true, drive1: { enable: 17 } } });
-      expect(res.status).toBe(200);
-      expect(res.body.config.gpioLeds).toEqual({ enabled: true, drive1: { enable: 17 } });
-      expect(res.body.config.gpioLeds).not.toHaveProperty('drive0');
-    });
-
     test('returns 409 when no override file path is configured', async () => {
       const { app } = buildApp(); // overrideConfigFilePath: null
       const res = await request(app)

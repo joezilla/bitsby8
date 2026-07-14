@@ -19,7 +19,7 @@ fields below help triage your PR without back-and-forth.
 - [ ] If route `@openapi` JSDoc changed: ran `pnpm docs` and committed regenerated `openapi.json` in this PR
 
 **Hardware touched (if any):**
-<!-- e.g. "real Altair 8800 over /dev/ttyUSB0 at 230400, on a Pi 4 with GPIO LEDs" or "mocks only" -->
+<!-- e.g. "real Altair 8800 over /dev/ttyUSB0 at 230400, on a Pi 4" or "mocks only" -->
 
 **Browser smoke-tested (if frontend touched):**
 <!-- e.g. "Safari 17.x, Chrome 125, both themes" -->

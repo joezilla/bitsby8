@@ -10,10 +10,9 @@
   import Chip from '$lib/components/shared/Chip.svelte';
   import Toggle from '$lib/components/shared/Toggle.svelte';
   import PageHeader from '$lib/components/shared/PageHeader.svelte';
-  import GpioPinInput from '$lib/components/shared/GpioPinInput.svelte';
   import RestartBanner from '$lib/components/shared/RestartBanner.svelte';
   import { showToast } from '$lib/stores/toast';
-  import type { SerialPortInfo, ConfigDoc, ConfigStatus, GpioSection } from '$lib/types/api';
+  import type { SerialPortInfo, ConfigDoc, ConfigStatus } from '$lib/types/api';
 
   let config = $state<ConfigDoc | null>(null);
   let configStatus = $state<ConfigStatus | null>(null);
@@ -77,18 +76,6 @@
     debug: false,
     logFile: '' as string | null,
   });
-  let gpioForm = $state<GpioSection>({
-    enabled: false,
-    activeLow: false,
-    blinkDuration: 100,
-    activityBlinkDuration: 50,
-    activityLed: null,
-    drive0: { enable: null, headLoad: null, readOnly: null },
-    drive1: { enable: null, headLoad: null, readOnly: null },
-    drive2: { enable: null, headLoad: null, readOnly: null },
-    drive3: { enable: null, headLoad: null, readOnly: null },
-    terminal: { rx: null, tx: null, connected: null },
-  });
 
   // Per-section snapshots taken at load time. Dirty derivations JSON-
   // compare against these instead of re-defaulting from `config` on
@@ -99,7 +86,6 @@
   let webBaseline = $state('');
   let terminalBaseline = $state('');
   let loggingBaseline = $state('');
-  let gpioBaseline = $state('');
 
   let serialConnected = $derived($serverStatus?.serial.connected ?? false);
   let termConnected = $derived($terminalStatus?.connected ?? false);
@@ -110,54 +96,6 @@
 
   const primaryBaudRates = [9600, 19200, 38400, 57600, 76800, 115200, 230400, 403200, 460800];
   const terminalBaudRates = [300, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200];
-
-  // GPIO defaults from the README / getExampleConfig() — used to
-  // pre-populate the form the first time an operator enables GPIO
-  // without an existing pin map on disk. Keeps them from having to
-  // hand-type 15 numbers from the docs.
-  const GPIO_DEFAULTS: GpioSection = {
-    enabled: true,
-    activeLow: false,
-    blinkDuration: 100,
-    activityBlinkDuration: 50,
-    activityLed: 4,
-    drive0: { enable: 17, headLoad: 27, readOnly: 22 },
-    drive1: { enable: 23, headLoad: 24, readOnly: 25 },
-    drive2: { enable: 5, headLoad: 6, readOnly: 13 },
-    drive3: { enable: 19, headLoad: 26, readOnly: 12 },
-    terminal: { rx: 16, tx: 20, connected: 21 },
-  };
-
-  function anyPinAssigned(g: GpioSection): boolean {
-    const pins: (number | null | undefined)[] = [
-      g.activityLed,
-      g.drive0?.enable, g.drive0?.headLoad, g.drive0?.readOnly,
-      g.drive1?.enable, g.drive1?.headLoad, g.drive1?.readOnly,
-      g.drive2?.enable, g.drive2?.headLoad, g.drive2?.readOnly,
-      g.drive3?.enable, g.drive3?.headLoad, g.drive3?.readOnly,
-      g.terminal?.rx, g.terminal?.tx, g.terminal?.connected,
-    ];
-    return pins.some((p) => typeof p === 'number');
-  }
-
-  function applyGpioDefaults() {
-    // Deep-clone so subsequent edits don't mutate the constant.
-    const d = JSON.parse(JSON.stringify(GPIO_DEFAULTS)) as GpioSection;
-    // Preserve the operator's own choices for the numeric knobs if
-    // they've already tweaked them; only fill in what's unset.
-    gpioForm = {
-      enabled: true,
-      activeLow: gpioForm.activeLow ?? d.activeLow,
-      blinkDuration: gpioForm.blinkDuration ?? d.blinkDuration,
-      activityBlinkDuration: gpioForm.activityBlinkDuration ?? d.activityBlinkDuration,
-      activityLed: d.activityLed,
-      drive0: { ...d.drive0 },
-      drive1: { ...d.drive1 },
-      drive2: { ...d.drive2 },
-      drive3: { ...d.drive3 },
-      terminal: { ...d.terminal },
-    };
-  }
 
   onMount(async () => {
     await refresh();
@@ -192,44 +130,6 @@
 
   async function refresh() {
     await loadConfig(true);
-  }
-
-  /**
-   * Canonical form-shape for the GPIO section. Both `gpioForm` (edit
-   * copy) and the dirty-detection baseline run through this so the
-   * two are structurally comparable — otherwise `gpioForm` always
-   * looks "dirty" against a bare `{}` or a partial `{ enabled: true }`
-   * config, since resetAllForms fills in explicit defaults for every
-   * scalar field.
-   */
-  function normalizeGpio(g: GpioSection | undefined | null): GpioSection {
-    const src = g ?? {};
-    // Fully populate every optional key so both the baseline snapshot
-    // and the live gpioForm serialise to the exact same JSON. Empty
-    // sub-objects here would let the template's bind:value silently
-    // materialise `enable`/`headLoad`/`readOnly` keys on the proxy,
-    // which then makes the "dirty" JSON diverge from the baseline.
-    const drive = (d: any) => ({
-      enable: d?.enable ?? null,
-      headLoad: d?.headLoad ?? null,
-      readOnly: d?.readOnly ?? null,
-    });
-    return {
-      enabled: src.enabled ?? false,
-      activeLow: src.activeLow ?? false,
-      blinkDuration: src.blinkDuration ?? 100,
-      activityBlinkDuration: src.activityBlinkDuration ?? 50,
-      activityLed: src.activityLed ?? null,
-      drive0: drive(src.drive0),
-      drive1: drive(src.drive1),
-      drive2: drive(src.drive2),
-      drive3: drive(src.drive3),
-      terminal: {
-        rx: src.terminal?.rx ?? null,
-        tx: src.terminal?.tx ?? null,
-        connected: src.terminal?.connected ?? null,
-      },
-    };
   }
 
   function loggingComparable() {
@@ -270,7 +170,6 @@
       debug: config.debug ?? false,
       logFile: config.logFile ?? '',
     };
-    gpioForm = normalizeGpio(config.gpioLeds);
 
     // Snapshot each freshly-populated form so the dirty derivations
     // compare like-shape against like-shape. Set AFTER the form
@@ -283,7 +182,6 @@
     webBaseline = JSON.stringify($state.snapshot(webForm));
     terminalBaseline = JSON.stringify($state.snapshot(terminalForm));
     loggingBaseline = JSON.stringify(loggingComparable());
-    gpioBaseline = JSON.stringify($state.snapshot(gpioForm));
   }
 
   // ---------- Dirty tracking (structural equality per section) ----------
@@ -292,58 +190,11 @@
   const webDirty = $derived(!!config && JSON.stringify($state.snapshot(webForm)) !== webBaseline);
   const terminalDirty = $derived(!!config && JSON.stringify($state.snapshot(terminalForm)) !== terminalBaseline);
   const loggingDirty = $derived(!!config && JSON.stringify(loggingComparable()) !== loggingBaseline);
-  const gpioDirty = $derived(!!config && JSON.stringify($state.snapshot(gpioForm)) !== gpioBaseline);
 
-  const anyDirty = $derived(serialDirty || webDirty || terminalDirty || loggingDirty || gpioDirty);
+  const anyDirty = $derived(serialDirty || webDirty || terminalDirty || loggingDirty);
   const dirtyCount = $derived(
-    [serialDirty, webDirty, terminalDirty, loggingDirty, gpioDirty].filter(Boolean).length,
+    [serialDirty, webDirty, terminalDirty, loggingDirty].filter(Boolean).length,
   );
-
-  // ---------- Pin conflict detection (mirrors backend superRefine) ----------
-
-  const gpioUsedPins = $derived((): Set<number> => {
-    const s = new Set<number>();
-    const add = (v: number | null | undefined) => {
-      if (typeof v === 'number') s.add(v);
-    };
-    add(gpioForm.activityLed);
-    for (const drive of [gpioForm.drive0, gpioForm.drive1, gpioForm.drive2, gpioForm.drive3]) {
-      add(drive?.enable);
-      add(drive?.headLoad);
-      add(drive?.readOnly);
-    }
-    add(gpioForm.terminal?.rx);
-    add(gpioForm.terminal?.tx);
-    add(gpioForm.terminal?.connected);
-    return s;
-  });
-
-  // Used to highlight a specific field: pass a Set that excludes the
-  // pin at THAT field, so the field only lights up when it duplicates
-  // another one, not itself.
-  function usedPinsExcluding(v: number | null | undefined): Set<number> {
-    const s = gpioUsedPins();
-    if (typeof v === 'number') {
-      // If this pin appears more than once, keep it in the set so
-      // every field showing it lights up. If it appears exactly once
-      // (this field only), remove it.
-      let count = 0;
-      const all: (number | null | undefined)[] = [
-        gpioForm.activityLed,
-        ...([gpioForm.drive0, gpioForm.drive1, gpioForm.drive2, gpioForm.drive3].flatMap((d) => [
-          d?.enable,
-          d?.headLoad,
-          d?.readOnly,
-        ])),
-        gpioForm.terminal?.rx,
-        gpioForm.terminal?.tx,
-        gpioForm.terminal?.connected,
-      ];
-      for (const p of all) if (p === v) count++;
-      if (count <= 1) s.delete(v);
-    }
-    return s;
-  }
 
   // ---------- Save (unified sticky bar) ----------
 
@@ -409,10 +260,6 @@
           debug: loggingForm.debug,
           logFile: trimStrOrNull(loggingForm.logFile),
         }, etag);
-        etag = etagFor(r.mtimeMs);
-      }
-      if (gpioDirty) {
-        const r = await api.putGpioConfig({ gpioLeds: $state.snapshot(gpioForm) as any }, etag);
         etag = etagFor(r.mtimeMs);
       }
       await loadConfig(true);
@@ -727,15 +574,6 @@
     } catch (err) {
       showToast(`Shutdown failed: ${(err as Error).message}`, 'error');
       shuttingDown = false;
-    }
-  }
-
-  function toggleGpio() {
-    const on = !gpioForm.enabled;
-    if (on && !anyPinAssigned(gpioForm)) {
-      applyGpioDefaults();
-    } else {
-      gpioForm.enabled = on;
     }
   }
 
@@ -1179,86 +1017,6 @@
         </div>
       </section>
 
-      <!-- ============ GPIO LEDs ============ -->
-      <section class="cfg-card">
-        <div class="cfg-head cfg-head--spread">
-          <div style="min-width: 0;">
-            <div class="cfg-head">
-              <Icon name="lightbulb" size={20} class="cfg-head__icon" />
-              <div class="cfg-title">GPIO LEDs</div>
-              {@render info("Raspberry Pi only. Populates the default pin map from the README if you haven't set any pins yet.")}
-            </div>
-            <div class="cfg-desc tight">Drive drive-status and terminal LEDs from BCM GPIO pins on a Pi.</div>
-          </div>
-          <Toggle checked={!!gpioForm.enabled} ariaLabel="Enable GPIO LED output" onToggle={toggleGpio} />
-        </div>
-
-        {#if gpioForm.enabled}
-          <div class="cfg-grid-quad" style="margin-top: 18px;">
-            <div class="cfg-row cfg-row--inline">
-              <div class="cfg-row__main">
-                <div class="cfg-row__title">Active-low</div>
-                <div class="cfg-row__desc">LED wired to 3.3V; pin sinks.</div>
-              </div>
-              <Toggle checked={!!gpioForm.activeLow} ariaLabel="Active-low GPIO" onToggle={() => (gpioForm.activeLow = !gpioForm.activeLow)} />
-            </div>
-            <div>
-              {@render fieldLabel('Status blink (ms)')}
-              <Input type="number" value={String(gpioForm.blinkDuration ?? 100)}
-                oninput={(e) => (gpioForm.blinkDuration = parseInt((e.target as HTMLInputElement).value, 10) || 0)} />
-            </div>
-            <div>
-              {@render fieldLabel('Activity blink (ms)')}
-              <Input type="number" value={String(gpioForm.activityBlinkDuration ?? 50)}
-                oninput={(e) => (gpioForm.activityBlinkDuration = parseInt((e.target as HTMLInputElement).value, 10) || 0)} />
-            </div>
-            <div>
-              {@render fieldLabel('Activity LED pin')}
-              <GpioPinInput bind:value={gpioForm.activityLed} usedPins={usedPinsExcluding(gpioForm.activityLed)} />
-            </div>
-          </div>
-
-          {#each [0, 1, 2, 3] as n}
-            {@const drive = [gpioForm.drive0!, gpioForm.drive1!, gpioForm.drive2!, gpioForm.drive3!][n]}
-            <div class="cfg-pins">
-              <span class="cfg-sub__label">Drive {n}</span>
-              <div class="cfg-grid-triple">
-                <div>
-                  {@render fieldLabel('Enable')}
-                  <GpioPinInput bind:value={drive.enable} usedPins={usedPinsExcluding(drive.enable)} />
-                </div>
-                <div>
-                  {@render fieldLabel('Head-load')}
-                  <GpioPinInput bind:value={drive.headLoad} usedPins={usedPinsExcluding(drive.headLoad)} />
-                </div>
-                <div>
-                  {@render fieldLabel('Read-only')}
-                  <GpioPinInput bind:value={drive.readOnly} usedPins={usedPinsExcluding(drive.readOnly)} />
-                </div>
-              </div>
-            </div>
-          {/each}
-
-          <div class="cfg-pins">
-            <span class="cfg-sub__label">Terminal LEDs</span>
-            <div class="cfg-grid-triple">
-              <div>
-                {@render fieldLabel('RX')}
-                <GpioPinInput bind:value={gpioForm.terminal!.rx} usedPins={usedPinsExcluding(gpioForm.terminal?.rx)} />
-              </div>
-              <div>
-                {@render fieldLabel('TX')}
-                <GpioPinInput bind:value={gpioForm.terminal!.tx} usedPins={usedPinsExcluding(gpioForm.terminal?.tx)} />
-              </div>
-              <div>
-                {@render fieldLabel('Connected')}
-                <GpioPinInput bind:value={gpioForm.terminal!.connected} usedPins={usedPinsExcluding(gpioForm.terminal?.connected)} />
-              </div>
-            </div>
-          </div>
-        {/if}
-      </section>
-
       <!-- ============ SYSTEM INFO ============ -->
       <section class="cfg-card cfg-card--flush">
         <button type="button" class="cfg-sysbtn" onclick={() => (sysInfoOpen = !sysInfoOpen)}>
@@ -1466,17 +1224,6 @@
     gap: 16px;
     padding: 16px 0;
   }
-  .cfg-grid-quad {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 16px;
-  }
-  .cfg-grid-triple {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(110px, 1fr));
-    gap: 12px;
-    margin-top: 8px;
-  }
   @media (max-width: 640px) {
     .cfg-grid-side, .cfg-grid-even { grid-template-columns: 1fr; }
   }
@@ -1507,9 +1254,6 @@
   }
   .cfg-row--divided {
     border-top: 1px solid var(--border-1);
-  }
-  .cfg-row--inline {
-    padding: 0;
   }
   .cfg-row__main {
     min-width: 0;
@@ -1677,13 +1421,6 @@
   .cfg-code__copy:hover {
     background: var(--surface-raised);
     color: var(--fg-1);
-  }
-
-  /* ---- GPIO pin groups ---- */
-  .cfg-pins {
-    margin-top: 12px;
-    padding-top: 12px;
-    border-top: 1px solid var(--border-1);
   }
 
   /* ---- system info ---- */

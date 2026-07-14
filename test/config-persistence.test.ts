@@ -117,45 +117,6 @@ describe('config persistence', () => {
       await expect(fs.access(`${filePath}.tmp`)).rejects.toMatchObject({ code: 'ENOENT' });
     });
 
-    test('within-save pin conflict is caught by effective-doc validation', async () => {
-      // The layer merge replaces gpioLeds wholesale (the UI always
-      // ships the full subtree on GPIO save), so a "cross-layer"
-      // collision inside gpioLeds can't happen — the effective
-      // gpioLeds equals the override's gpioLeds. What DOES fire is
-      // the effective-doc superRefine catching a duplicate inside
-      // the incoming save.
-      const filePath = await makeTempOverridePath();
-      await expect(
-        writePartialConfig(
-          filePath,
-          {
-            gpioLeds: {
-              enabled: true,
-              drive0: { enable: 17 },
-              drive1: { enable: 17 },
-            },
-          } as any,
-          { port: '/dev/ttyUSB0' },
-        ),
-      ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
-    });
-
-    test('override that only names gpioLeds does NOT leak baseline pins into the effective doc', async () => {
-      // Confirms the wholesale-replacement semantics: after a gpioLeds
-      // save the effective doc reflects exactly the override's subtree,
-      // not baseline pins layered underneath.
-      const filePath = await makeTempOverridePath();
-      const baseline: ConfigFile = {
-        gpioLeds: { enabled: true, drive0: { enable: 17, headLoad: 27, readOnly: 22 } },
-      };
-      const { config } = await writePartialConfig(
-        filePath,
-        { gpioLeds: { enabled: true, drive1: { enable: 5 } } } as any,
-        baseline,
-      );
-      expect(config.gpioLeds).toEqual({ enabled: true, drive1: { enable: 5 } });
-      expect(config.gpioLeds).not.toHaveProperty('drive0');
-    });
   });
 
   describe('rollbackConfig', () => {
