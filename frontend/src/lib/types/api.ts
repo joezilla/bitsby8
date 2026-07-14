@@ -95,7 +95,9 @@ export interface ClientDrive {
   drive: number;
   filename: string | null;
   readonly: boolean;
-  source: 'override' | 'global' | 'none';
+  // 'override' operator-pinned · 'global' inherited from the served spindle ·
+  // 'profile' from a VM instance's own definition · 'none' empty.
+  source: 'override' | 'global' | 'profile' | 'none';
   dirty: boolean;
 }
 

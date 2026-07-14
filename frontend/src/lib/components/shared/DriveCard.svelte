@@ -38,6 +38,10 @@
     onInsert?: () => void;
     /** When set, the mounted filename becomes a link to the disk's library entry. */
     onOpenFile?: (filename: string) => void;
+    /** When set, the status pill becomes a link to where this drive's mount
+     *  originates (its "provenance"): the served Drive Bays, or the machine that
+     *  defines it. */
+    onOrigin?: () => void;
   }
 
   let {
@@ -55,6 +59,7 @@
     onToggleRo,
     onInsert,
     onOpenFile,
+    onOrigin,
   }: Props = $props();
 
   const numStr = $derived(String(num).padStart(2, '0'));
@@ -75,10 +80,18 @@
         </div>
       {/if}
     </div>
-    <div class="dc-status" title="Drive status: {status.text}">
-      <span class="led led-{status.color} {status.pulse ? 'pulse' : ''}"></span>
-      <span class="dc-status-text">{status.text}</span>
-    </div>
+    {#if onOrigin}
+      <button type="button" class="dc-status dc-status-link" title="Manage origin ({status.text})" onclick={onOrigin}>
+        <span class="led led-{status.color} {status.pulse ? 'pulse' : ''}"></span>
+        <span class="dc-status-text">{status.text}</span>
+        <Icon name="arrow_outward" size={12} />
+      </button>
+    {:else}
+      <div class="dc-status" title="Drive status: {status.text}">
+        <span class="led led-{status.color} {status.pulse ? 'pulse' : ''}"></span>
+        <span class="dc-status-text">{status.text}</span>
+      </div>
+    {/if}
   </div>
 
   <!-- Zone 2: media (cartridge tile) -->
@@ -239,6 +252,24 @@
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--fg-1);
+  }
+  button.dc-status-link {
+    cursor: pointer;
+    color: inherit;
+    transition: border-color var(--dur-short) var(--ease-standard);
+  }
+  button.dc-status-link :global(.icon) {
+    color: var(--fg-3);
+  }
+  button.dc-status-link:hover {
+    border-color: color-mix(in oklab, var(--accent) 45%, var(--border-1));
+  }
+  button.dc-status-link:hover :global(.icon) {
+    color: var(--accent);
+  }
+  button.dc-status-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 
   /* Zone 2 */

@@ -19,14 +19,26 @@
   import { pendingDiskFocus } from '$lib/stores/pendingDiskFocus';
 
   interface Props {
-    onNavigate?: (page: 'terminal' | 'machines' | 'disks') => void;
+    onNavigate?: (page: 'terminal' | 'machines' | 'disks' | 'drives') => void;
   }
   let { onNavigate }: Props = $props();
 
-  /** Deep-link a client's mounted disk to its library entry (W1). */
+  /** Deep-link a client's mounted disk to its library entry (inspect the image). */
   function goDisk(filename: string): void {
     pendingDiskFocus.set(filename);
     onNavigate?.('disks');
+  }
+
+  /** Provenance (Epic 6.4): where a drive's mount *originates*, so you can manage
+   *  it at the source. A 'global' mount is the served spindle → Drive Bays; a
+   *  'profile' mount comes from the VM's own definition → open the machine. */
+  function driveOrigin(client: ClientBay, d: ClientDrive): (() => void) | undefined {
+    if (d.source === 'global') return () => onNavigate?.('drives');
+    if (d.source === 'profile' && client.isInstance && client.instanceExists && client.instanceId) {
+      const id = client.instanceId;
+      return () => openMachine(id);
+    }
+    return undefined;
   }
 
   let clients = $state<ClientBay[]>([]);
@@ -272,6 +284,7 @@
 
   function driveStatus(d: ClientDrive): { color: 'cyan' | 'green' | 'off'; text: string } {
     if (d.source === 'override') return { color: 'cyan', text: 'Override' };
+    if (d.source === 'profile') return { color: 'green', text: 'From machine' };
     if (d.source === 'global') return { color: 'green', text: 'Inherited' };
     return { color: 'off', text: 'Empty' };
   }
@@ -365,8 +378,9 @@
               protectedRo={d.readonly}
               dirty={d.dirty}
               status={driveStatus(d)}
-              emptyText="Inherits global"
+              emptyText={client.isInstance ? 'Not in machine definition' : 'Inherits global'}
               onOpenFile={goDisk}
+              onOrigin={driveOrigin(client, d)}
             >
               {#snippet actions()}
                 {#if d.filename}

@@ -27,7 +27,7 @@
     });
   }
 
-  type NavId = 'terminal' | 'disks' | 'clients' | 'cassettes' | 'catalog' | 'profiles' | 'machines' | 'scripts' | 'config';
+  type NavId = 'terminal' | 'disks' | 'drives' | 'clients' | 'cassettes' | 'catalog' | 'profiles' | 'machines' | 'scripts' | 'config';
 
   interface Props {
     active: NavId;
@@ -61,7 +61,8 @@
       items: [
         { id: 'terminal',  label: 'Terminal',  icon: 'desktop_windows', badge: () => null },
         { id: 'machines',  label: 'Virtual Machines',  icon: 'hub',       badge: () => null },
-        { id: 'disks',     label: 'Disks',     icon: 'save',    badge: () => driveBadge },
+        { id: 'drives',    label: 'Drive Bays', icon: 'save',   badge: () => driveBadge },
+        { id: 'disks',     label: 'Disk Library', icon: 'inventory_2', badge: () => null },
         { id: 'cassettes', label: 'Cassettes', icon: 'album',   badge: () => null },
         ...(multiEnabled
           ? [{ id: 'clients' as NavId, label: 'Disk Clients', icon: 'devices', badge: () => (clientCount > 0 ? String(clientCount) : null) }]
