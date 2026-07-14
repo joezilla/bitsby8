@@ -2,9 +2,8 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/services/api';
   import { showToast } from '$lib/stores/toast';
-  import Icon from '$lib/components/shared/Icon.svelte';
   import DriveCard from '$lib/components/shared/DriveCard.svelte';
-  import type { DiskImageInfo } from '$lib/types/api';
+  import DiskPicker from '$lib/components/shared/DiskPicker.svelte';
 
   interface Props {
     /** Profile id (name@version) — the backend keys disks by the profile name. */
@@ -16,7 +15,6 @@
   const BAYS = 4;
 
   let disks = $state<Binding[]>([]);
-  let images = $state<DiskImageInfo[]>([]);
   let pickerDrive = $state<number | null>(null);
   let loading = $state(true);
 
@@ -25,9 +23,7 @@
 
   async function load() {
     try {
-      const [d, im] = await Promise.all([api.listProfileDisks(profileId), api.listImagesDetailed()]);
-      disks = d.disks;
-      images = im.images;
+      disks = (await api.listProfileDisks(profileId)).disks;
     } catch (err) {
       showToast((err as Error).message, 'error');
     } finally {
@@ -64,7 +60,6 @@
     }
   }
 
-  const togglePicker = (drive: number) => (pickerDrive = pickerDrive === drive ? null : drive);
 </script>
 
 <div class="pd-head">
@@ -89,35 +84,23 @@
           protectedRo={b?.readonly}
           status={b ? { color: 'green', text: 'Boot' } : { color: 'off', text: 'Empty' }}
           emptyText="No disk at startup"
-          onInsert={() => togglePicker(i)}
-          onSwap={() => togglePicker(i)}
+          onInsert={() => (pickerDrive = i)}
+          onSwap={() => (pickerDrive = i)}
           onEject={() => eject(i)}
           onToggleRo={() => toggleRo(i)}
         />
-        {#if pickerDrive === i}
-          <div class="pd-menu">
-            <div class="pd-menu-label fdc-mono">Disk library</div>
-            <div class="pd-menu-list">
-              {#each images as img (img.name)}
-                <button class="pd-menu-row" class:current={b?.filename === img.name} onclick={() => mount(i, img.name)}>
-                  <Icon name="album" size={16} />
-                  <span class="pd-menu-name fdc-mono">{img.name}</span>
-                  {#if b?.filename === img.name}<Icon name="check" size={16} />{/if}
-                </button>
-              {/each}
-              {#if images.length === 0}
-                <div class="pd-menu-empty muted">No disk images. Upload one on the Disks page.</div>
-              {/if}
-            </div>
-          </div>
-        {/if}
       </div>
     {/each}
   </div>
 {/if}
 
 {#if pickerDrive !== null}
-  <button class="pd-scrim" aria-label="Close" onclick={() => (pickerDrive = null)}></button>
+  <DiskPicker
+    title="Startup disk · Drive {pickerDrive}"
+    hint={profileId}
+    onPick={(f) => mount(pickerDrive!, f)}
+    onClose={() => (pickerDrive = null)}
+  />
 {/if}
 
 <style>
@@ -132,16 +115,4 @@
   @media (max-width: 900px) { .pd-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 520px) { .pd-grid { grid-template-columns: 1fr; } }
   .pd-slot { position: relative; min-width: 0; }
-  .pd-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); z-index: 30;
-    background: var(--surface); border: 1px solid var(--border-2); border-radius: var(--radius-lg);
-    box-shadow: var(--elev-4, 0 18px 50px -12px rgba(0, 0, 0, 0.6)); padding: 7px; }
-  .pd-menu-label { font-size: 10px; letter-spacing: 0.12em; color: var(--fg-3); padding: 5px 8px 7px; text-transform: uppercase; }
-  .pd-menu-list { max-height: 210px; overflow-y: auto; display: flex; flex-direction: column; }
-  .pd-menu-row { display: flex; align-items: center; gap: 9px; padding: 8px; border-radius: 8px; cursor: pointer;
-    background: none; border: none; color: var(--fg-2); text-align: left; width: 100%; }
-  .pd-menu-row:hover { background: var(--surface-variant); }
-  .pd-menu-row.current { color: var(--accent); }
-  .pd-menu-name { flex: 1; min-width: 0; font-size: 11.5px; word-break: break-all; }
-  .pd-menu-empty { padding: 12px 8px; font-size: 12.5px; text-align: center; }
-  .pd-scrim { position: fixed; inset: 0; z-index: 20; background: none; border: none; cursor: default; }
 </style>

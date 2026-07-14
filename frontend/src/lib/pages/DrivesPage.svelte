@@ -5,7 +5,6 @@
   // NOT read this set — they own their disks from their own definition. This is
   // the live "what's in the machine right now" room; the Disk Library is the
   // separate archival room for the image files themselves.
-  import { onMount } from 'svelte';
   import { api } from '$lib/services/api';
   import { serverStatus } from '$lib/services/socket';
   import { showToast } from '$lib/stores/toast';
@@ -18,10 +17,10 @@
   import LabelStrip from '$lib/components/shared/LabelStrip.svelte';
   import DriveCard from '$lib/components/shared/DriveCard.svelte';
   import StatusBadge from '$lib/components/shared/StatusBadge.svelte';
+  import DiskPicker from '$lib/components/shared/DiskPicker.svelte';
   import Modal from '$lib/components/shared/Modal.svelte';
-  import type { DiskImageInfo, DriveState } from '$lib/types/api';
+  import type { DriveState } from '$lib/types/api';
 
-  let images = $state<DiskImageInfo[]>([]);
   let drives = $derived($serverStatus?.drives ?? []);
   let dirtyTransient = $derived(drives.filter((d) => d.transient && d.dirty));
 
@@ -39,12 +38,6 @@
   let settingsLoading = $state(false);
   let settingsSaving = $state(false);
 
-  function formatSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-
   function driveStatus(drive: DriveState): { color: 'amber' | 'green' | 'off'; pulse?: boolean; text: string } {
     if (!drive.mounted) return { color: 'off', text: 'Empty' };
     if (drive.headLoaded) return { color: 'amber', pulse: true, text: 'Reading' };
@@ -55,26 +48,13 @@
     return { id, mounted: false, headLoaded: false, readonly: false, filename: null, fullPath: null, track: 0, lastIo: null };
   }
 
-  function togglePicker(id: number) {
-    mountingDrive = mountingDrive === id ? null : id;
-  }
-
-  async function loadImages() {
-    try {
-      images = (await api.listImagesDetailed()).images;
-    } catch (err: any) {
-      showToast(`Failed to load disk images: ${err.message}`, 'error');
-    }
-  }
-
   async function mountDisk(driveId: number, filename: string) {
+    mountingDrive = null;
     try {
       await api.mountDrive(driveId, filename);
       showToast(`Mounted ${filename} on Drive ${driveId}`, 'success');
     } catch (err: any) {
       showToast(`Mount failed: ${err.message}`, 'error');
-    } finally {
-      mountingDrive = null;
     }
   }
 
@@ -111,7 +91,6 @@
       }
       await doUnmount(driveId);
       transientEjectDrive = null;
-      await loadImages();
     } catch (err: any) {
       showToast(`Eject failed: ${err.message}`, 'error');
     } finally {
@@ -155,17 +134,6 @@
     }
   }
 
-  // Close the mount picker on any outside click.
-  function closeMountPickers(event: MouseEvent) {
-    const target = event.target as HTMLElement;
-    if (!target.closest('[data-mount-picker]')) mountingDrive = null;
-  }
-
-  onMount(() => {
-    loadImages();
-    document.addEventListener('click', closeMountPickers);
-    return () => document.removeEventListener('click', closeMountPickers);
-  });
 </script>
 
 {#snippet headerActions()}
@@ -202,41 +170,32 @@
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px;">
       {#each [0, 1, 2, 3] as id}
         {@const drive = drives.find((d) => d.id === id) ?? emptyDrive(id)}
-        <div style="position: relative;" data-mount-picker>
-          <DriveCard
-            num={id}
-            track={drive.mounted ? drive.track : null}
-            hasDisk={drive.mounted}
-            filename={drive.filename}
-            protectedRo={drive.readonly}
-            dirty={!!(drive.transient && drive.dirty)}
-            status={driveStatus(drive)}
-            emptyText="No disk mounted"
-            onEject={() => unmountDisk(id)}
-            onSwap={() => togglePicker(id)}
-            onToggleRo={() => toggleReadonly(id, drive.readonly)}
-            onInsert={() => togglePicker(id)}
-          />
-
-          {#if mountingDrive === id}
-            <div style="position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30; max-height: 280px; overflow-y: auto; background: var(--surface-raised); border: 1px solid var(--border-2); border-radius: var(--radius-md); box-shadow: var(--elev-3);">
-              {#if images.length === 0}
-                <div style="padding: 10px 12px; font: var(--text-body-sm); color: var(--fg-3);">No disk images available</div>
-              {:else}
-                {#each images as img (img.name)}
-                  <button type="button" onclick={() => mountDisk(id, img.name)} style="width: 100%; text-align: left; padding: 8px 12px; background: transparent; border: none; border-bottom: 1px solid var(--border-1); color: var(--fg-1); cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                    <span class="fdc-mono" style="font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{img.name}</span>
-                    <span class="fdc-mono" style="font-size: 11px; color: var(--fg-3); flex: 0 0 auto;">{formatSize(img.size)}</span>
-                  </button>
-                {/each}
-              {/if}
-            </div>
-          {/if}
-        </div>
+        <DriveCard
+          num={id}
+          track={drive.mounted ? drive.track : null}
+          hasDisk={drive.mounted}
+          filename={drive.filename}
+          protectedRo={drive.readonly}
+          dirty={!!(drive.transient && drive.dirty)}
+          status={driveStatus(drive)}
+          emptyText="No disk mounted"
+          onEject={() => unmountDisk(id)}
+          onSwap={() => (mountingDrive = id)}
+          onToggleRo={() => toggleReadonly(id, drive.readonly)}
+          onInsert={() => (mountingDrive = id)}
+        />
       {/each}
     </div>
   </div>
 </div>
+
+{#if mountingDrive !== null}
+  <DiskPicker
+    title="Mount disk · Drive {mountingDrive}"
+    onPick={(f) => mountDisk(mountingDrive!, f)}
+    onClose={() => (mountingDrive = null)}
+  />
+{/if}
 
 <!-- Transient eject: keep-or-discard dialog -->
 {#if transientEjectDrive}

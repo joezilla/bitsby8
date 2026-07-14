@@ -45,9 +45,12 @@
   let snapshotsFor = $state<InstanceStatus | null>(null);
   let monitorFor = $state<InstanceStatus | null>(null);
   let runFor = $state<InstanceStatus | null>(null);
-  // Leave the cockpit if its machine is stopped or destroyed elsewhere.
+  // Keep the cockpit's instance object live: re-point runFor at the freshly
+  // polled instance each tick (so its disks/speed update in place), and leave the
+  // cockpit if the machine has stopped or been destroyed elsewhere.
   $effect(() => {
-    if (runFor && !instances.some((i) => i.id === runFor!.id && i.status === 'running')) runFor = null;
+    if (!runFor) return;
+    runFor = instances.find((i) => i.id === runFor!.id && i.status === 'running') ?? null;
   });
   // Open the Run cockpit for an instance requested elsewhere (e.g. the profile
   // "Launch" action) once it surfaces in the polled list. Clear the intent as
@@ -184,7 +187,6 @@
     onBack={() => (runFor = null)}
     onChanged={load}
     onProfile={goProfile}
-    onManageDisks={() => manageClientDrives(runFor!.clientId)}
   />
 {:else}
 <PageHeader

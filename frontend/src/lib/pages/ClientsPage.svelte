@@ -12,8 +12,9 @@
   import Input from '$lib/components/shared/Input.svelte';
   import Icon from '$lib/components/shared/Icon.svelte';
   import Modal from '$lib/components/shared/Modal.svelte';
+  import DiskPicker from '$lib/components/shared/DiskPicker.svelte';
   import DriveCard from '$lib/components/shared/DriveCard.svelte';
-  import type { ClientBay, ClientDrive, DiskImageInfo } from '$lib/types/api';
+  import type { ClientBay, ClientDrive } from '$lib/types/api';
   import { pendingRunInstance } from '$lib/stores/pendingRun';
   import { pendingClientFocus } from '$lib/stores/pendingClientFocus';
   import { pendingDiskFocus } from '$lib/stores/pendingDiskFocus';
@@ -42,7 +43,6 @@
   }
 
   let clients = $state<ClientBay[]>([]);
-  let images = $state<DiskImageInfo[]>([]);
   let loading = $state(true);
   let newClientId = $state('');
   let focusId = $state<string | null>(null); // briefly highlighted after a deep-link
@@ -93,24 +93,11 @@
   // Modal disk picker — set/change a client drive's override image. Opened
   // from the "change disk" (swap) control on each bay.
   let diskPicker = $state<{ clientId: string; drive: number; readonly: boolean } | null>(null);
-  let diskPickerFilter = $state('');
-  let filteredPickerImages = $derived(
-    diskPickerFilter
-      ? images.filter((i) => i.name.toLowerCase().includes(diskPickerFilter.toLowerCase()))
-      : images
-  );
 
   let multiEnabled = $derived($serverStatus?.multiClient?.enabled ?? false);
 
-  function formatSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-
   function openDiskPicker(clientId: string, drive: number, readonly: boolean) {
     diskPicker = { clientId, drive, readonly };
-    diskPickerFilter = '';
   }
 
   async function pickDisk(filename: string) {
@@ -127,9 +114,7 @@
   async function load() {
     try {
       loading = true;
-      const [c, imgs] = await Promise.all([api.getClients(), api.listImagesDetailed()]);
-      clients = c.clients;
-      images = imgs.images;
+      clients = (await api.getClients()).clients;
     } catch (err: any) {
       showToast(`Failed to load clients: ${err.message}`, 'error');
     } finally {
@@ -470,38 +455,14 @@
   </Modal>
 {/if}
 
-<!-- Disk picker modal — set/change a client drive's override image -->
+<!-- Disk picker — set/change a client drive's override image -->
 {#if diskPicker}
-  <Modal
-    title="Set disk · {diskPicker.clientId} · drive {diskPicker.drive}"
-    icon="album"
-    size="md"
+  <DiskPicker
+    title="Set disk · drive {diskPicker.drive}"
+    hint={diskPicker.clientId}
+    onPick={pickDisk}
     onClose={() => (diskPicker = null)}
-  >
-    <p class="modal-desc">Pick an image to mount as this client's drive-{diskPicker.drive} override.</p>
-    <Input variant="search" placeholder="Filter images…" bind:value={diskPickerFilter} />
-    <div class="picker-list">
-      {#if filteredPickerImages.length === 0}
-        <div style="padding: 16px; text-align: center; font: var(--text-body-sm); color: var(--fg-3);">
-          {diskPickerFilter ? 'No images match your filter.' : 'No disk images available.'}
-        </div>
-      {:else}
-        {#each filteredPickerImages as img (img.name)}
-          <button type="button" class="picker-row" onclick={() => pickDisk(img.name)}>
-            <span class="fdc-mono" style="font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-              {img.name}
-            </span>
-            <span class="fdc-mono" style="font-size: 11px; color: var(--fg-3); flex: 0 0 auto;">
-              {formatSize(img.size)}
-            </span>
-          </button>
-        {/each}
-      {/if}
-    </div>
-    {#snippet footer()}
-      <Button variant="ghost" onclick={() => (diskPicker = null)}>Cancel</Button>
-    {/snippet}
-  </Modal>
+  />
 {/if}
 
 {#if splinterModal}
@@ -581,30 +542,5 @@
     margin: 0;
     font: var(--text-body-sm);
     color: var(--fg-3);
-  }
-  .picker-list {
-    flex: 1;
-    min-height: 0;
-    max-height: 44vh;
-    overflow-y: auto;
-    border: 1px solid var(--border-1);
-    border-radius: var(--radius-md);
-  }
-  .picker-row {
-    width: 100%;
-    text-align: left;
-    padding: 10px 14px;
-    background: transparent;
-    border: none;
-    border-bottom: 1px solid var(--border-1);
-    color: var(--fg-1);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-  }
-  .picker-row:hover {
-    background: color-mix(in oklab, var(--fg-1) 6%, transparent);
   }
 </style>

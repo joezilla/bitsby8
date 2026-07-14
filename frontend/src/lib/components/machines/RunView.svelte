@@ -5,6 +5,8 @@
   import { showToast } from '$lib/stores/toast';
   import Icon from '$lib/components/shared/Icon.svelte';
   import Button from '$lib/components/shared/Button.svelte';
+  import DriveCard from '$lib/components/shared/DriveCard.svelte';
+  import DiskPicker from '$lib/components/shared/DiskPicker.svelte';
   import InstanceConsole from '$lib/components/machines/InstanceConsole.svelte';
   import MonitorPanel from '$lib/components/machines/MonitorPanel.svelte';
   import FrontPanel from '$lib/components/machines/FrontPanel.svelte';
@@ -18,12 +20,44 @@
     onChanged?: () => void;
     /** Deep-link to this machine's profile editor (W1). */
     onProfile?: (ref: string) => void;
-    /** Jump to this machine's client drive bays (swap/eject) on the Clients page. */
-    onManageDisks?: () => void;
   }
-  let { instance, onBack, onChanged, onProfile, onManageDisks }: Props = $props();
+  let { instance, onBack, onChanged, onProfile }: Props = $props();
 
   const profileLinkable = $derived(!!instance.profileRef && instance.profileRef !== 'inline');
+
+  // Drives panel (W2): a VM owns its drives, so we manage them right here — swap /
+  // eject / insert / write-protect operate on this instance's own `inst:` client
+  // via the shared client-drive API; the running guest hot-reloads live.
+  let picker = $state<number | null>(null);
+  const bindingFor = (drive: number) => instance.disks.find((d) => d.drive === drive);
+  const mountedCount = $derived(instance.disks.filter((d) => d.filename).length);
+
+  async function refresh() {
+    onChanged?.();
+  }
+  async function setDrive(drive: number, filename: string, readonly: boolean) {
+    picker = null;
+    try {
+      await api.setClientDrive(instance.clientId, drive, filename, readonly);
+      showToast(`Drive ${drive} → ${filename}`, 'success');
+      await refresh();
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    }
+  }
+  async function ejectDrive(drive: number) {
+    try {
+      await api.clearClientDrive(instance.clientId, drive);
+      showToast(`Drive ${drive} ejected`, 'success');
+      await refresh();
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    }
+  }
+  function toggleRo(drive: number) {
+    const b = bindingFor(drive);
+    if (b?.filename) void setDrive(drive, b.filename, !b.readonly);
+  }
 
   // Panel collapse/maximize state is remembered per machine (keyed by instance
   // id) so re-opening a cockpit — or navigating away and back — restores it
@@ -33,11 +67,12 @@
   // Console + monitor layout: both 50/50, or one maximized (the other a rail).
   let duo = $state<'both' | 'cmax' | 'mmax'>(saved.duo);
   let frontPanelOpen = $state(saved.frontPanelOpen);
+  let drivesOpen = $state(saved.drivesOpen);
   let busy = $state(false);
 
   // Persist any change back to the per-machine layout store.
   $effect(() => {
-    setCockpitLayout(instance.id, { duo, frontPanelOpen });
+    setCockpitLayout(instance.id, { duo, frontPanelOpen, drivesOpen });
   });
 
   // Does this machine have a keyboard input card? If so, physical keystrokes
@@ -114,13 +149,6 @@
       {/if}
       <span class="meta">
         {#if hz}<span class="chip">{hz}</span>{/if}
-        {#each instance.disks.filter((d) => d.filename) as d (d.drive)}
-          {#if onManageDisks}
-            <button type="button" class="chip link" title="Swap/eject drive {d.drive} ({d.filename}) on the Clients page" onclick={onManageDisks}>D{d.drive}: {d.filename}</button>
-          {:else}
-            <span class="chip">D{d.drive}: {d.filename}</span>
-          {/if}
-        {/each}
         <span class="chip run">running</span>
         <span class="chip kb">⌨ → {hasKeyboard ? 'keyboard' : 'serial'}</span>
       </span>
@@ -134,6 +162,37 @@
   <div class="stack">
     <!-- Live Altair-style front panel — CPU introspection + examine/deposit/step -->
     <FrontPanel instanceId={instance.id} bind:open={frontPanelOpen} />
+
+    <!-- Drives — this VM's own bays (swap/eject/insert live) -->
+    <div class="panel">
+      <button class="fphead" onclick={() => (drivesOpen = !drivesOpen)}>
+        <span class="ptitle">
+          <span class="chev {drivesOpen ? 'open' : ''}">▶</span>
+          <Icon name="save" size={16} /> Drives
+          <span class="psub">{mountedCount} of 4 mounted</span>
+        </span>
+      </button>
+      {#if drivesOpen}
+        <div class="drives-body">
+          {#each [0, 1, 2, 3] as id (id)}
+            {@const b = bindingFor(id)}
+            <DriveCard
+              num={id}
+              hasDisk={!!b?.filename}
+              filename={b?.filename ?? null}
+              protectedRo={!!b?.readonly}
+              dirty={!!b?.dirty}
+              status={b?.filename ? { color: 'green', text: 'Mounted' } : { color: 'off', text: 'Empty' }}
+              emptyText="No disk"
+              onEject={() => ejectDrive(id)}
+              onSwap={() => (picker = id)}
+              onToggleRo={() => toggleRo(id)}
+              onInsert={() => (picker = id)}
+            />
+          {/each}
+        </div>
+      {/if}
+    </div>
 
     <!-- Console | Monitor -->
     <div class="duo {duo}">
@@ -173,6 +232,15 @@
   </div>
 </div>
 
+{#if picker !== null}
+  <DiskPicker
+    title="Set disk · Drive {picker}"
+    hint={instance.profileRef}
+    onPick={(f) => setDrive(picker!, f, bindingFor(picker!)?.readonly ?? false)}
+    onClose={() => (picker = null)}
+  />
+{/if}
+
 <style>
   .cockpit { display: flex; flex-direction: column; padding-top: var(--space-4); }
   .top { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: var(--space-4); }
@@ -187,8 +255,6 @@
   .meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .chip { font: var(--text-body-sm); font-family: var(--font-mono, monospace); font-size: 11.5px; color: var(--fg-2);
     background: var(--surface-variant); border: 1px solid var(--border-1); padding: 2px 9px; border-radius: 999px; }
-  button.chip.link { cursor: pointer; }
-  button.chip.link:hover { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 40%, var(--border-1)); }
   .link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-xs); }
   .chip.run { color: var(--success); background: rgba(34, 192, 143, 0.1); border-color: rgba(34, 192, 143, 0.28); }
   .chip.kb { color: var(--accent); background: var(--accent-bg); border-color: rgba(255, 176, 32, 0.3); }
@@ -196,6 +262,7 @@
   .stack { display: flex; flex-direction: column; gap: var(--space-3); }
 
   .panel { background: var(--surface); border: 1px solid var(--border-1); border-radius: var(--radius-lg); overflow: hidden; }
+  .drives-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: var(--space-3); padding: var(--space-3); }
   .phead, .fphead { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
     padding: var(--space-2) var(--space-3); background: var(--surface-raised); border-bottom: 1px solid var(--border-1); }
   .fphead { width: 100%; cursor: pointer; border: none; text-align: left; }
