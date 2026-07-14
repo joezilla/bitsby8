@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@joezilla/8sim':
-        specifier: ^0.10.0
-        version: 0.10.0
+        specifier: ^0.12.0
+        version: 0.12.0
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
@@ -26,9 +26,6 @@ importers:
       better-sqlite3:
         specifier: ^12.9.0
         version: 12.10.0
-      blessed:
-        specifier: ^0.1.81
-        version: 0.1.81
       commander:
         specifier: ^11.0.0
         version: 11.1.0
@@ -81,9 +78,6 @@ importers:
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
-      '@types/blessed':
-        specifier: ^0.1.25
-        version: 0.1.27
       '@types/cookie-parser':
         specifier: ^1.4.10
         version: 1.4.10(@types/express@4.17.25)
@@ -132,10 +126,6 @@ importers:
       typescript:
         specifier: ^5.3.0
         version: 5.9.3
-    optionalDependencies:
-      onoff:
-        specifier: ^6.0.3
-        version: 6.0.3
 
   frontend:
     dependencies:
@@ -601,8 +591,8 @@ packages:
     resolution: {integrity: sha512-u3UPsIilWKOM3F9CXtrG8LEJmNxwoCQC/XVj4IKYXvvpx7QIi/Kg1LI5uDmDpKlac62NUtX7eLjRh+jVZcLOzw==}
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
 
-  '@joezilla/8sim@0.10.0':
-    resolution: {integrity: sha512-C/3f7+G3zEW0GXGLPcke1y5tyrO911o6x6CTnN5hLjmCwniLXw2+Ibs6Un+PLwvokeStGEQq5K06Yl9hYCUXtw==}
+  '@joezilla/8sim@0.12.0':
+    resolution: {integrity: sha512-wVJqiDCtoQ4IhZJnIGJNNunUo2Z3hEZ6aR3v9ynZvaR9hlnYPo5JQZkkovNffpqHT+PPNKtTKyeixtybdRu0Tg==}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -1001,9 +991,6 @@ packages:
   '@types/better-sqlite3@7.6.13':
     resolution: {integrity: sha512-NMv9ASNARoKksWtsq/SHakpYAYnhBrQgGD8zkLYk/jaK8jUGn08CfEdTRgYhMypUQAfzSP8W6gNLe0q19/t4VA==}
 
-  '@types/blessed@0.1.27':
-    resolution: {integrity: sha512-ZOQGjLvWDclAXp0rW5iuUBXeD6Gr1PkitN7tj7/G8FCoSzTsij6OhXusOzMKhwrZ9YlL2Pmu0d6xJ9zVvk+Hsg==}
-
   '@types/body-parser@1.19.6':
     resolution: {integrity: sha512-HLFeCYgz89uk22N5Qg3dvGvsv46B8GLvKKo1zKG4NybA8U2DiEO3w9lqGg29t/tfLRJpJ6iQxnVw4OnB7MoM9g==}
 
@@ -1276,11 +1263,6 @@ packages:
 
   bl@4.1.0:
     resolution: {integrity: sha512-1W07cM9gS6DcLperZfFSj+bWLtaPGSOHWhPiGzXmvVJbRLdG82sH/Kn8EtW1VqWVA54AKf2h5k5BbnIbwF3h6w==}
-
-  blessed@0.1.81:
-    resolution: {integrity: sha512-LoF5gae+hlmfORcG1M5+5XZi4LBmvlXTzwJWzUlPryN/SJdSflZvROM2TwkT0GMpq7oqT48NRd4GS7BiVBc5OQ==}
-    engines: {node: '>= 0.8.0'}
-    hasBin: true
 
   body-parser@1.20.5:
     resolution: {integrity: sha512-3grm+/2tUOvu2cjJkvsIxrv/wVpfXQW4PsQHYm7yk4vfpu7Ekl6nEsYBoJUL6qDwZUx8wUhQ8tR2qz+ad9c9OA==}
@@ -1608,10 +1590,6 @@ packages:
   enhanced-resolve@5.22.0:
     resolution: {integrity: sha512-xYcDWrpELkFzz9SpZ3PlI6Eu6eD93Yf0WLDRxikGhWJ3MAir2SNZTIVCVZqZ/NUyx8AdMc2gT9C0gPiw18kG+A==}
     engines: {node: '>=10.13.0'}
-
-  epoll@4.0.2:
-    resolution: {integrity: sha512-4KtBBSBYAfyta2/4TIFT4P7pZdDjU6UPvdzWcF4Fy6Q300V08Wdj/82ovAZBUDra6TTjsKsfy12Qxuwc3ob+Qw==}
-    engines: {node: '>=10.0.0'}
 
   error-ex@1.3.4:
     resolution: {integrity: sha512-sqQamAnR14VgCr1A618A3sGrygcpK+HEbenA/HiEAkkUwcZIIB/tgWqHFxWgOyDh4nB4JCRimh79dR5Ywc9MDQ==}
@@ -2252,9 +2230,6 @@ packages:
     resolution: {integrity: sha512-t7hw9pI+WvuwNJXwk5zVHpyhIqzg2qTlklJOf0mVxGSbe3Fp2VieZcduNYjaLDoy6p9uGpQEGWG87WpMKlNq8g==}
     engines: {node: '>=8'}
 
-  lodash.debounce@4.0.8:
-    resolution: {integrity: sha512-FT1yDzDYEoYWhnSGnpE/4Kj1fLZkDFyqRb7fNt6FdYOSxlUWAtp42Eh6Wb0rGIv/m9Bgo7x4GhQbm5Ys4SG5ow==}
-
   lodash.memoize@4.1.2:
     resolution: {integrity: sha512-t7j+NzmgnQzTAYXcsHYLgimltOV1MXHtlOWf6GjL9Kj8GK5FInw5JotxvbOs+IvV1/Dzo04/fCGfLVs7aXb4Ag==}
 
@@ -2379,9 +2354,6 @@ packages:
     resolution: {integrity: sha512-mo+QTzKlx8R7E5ylSXxWzGoXoZbOsRMpyitcht8By2KHvMbf3tjwosZ/Mu/XYU6UuJ3VZnODIrak5ZrPiPyB6A==}
     engines: {node: '>= 10.16.0'}
 
-  nan@2.27.0:
-    resolution: {integrity: sha512-hC+0LidcL3XE4rp1C4H54KujgXKzbfyTngZTwBByQxsOxCEKZT0MPQ4hOKUH2jU1OYstqdDH4onyHPDzcV0XdQ==}
-
   nanoid@3.3.12:
     resolution: {integrity: sha512-ZB9RH/39qpq5Vu6Y+NmUaFhQR6pp+M2Xt76XBnEwDaGcVAqhlvxrl3B2bKS5D3NH3QR76v3aSrKaF/Kiy7lEtQ==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
@@ -2452,10 +2424,6 @@ packages:
   onetime@5.1.2:
     resolution: {integrity: sha512-kbpaSSGJTWdAY5KPVeMOKXSrPtr8C8C7wodJbcsd51jRnmD+GZu8Y0VoU6Dm5Z4vWr0Ig/1NKuWRKf7j5aaYSg==}
     engines: {node: '>=6'}
-
-  onoff@6.0.3:
-    resolution: {integrity: sha512-xtVlwRDzswYM69bzzIui/qzu7QHsFnjsQiCV1iYVA/HXt5xdc9utc97SYAlXzK8wAhIN7+H7MaVqh2vpfdKk9A==}
-    engines: {node: '>=10.0.0'}
 
   openapi-types@12.1.3:
     resolution: {integrity: sha512-N4YtSYJqghVu4iek2ZUvcN/0aqH1kRDuNqzcycDxhOUpg7GdvLa2F3DgS6yBNhInhv2r/6I0Flkn7CqL8+nIcw==}
@@ -3649,7 +3617,7 @@ snapshots:
       '@types/yargs': 17.0.35
       chalk: 4.1.2
 
-  '@joezilla/8sim@0.10.0': {}
+  '@joezilla/8sim@0.12.0': {}
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
@@ -3975,10 +3943,6 @@ snapshots:
     dependencies:
       '@types/node': 20.19.41
 
-  '@types/blessed@0.1.27':
-    dependencies:
-      '@types/node': 20.19.41
-
   '@types/body-parser@1.19.6':
     dependencies:
       '@types/connect': 3.4.38
@@ -4277,8 +4241,6 @@ snapshots:
       buffer: 5.7.1
       inherits: 2.0.4
       readable-stream: 3.6.2
-
-  blessed@0.1.81: {}
 
   body-parser@1.20.5:
     dependencies:
@@ -4597,12 +4559,6 @@ snapshots:
     dependencies:
       graceful-fs: 4.2.11
       tapable: 2.3.3
-
-  epoll@4.0.2:
-    dependencies:
-      bindings: 1.5.0
-      nan: 2.27.0
-    optional: true
 
   error-ex@1.3.4:
     dependencies:
@@ -5489,9 +5445,6 @@ snapshots:
     dependencies:
       p-locate: 4.1.0
 
-  lodash.debounce@4.0.8:
-    optional: true
-
   lodash.memoize@4.1.2: {}
 
   lodash.mergewith@4.6.2: {}
@@ -5584,9 +5537,6 @@ snapshots:
       concat-stream: 2.0.0
       type-is: 1.6.18
 
-  nan@2.27.0:
-    optional: true
-
   nanoid@3.3.12: {}
 
   napi-build-utils@2.0.0: {}
@@ -5634,12 +5584,6 @@ snapshots:
   onetime@5.1.2:
     dependencies:
       mimic-fn: 2.1.0
-
-  onoff@6.0.3:
-    dependencies:
-      epoll: 4.0.2
-      lodash.debounce: 4.0.8
-    optional: true
 
   openapi-types@12.1.3: {}
 
