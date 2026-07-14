@@ -36,6 +36,8 @@
     onSwap?: () => void;
     onToggleRo?: () => void;
     onInsert?: () => void;
+    /** When set, the mounted filename becomes a link to the disk's library entry. */
+    onOpenFile?: (filename: string) => void;
   }
 
   let {
@@ -52,6 +54,7 @@
     onSwap,
     onToggleRo,
     onInsert,
+    onOpenFile,
   }: Props = $props();
 
   const numStr = $derived(String(num).padStart(2, '0'));
@@ -86,7 +89,13 @@
       </div>
       <div class="dc-media-body">
         <div class="dc-media-row">
-          <span class="dc-file" title={filename ?? ''}>{filename}</span>
+          {#if onOpenFile && filename}
+            <button type="button" class="dc-file dc-file-link" title="Open {filename} in the disk library" onclick={() => onOpenFile?.(filename!)}>
+              {filename}
+            </button>
+          {:else}
+            <span class="dc-file" title={filename ?? ''}>{filename}</span>
+          {/if}
           <!-- Fixed two-slot flag column: top = write-protect, bottom = changed.
                Slots reserve space so the filename stays aligned when absent. -->
           <div class="dc-flags">
@@ -285,9 +294,10 @@
     display: inline-flex;
     color: var(--accent);
   }
+  /* Amber to match the unified "unsaved" status vocabulary (StatusBadge). */
   .dc-flag-changed {
     display: inline-flex;
-    color: var(--info);
+    color: var(--warning);
   }
   .dc-file {
     flex: 1;
@@ -304,6 +314,23 @@
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
     line-clamp: 2;
+  }
+  .dc-file-link {
+    background: none;
+    border: none;
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+    transition: color var(--dur-short) var(--ease-standard);
+  }
+  .dc-file-link:hover {
+    color: var(--accent);
+    text-decoration: underline;
+  }
+  .dc-file-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-xs);
   }
   .dc-file-empty {
     display: flex;

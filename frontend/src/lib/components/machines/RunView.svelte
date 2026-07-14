@@ -16,8 +16,14 @@
     onBack: () => void;
     /** Called after a lifecycle change (stop) so the parent can refresh. */
     onChanged?: () => void;
+    /** Deep-link to this machine's profile editor (W1). */
+    onProfile?: (ref: string) => void;
+    /** Jump to this machine's client drive bays (swap/eject) on the Clients page. */
+    onManageDisks?: () => void;
   }
-  let { instance, onBack, onChanged }: Props = $props();
+  let { instance, onBack, onChanged, onProfile, onManageDisks }: Props = $props();
+
+  const profileLinkable = $derived(!!instance.profileRef && instance.profileRef !== 'inline');
 
   // Panel collapse/maximize state is remembered per machine (keyed by instance
   // id) so re-opening a cockpit — or navigating away and back — restores it
@@ -99,11 +105,21 @@
   <div class="top">
     <div class="id">
       <span class="dot"></span>
-      <span class="name fdc-mono">{instance.profileRef}</span>
+      {#if profileLinkable && onProfile}
+        <button type="button" class="name link fdc-mono" title="Open profile {instance.profileRef}" onclick={() => onProfile?.(instance.profileRef)}>
+          {instance.profileRef}<Icon name="arrow_outward" size={14} />
+        </button>
+      {:else}
+        <span class="name fdc-mono">{instance.profileRef}</span>
+      {/if}
       <span class="meta">
         {#if hz}<span class="chip">{hz}</span>{/if}
         {#each instance.disks.filter((d) => d.filename) as d (d.drive)}
-          <span class="chip">D{d.drive}: {d.filename}</span>
+          {#if onManageDisks}
+            <button type="button" class="chip link" title="Swap/eject drive {d.drive} ({d.filename}) on the Clients page" onclick={onManageDisks}>D{d.drive}: {d.filename}</button>
+          {:else}
+            <span class="chip">D{d.drive}: {d.filename}</span>
+          {/if}
         {/each}
         <span class="chip run">running</span>
         <span class="chip kb">⌨ → {hasKeyboard ? 'keyboard' : 'serial'}</span>
@@ -163,9 +179,17 @@
   .id { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 4px rgba(34, 192, 143, 0.15); flex: none; }
   .name { font-size: 18px; font-weight: 600; }
+  button.name { display: inline-flex; align-items: center; gap: 3px; background: none; border: none; padding: 0;
+    color: var(--fg-1); cursor: pointer; }
+  button.name :global(.icon) { color: var(--fg-4); transition: color var(--dur-short) var(--ease-standard); }
+  button.name:hover { color: var(--accent); text-decoration: underline; }
+  button.name:hover :global(.icon) { color: var(--accent); }
   .meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .chip { font: var(--text-body-sm); font-family: var(--font-mono, monospace); font-size: 11.5px; color: var(--fg-2);
     background: var(--surface-variant); border: 1px solid var(--border-1); padding: 2px 9px; border-radius: 999px; }
+  button.chip.link { cursor: pointer; }
+  button.chip.link:hover { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 40%, var(--border-1)); }
+  .link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-xs); }
   .chip.run { color: var(--success); background: rgba(34, 192, 143, 0.1); border-color: rgba(34, 192, 143, 0.28); }
   .chip.kb { color: var(--accent); background: var(--accent-bg); border-color: rgba(255, 176, 32, 0.3); }
   .actions { display: flex; gap: var(--space-2); }
