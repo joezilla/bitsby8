@@ -45,6 +45,11 @@ disks/.splinter/
 uploads/
 .deps/
 
+# Runtime script artifacts (terminal recordings, uploaded bundles/sources land
+# in scripts/); keep the committed build tooling (.ts).
+scripts/*
+!scripts/*.ts
+
 # Logs
 *.log
 npm-debug.log*
