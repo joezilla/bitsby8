@@ -377,6 +377,10 @@ export function mergeConfig(configFile: ConfigFile | null, cmdLineOptions: any):
   if (cmdLineOptions.logFile !== undefined) merged.logFile = cmdLineOptions.logFile;
 
   if (cmdLineOptions.web !== undefined) merged.web = cmdLineOptions.web;
+  if (cmdLineOptions.disableWeb) merged.web = false;
+  // Web interface is enabled by default. Only a config file / override that
+  // explicitly sets `web: false` (or `--disable-web` on the CLI) turns it off.
+  if (merged.web === undefined) merged.web = true;
   if (cmdLineOptions.webPort !== undefined) merged.webPort = parseInt(cmdLineOptions.webPort);
   if (cmdLineOptions.webHost !== undefined) merged.webHost = cmdLineOptions.webHost;
   if (cmdLineOptions.mcpHttp !== undefined) merged.enableMcpHttp = cmdLineOptions.mcpHttp;

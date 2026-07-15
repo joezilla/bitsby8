@@ -238,6 +238,31 @@ describe('Configuration Module', () => {
       expect(merged.webHost).toBe('0.0.0.0');
     });
 
+    test('defaults web to enabled when neither config nor CLI set it', () => {
+      const merged = mergeConfig({ port: '/dev/ttyUSB0' }, {});
+      expect(merged.web).toBe(true);
+    });
+
+    test('defaults web to enabled with a null config file', () => {
+      const merged = mergeConfig(null, {});
+      expect(merged.web).toBe(true);
+    });
+
+    test('honors an explicit web:false from the config file', () => {
+      const merged = mergeConfig({ web: false }, {});
+      expect(merged.web).toBe(false);
+    });
+
+    test('--disable-web turns off the web interface', () => {
+      const merged = mergeConfig(null, { disableWeb: true });
+      expect(merged.web).toBe(false);
+    });
+
+    test('--disable-web overrides a config file that enables web', () => {
+      const merged = mergeConfig({ web: true }, { disableWeb: true });
+      expect(merged.web).toBe(false);
+    });
+
     test('does not override readonly with an empty CLI array', () => {
       const cfg: ConfigFile = { readonly: [0, 1] };
       const merged = mergeConfig(cfg, { readonly: [] });
