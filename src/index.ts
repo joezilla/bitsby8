@@ -62,7 +62,8 @@ function printHelp(): void {
   console.log('  -v, --verbose          Verbose display');
   console.log('  -d, --debug            Debug mode');
   console.log('  --log-file <path>      Log file path (enables file-based logging)');
-  console.log('  -w, --web              Enable web interface (default: disabled)');
+  console.log('  -w, --web              Enable web interface (default: enabled)');
+  console.log('  --disable-web          Disable the web interface');
   console.log('  --web-port <port>      Web interface port (default: 3000)');
   console.log('  --web-host <host>      Web interface host (default: localhost)');
   console.log('  --terminal-port <device>  Second serial port for terminal emulation');
@@ -102,7 +103,8 @@ async function main(): Promise<void> {
     .option('-v, --verbose', 'Verbose display')
     .option('-d, --debug', 'Debug mode')
     .option('--log-file <path>', 'Log file path (enables file-based logging)')
-    .option('-w, --web', 'Enable web interface')
+    .option('-w, --web', 'Enable web interface (enabled by default)')
+    .option('--disable-web', 'Disable the web interface')
     .option('--web-port <port>', 'Web interface port')
     .option('--web-host <host>', 'Web interface host')
     .option('--terminal-port <device>', 'Second serial port for terminal emulation')
