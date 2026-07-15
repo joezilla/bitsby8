@@ -141,8 +141,11 @@ export function setupWebSocket(io: SocketIOServer, deps: Dependencies): void {
     // --- Virtual instance front panel — server-pushed state ---
     socket.on('instance:frontpanel:subscribe', ({ instanceId }: { instanceId: string }) => {
       startSampled(
+        // ~4Hz: the cockpit's LED inertia loop (rAF) interpolates between these
+        // samples, so a slower wire rate still reads smoothly while cutting
+        // traffic. (Step B replaces this with backend-aggregated duty cycles.)
         `frontpanel:${instanceId}`,
-        150,
+        250,
         () => ({ instanceId, state: readInstanceFrontPanel(deps, instanceId) }),
         'instance:frontpanel:state',
         'instance:frontpanel:error',

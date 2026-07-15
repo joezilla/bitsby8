@@ -12,7 +12,6 @@ import type { InstanceInfo, InstanceDriver, InstanceManager, FrontPanelAction } 
 import { MachineProfile } from './resolver';
 import { getPreset, listPresets, MachinePreset } from './presets';
 import { resolveProfileRef } from './profile-service';
-import { getMountRegistry } from '../mount-registry';
 import { getClientMountRegistry } from '../client-mount-registry';
 import * as path from 'path';
 
@@ -30,13 +29,11 @@ export type InstanceStatus = InstanceInfo & { disks: DiskBinding[] };
 /** Enumerate an instance's bound disks (operator mounts) with its splinter
  * dirty state (copy-on-write writes are tracked per `inst:<uuid>` clientId). */
 async function disksFor(deps: Dependencies, clientId: string): Promise<DiskBinding[]> {
-  // The instance's effective drives: the global operator mounts overlaid with
-  // this instance's per-client overrides (its profile's startup disks win on the
-  // drives they bind; the rest inherit the global mount).
+  // A VM instance owns its drives outright — its profile's startup disks and any
+  // per-instance overrides, both materialized into the client mount registry at
+  // launch. It does NOT inherit the shared served spindle (the global operator
+  // mounts): that muddle is what Epic 6 evicts. Empty drives stay empty.
   const effective = new Map<number, { filename: string; readonly: boolean }>();
-  for (const [drive, entry] of getMountRegistry().all()) {
-    effective.set(drive, { filename: entry.filename, readonly: entry.readonly });
-  }
   for (const [drive, entry] of getClientMountRegistry().forClient(clientId)) {
     effective.set(drive, { filename: entry.filename, readonly: entry.readonly });
   }
@@ -86,14 +83,16 @@ function normalizeSpeed(speed: unknown): number | 'max' | undefined {
   throw new ServiceError(`speed must be a positive Hz number or 'max', got ${JSON.stringify(speed)}`, 400);
 }
 
-/** Resolve a machine spec from a stored Profile, a preset, or an inline profile. */
+/** Resolve a machine spec from a stored Profile, a preset, or an inline profile.
+ *  `panelBase` is the run-cockpit LED grouping default — carried from a stored
+ *  profile's metadata; presets/inline default to 'oct'. */
 async function resolveSpec(
   deps: Dependencies,
   input: InstanceSpecInput,
-): Promise<{ profile: MachineProfile; profileRef: string }> {
+): Promise<{ profile: MachineProfile; profileRef: string; panelBase: 'oct' | 'hex' }> {
   if (input.profileRef) {
     const { profile, doc } = await resolveProfileRef(deps, input.profileRef);
-    return { profile, profileRef: doc.id };
+    return { profile, profileRef: doc.id, panelBase: doc.panelBase };
   }
   if (input.preset) {
     const preset: MachinePreset | undefined = getPreset(input.preset);
@@ -103,10 +102,10 @@ async function resolveSpec(
         404,
       );
     }
-    return { profile: preset.build(), profileRef: `preset:${preset.id}` };
+    return { profile: preset.build(), profileRef: `preset:${preset.id}`, panelBase: 'oct' };
   }
   if (input.profile) {
-    return { profile: input.profile, profileRef: 'inline' };
+    return { profile: input.profile, profileRef: 'inline', panelBase: 'oct' };
   }
   throw new ServiceError('A `profileRef`, `preset`, or inline `profile` is required', 400);
 }
@@ -138,8 +137,8 @@ export async function createTransientInstance(
   input: InstanceSpecInput,
   driver: InstanceDriver,
 ): Promise<InstanceInfo> {
-  const { profile, profileRef } = await resolveSpec(deps, input);
-  return manager(deps).createTransient(profile, profileRef, driver, normalizeSpeed(input.speed));
+  const { profile, profileRef, panelBase } = await resolveSpec(deps, input);
+  return manager(deps).createTransient(profile, profileRef, driver, normalizeSpeed(input.speed), panelBase);
 }
 
 export async function defineInstance(
@@ -147,8 +146,8 @@ export async function defineInstance(
   input: InstanceSpecInput,
   driver: InstanceDriver,
 ): Promise<InstanceInfo> {
-  const { profile, profileRef } = await resolveSpec(deps, input);
-  return manager(deps).define(profile, profileRef, driver, normalizeSpeed(input.speed));
+  const { profile, profileRef, panelBase } = await resolveSpec(deps, input);
+  return manager(deps).define(profile, profileRef, driver, normalizeSpeed(input.speed), panelBase);
 }
 
 export async function startInstance(deps: Dependencies, id: string): Promise<InstanceInfo> {

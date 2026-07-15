@@ -36,6 +36,7 @@
   let cpuKind = $state<string>('i8080');
   let cpus = $state<CpuInfo[]>([]);
   let notes = $state('');
+  let panelBase = $state<'oct' | 'hex'>('oct');
   let editCards = $state<ProfileCardInstance[]>([]);
 
   const catalogTypeOf = (ref: string) =>
@@ -96,6 +97,7 @@
       resetVector !== profile.resetVector ||
       cpuKind !== profile.cpuKind ||
       (notes ?? '') !== (profile.notes ?? '') ||
+      panelBase !== profile.panelBase ||
       cardsChanged
     );
   });
@@ -106,6 +108,7 @@
     resetVector = p.resetVector;
     cpuKind = p.cpuKind;
     notes = p.notes ?? '';
+    panelBase = p.panelBase ?? 'oct';
     editCards = structuredClone(p.cards);
   }
 
@@ -140,6 +143,7 @@
         resetVector,
         cpuKind,
         notes,
+        panelBase,
         cards: editCards,
       };
       const { profile: np } = await api.updateProfile(profile.id, patch);
@@ -444,6 +448,15 @@
       <div class="spec-cell">
         <div class="spec-lab">Console card</div>
         <div class="spec-val fdc-mono">{p.consoleCardId ?? '—'}</div>
+      </div>
+      <div class="spec-cell" title="Run-cockpit front-panel LED grouping (the OCT/HEX toggle still overrides live)">
+        <div class="spec-lab">Front panel</div>
+        <div class="spec-val">
+          <div class="clock-edit">
+            <label><input type="radio" bind:group={panelBase} value="oct" /> octal</label>
+            <label><input type="radio" bind:group={panelBase} value="hex" /> hex</label>
+          </div>
+        </div>
       </div>
     </div>
 

@@ -2,12 +2,14 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/services/api';
   import { showToast } from '$lib/stores/toast';
-  import type { MachineProfile } from '$lib/types/api';
+  import type { MachineProfile, InstanceStatus } from '$lib/types/api';
   import PageHeader from '$lib/components/shared/PageHeader.svelte';
   import Button from '$lib/components/shared/Button.svelte';
   import Chip from '$lib/components/shared/Chip.svelte';
   import Icon from '$lib/components/shared/Icon.svelte';
   import ProfileDetail from '$lib/components/profiles/ProfileDetail.svelte';
+  import EmptyState from '$lib/components/shared/EmptyState.svelte';
+  import { pendingProfileFocus } from '$lib/stores/pendingProfileFocus';
 
   interface Props {
     onNavigate?: (page: 'machines') => void;
@@ -15,8 +17,26 @@
   let { onNavigate }: Props = $props();
 
   let profiles = $state<MachineProfile[]>([]);
+  let instances = $state<InstanceStatus[]>([]);
   let loading = $state(true);
   let selectedId = $state<string | null>(null);
+
+  // An instance's profileRef is the profile id, or `preset:<id>` for a preset.
+  const runningFor = (p: MachineProfile): number =>
+    instances.filter(
+      (i) => i.status === 'running' && (i.profileRef === p.id || i.profileRef === `preset:${p.id}`),
+    ).length;
+
+  // Deep-link: a profileRef link elsewhere (cockpit / Machines card) navigated
+  // here and asked us to open a specific profile. Resolve it against the loaded
+  // list — `preset:<id>` refs match the bare preset id — then clear the intent.
+  $effect(() => {
+    const raw = $pendingProfileFocus;
+    if (!raw || loading) return;
+    const id = raw.startsWith('preset:') ? raw.slice('preset:'.length) : raw;
+    if (profiles.some((p) => p.id === id)) selectedId = id;
+    pendingProfileFocus.set(null);
+  });
 
   // Presets are profiles marked source:'preset' — editable templates you clone
   // a new machine from. Everything else is a user machine.
@@ -60,6 +80,12 @@
       const p = await api.listProfiles();
       profiles = p.profiles;
       if (!newPreset && presetProfiles.length) newPreset = presetProfiles[0].id;
+      // Best-effort: how many machines are live off each profile (#7). Non-fatal.
+      try {
+        instances = (await api.listInstances()).instances;
+      } catch {
+        instances = [];
+      }
     } catch (err) {
       showToast(`Failed to load profiles: ${(err as Error).message}`, 'error');
     } finally {
@@ -159,7 +185,14 @@
         <div class="card-body">
           <div class="card-top">
             <span class="pname">{p.name}</span>
-            {#if p.source === 'preset'}<Chip size="sm" color="cyan">preset</Chip>{:else}<Chip size="sm" color="amber">v{p.version}</Chip>{/if}
+            <span class="card-tags">
+              {#if runningFor(p) > 0}
+                <span class="run-badge" title="{runningFor(p)} running instance{runningFor(p) === 1 ? '' : 's'}">
+                  <span class="run-dot"></span>{runningFor(p)}
+                </span>
+              {/if}
+              {#if p.source === 'preset'}<Chip size="sm" color="cyan">preset</Chip>{:else}<Chip size="sm" color="amber">v{p.version}</Chip>{/if}
+            </span>
           </div>
           <div class="specs">
             <span class="spec fdc-mono">{p.cpuKind}</span>
@@ -173,13 +206,14 @@
     {/snippet}
 
     {#if loading}
-      <p class="muted">Loading profiles…</p>
+      <EmptyState loading>Loading profiles…</EmptyState>
     {:else if profiles.length === 0}
-      <div class="empty">
-        <Icon name="dns" size={24} />
-        <p class="muted">No machine profiles yet.</p>
-        <Button variant="outline" size="sm" icon="add" onclick={openCreate}>Create your first profile</Button>
-      </div>
+      <EmptyState icon="dns">
+        No machine profiles yet.
+        {#snippet actions()}
+          <Button variant="outline" size="sm" icon="add" onclick={openCreate}>Create your first profile</Button>
+        {/snippet}
+      </EmptyState>
     {:else}
       {#if presetProfiles.length}
         <div class="section-head"><h2 class="sec">Presets</h2><span class="sub">editable templates — clone one for a new machine, or edit in place</span></div>
@@ -316,10 +350,38 @@
     justify-content: space-between;
     gap: var(--space-2);
   }
+  .card-tags {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+  }
+  /* Lightweight "live" cue — a glowing dot + count, not a full pill, so it
+     doesn't out-weigh the profile name. */
+  .run-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font: var(--text-overline);
+    color: var(--success);
+    font-variant-numeric: tabular-nums;
+  }
+  .run-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 5px var(--success);
+  }
   .pname {
+    flex: 1;
+    min-width: 0;
     font-size: 15px;
     font-weight: 600;
     color: var(--fg-1);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .specs {
     display: flex;
@@ -352,13 +414,5 @@
   .muted {
     color: var(--fg-3);
     font: var(--text-body-sm);
-  }
-  .empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-9) var(--space-4);
-    color: var(--fg-3);
   }
 </style>

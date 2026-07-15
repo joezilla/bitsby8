@@ -10,6 +10,8 @@ import * as path from 'path';
 import { Database } from '../src/database';
 import { Dependencies } from '../src/types';
 import { listClients, cleanupOrphanInstanceClients } from '../src/services/client-service';
+import { getMountRegistry } from '../src/mount-registry';
+import { getClientMountRegistry } from '../src/client-mount-registry';
 
 async function makeDeps(liveInstanceClientIds: string[]): Promise<Dependencies> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fdcsds-cli-'));
@@ -36,6 +38,30 @@ describe('client-service instance-awareness', () => {
     expect(by.get('inst:live')).toMatchObject({ isInstance: true, instanceId: 'live', instanceExists: true });
     expect(by.get('inst:orphan')).toMatchObject({ isInstance: true, instanceId: 'orphan', instanceExists: false });
     expect(by.get('esp32-a')).toMatchObject({ isInstance: false, instanceId: null, instanceExists: false });
+  });
+
+  // Epic 6: an instance's drives come from its own definition (the client mount
+  // registry), NOT the shared served spindle; external clients still inherit it.
+  test('instance drives are source:profile (no global inherit); external inherits global', async () => {
+    const deps = await makeDeps(['inst:vm']);
+    await deps.database.setClientLabel('inst:vm', '');
+    await deps.database.setClientLabel('esp32-a', '');
+
+    getMountRegistry().set(0, '/disks/served.dsk', false);              // served spindle, drive 0
+    getClientMountRegistry().set('inst:vm', 1, '/disks/boot.dsk', true); // profile startup disk, drive 1
+    try {
+      const by = new Map((await listClients(deps)).clients.map((c) => [c.clientId, c]));
+
+      const vm = by.get('inst:vm')!;
+      expect(vm.drives[0]).toMatchObject({ drive: 0, filename: null, source: 'none' }); // global NOT inherited
+      expect(vm.drives[1]).toMatchObject({ drive: 1, filename: 'boot.dsk', source: 'profile', readonly: true });
+
+      const ext = by.get('esp32-a')!;
+      expect(ext.drives[0]).toMatchObject({ drive: 0, filename: 'served.dsk', source: 'global' });
+    } finally {
+      getMountRegistry().clear(0);
+      getClientMountRegistry().clearClient('inst:vm');
+    }
   });
 
   test('cleanup forgets only the orphaned instance clients', async () => {

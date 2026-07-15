@@ -11,50 +11,38 @@
   }
 
   let { open = false, onclose }: Props = $props();
-  let copiedTransport = $state<'stdio' | 'http' | null>(null);
-
-  const mcpStdioConfig = JSON.stringify({
-    mcpServers: {
-      fdcplus: {
-        command: 'fdcsds',
-        args: ['--mcp', '--data-dir', '/path/to/your/data'],
-      },
-    },
-  }, null, 2);
+  let copied = $state(false);
 
   // Remote HTTP transport — pre-fill the URL with the origin the user is
   // currently browsing to, so a paste on the same LAN works out of the box.
   const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://HOST:PORT';
-  const mcpHttpCommand = `claude mcp add --transport http fdcplus \\
+  const mcpHttpCommand = `claude mcp add --transport http bitsby8 \\
   ${currentOrigin}/mcp \\
   --header "Authorization: Bearer <api-key>"`;
 
   const exampleTools = [
-    'get_status', 'list_drives', 'mount_disk', 'unmount_disk',
-    'list_disk_images', 'create_disk_image', 'clone_disk_image',
-    'list_cpm_files', 'read_cpm_file', 'write_cpm_file',
-    'write_cpm_file_from_upload', 'list_uploads',
-    'open_terminal', 'send_to_terminal', 'close_terminal',
-    'start_replay', 'list_scripts', 'list_cassettes',
-    'configure_serial', 'enable_disk_serving',
+    'get_status', 'list_machine_profiles', 'create_machine_profile',
+    'define_machine_instance', 'start_machine_instance', 'read_instance_console',
+    'list_drives', 'mount_disk', 'unmount_disk', 'list_disk_images',
+    'create_disk_image', 'snapshot_disk_image', 'list_cpm_files',
+    'read_cpm_file', 'write_cpm_file', 'list_card_definitions',
+    'author_card', 'burn_eprom', 'open_terminal', 'send_to_terminal',
   ];
 
   const examplePrompts = [
-    'Mount the CP/M boot disk on drive 0',
-    'What files are on this disk?',
-    'Transfer HELLO.BAS to the Altair via XMODEM',
-    'Find a disk image with MBASIC on it',
-    'Configure serial port to /dev/ttyUSB0 at 230400 baud',
-    'Create a blank 8-inch disk image',
+    'Launch an IMSAI 8080 running CP/M and show me the console',
+    'Build a machine profile with 48K RAM and a VDM-1 video card',
+    'Boot the CP/M disk, then list its files and read HELLO.BAS',
+    'Single-step the CPU and read the front panel registers',
+    'Snapshot this disk before I format it',
+    'Burn this ROM image into the EPROM card and reboot',
   ];
 
-  async function copy(text: string, kind: 'stdio' | 'http') {
+  async function copy(text: string) {
     try {
       await navigator.clipboard.writeText(text);
-      copiedTransport = kind;
-      setTimeout(() => {
-        if (copiedTransport === kind) copiedTransport = null;
-      }, 2000);
+      copied = true;
+      setTimeout(() => (copied = false), 2000);
     } catch {
       showToast('Failed to copy', 'error');
     }
@@ -92,52 +80,13 @@
     >
       <div style="display: flex; flex-direction: column; gap: 4px;">
         <LabelStrip>AI · Assistant · MCP</LabelStrip>
-        <span style="font: var(--text-title-sm); color: var(--fg-1);">FDC+ Assistant</span>
+        <span style="font: var(--text-title-sm); color: var(--fg-1);">BitsBy8 Assistant</span>
       </div>
       <IconButton icon="close" size={18} title="Close" onclick={onclose} />
     </div>
 
     <!-- Content -->
     <div style="flex: 1; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px;">
-      <!-- MCP setup: local stdio -->
-      <Card>
-        <div style="padding: 16px;">
-          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-            <Icon name="extension" size={18} class="text-accent" />
-            <span style="font: var(--text-title-sm); color: var(--fg-1);">MCP server — local (stdio)</span>
-          </div>
-          <p style="font: var(--text-body-sm); color: var(--fg-2); margin: 0 0 12px;">
-            Spawn the FDC+ MCP server as a child process from Claude Desktop or
-            Claude Code running on the same machine. No API key required — the
-            parent process trust model applies.
-          </p>
-
-          <div style="position: relative;">
-            <pre
-              class="fdc-mono"
-              style="
-                background: var(--surface-sunken);
-                border: 1px solid var(--border-1);
-                border-radius: var(--radius-sm);
-                padding: 12px;
-                font-size: 11px;
-                color: var(--info);
-                overflow-x: auto;
-                margin: 0;
-              "
-            >{mcpStdioConfig}</pre>
-            <span style="position: absolute; top: 6px; right: 6px;">
-              <IconButton
-                icon={copiedTransport === 'stdio' ? 'check' : 'content_copy'}
-                size={16}
-                title="Copy configuration"
-                onclick={() => copy(mcpStdioConfig, 'stdio')}
-              />
-            </span>
-          </div>
-        </div>
-      </Card>
-
       <!-- MCP setup: remote HTTP -->
       <Card>
         <div style="padding: 16px;">
@@ -146,8 +95,8 @@
             <span style="font: var(--text-title-sm); color: var(--fg-1);">MCP server — remote (HTTP)</span>
           </div>
           <p style="font: var(--text-body-sm); color: var(--fg-2); margin: 0 0 12px;">
-            Drive this Pi's FDC+ from a Claude Code instance running elsewhere
-            on the LAN. Requires an API key — set one in
+            Drive this BitsBy8 from a Claude Code instance running elsewhere on
+            the LAN. Requires an API key — set one in
             <strong>Configuration → Web &amp; API</strong>, then enable MCP
             over HTTP in <strong>Configuration → MCP server</strong>.
           </p>
@@ -170,10 +119,10 @@
             >{mcpHttpCommand}</pre>
             <span style="position: absolute; top: 6px; right: 6px;">
               <IconButton
-                icon={copiedTransport === 'http' ? 'check' : 'content_copy'}
+                icon={copied ? 'check' : 'content_copy'}
                 size={16}
                 title="Copy command"
-                onclick={() => copy(mcpHttpCommand, 'http')}
+                onclick={() => copy(mcpHttpCommand)}
               />
             </span>
           </div>
@@ -231,7 +180,7 @@
                 color: var(--accent);
               "
             >
-              +11 more
+              + dozens more
             </span>
           </div>
         </div>

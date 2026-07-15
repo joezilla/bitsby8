@@ -4,7 +4,8 @@
   import { showToast } from '$lib/stores/toast';
   import type { InstanceSnapshot } from '$lib/types/api';
   import Button from '$lib/components/shared/Button.svelte';
-  import Icon from '$lib/components/shared/Icon.svelte';
+  import Modal from '$lib/components/shared/Modal.svelte';
+  import EmptyState from '$lib/components/shared/EmptyState.svelte';
 
   interface Props {
     instanceId: string;
@@ -77,109 +78,35 @@
   onMount(load);
 </script>
 
-<div class="overlay" role="button" tabindex="-1" aria-label="Close" onclick={onClose}
-  onkeydown={(e) => e.key === 'Escape' && onClose()}></div>
-<div class="panel" role="dialog" aria-modal="true" aria-label="Snapshots for {title}">
-  <header class="bar">
-    <div class="ttl"><Icon name="photo_camera" size={18} /><span class="fdc-mono">{title}</span><span class="hint">disk snapshots</span></div>
-    <button class="close" onclick={onClose} aria-label="Close"><Icon name="close" size={20} /></button>
-  </header>
-
-  <div class="body">
-    <div class="take">
-      <input class="inp" placeholder="Label (optional)" bind:value={label} disabled={busy} />
-      <Button variant="filled" size="sm" icon="add_a_photo" onclick={take} disabled={busy}>Snapshot now</Button>
-    </div>
-
-    {#if loading}
-      <p class="muted">Loading…</p>
-    {:else if snapshots.length === 0}
-      <p class="muted">No snapshots yet. Take one to capture this machine's disks.</p>
-    {:else}
-      <ul class="list">
-        {#each snapshots as s (s.id)}
-          <li>
-            <div class="meta">
-              <span class="lbl">{s.label || 'snapshot'}</span>
-              <span class="sub fdc-mono">{when(s.createdAt)} · {s.disks.map((d) => 'D' + d.drive).join(' ')}</span>
-            </div>
-            <div class="acts">
-              <Button variant="tonal" size="sm" icon="restore" onclick={() => restore(s)} disabled={busy}>Restore</Button>
-              <Button variant="ghost" size="sm" icon="delete" danger onclick={() => remove(s)} disabled={busy}>Delete</Button>
-            </div>
-          </li>
-        {/each}
-      </ul>
-    {/if}
+<Modal title={title} icon="photo_camera" hint="disk snapshots" size="lg" busy={busy} {onClose}>
+  <div class="take">
+    <input class="inp" placeholder="Label (optional)" bind:value={label} disabled={busy} />
+    <Button variant="filled" size="sm" icon="add_a_photo" onclick={take} disabled={busy}>Snapshot now</Button>
   </div>
-</div>
+
+  {#if loading}
+    <EmptyState loading compact>Loading snapshots…</EmptyState>
+  {:else if snapshots.length === 0}
+    <EmptyState icon="photo_camera" compact>No snapshots yet. Take one to capture this machine's disks.</EmptyState>
+  {:else}
+    <ul class="list">
+      {#each snapshots as s (s.id)}
+        <li>
+          <div class="meta">
+            <span class="lbl">{s.label || 'snapshot'}</span>
+            <span class="sub fdc-mono">{when(s.createdAt)} · {s.disks.map((d) => 'D' + d.drive).join(' ')}</span>
+          </div>
+          <div class="acts">
+            <Button variant="tonal" size="sm" icon="restore" onclick={() => restore(s)} disabled={busy}>Restore</Button>
+            <Button variant="ghost" size="sm" icon="delete" danger onclick={() => remove(s)} disabled={busy}>Delete</Button>
+          </div>
+        </li>
+      {/each}
+    </ul>
+  {/if}
+</Modal>
 
 <style>
-  .overlay {
-    position: fixed;
-    inset: 0;
-    background: var(--surface-overlay);
-    z-index: 40;
-    border: none;
-  }
-  .panel {
-    position: fixed;
-    z-index: 41;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    width: min(560px, 94vw);
-    background: var(--surface);
-    border: 1px solid var(--border-3);
-    border-radius: var(--radius-lg);
-    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-  .bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: var(--space-2) var(--space-3);
-    border-bottom: 1px solid var(--border-2);
-    background: var(--surface-raised);
-  }
-  .ttl {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    color: var(--fg-1);
-    font-size: 14px;
-  }
-  .hint {
-    font: var(--text-overline);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--fg-4);
-  }
-  .close {
-    display: grid;
-    place-items: center;
-    width: 32px;
-    height: 32px;
-    background: none;
-    border: none;
-    color: var(--fg-3);
-    cursor: pointer;
-    border-radius: var(--radius-sm);
-  }
-  .close:hover {
-    color: var(--fg-1);
-  }
-  .body {
-    padding: var(--space-4);
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-    max-height: 60vh;
-    overflow: auto;
-  }
   .take {
     display: flex;
     gap: var(--space-2);
@@ -236,9 +163,5 @@
     display: flex;
     gap: var(--space-1);
     flex-shrink: 0;
-  }
-  .muted {
-    color: var(--fg-3);
-    font: var(--text-body-sm);
   }
 </style>

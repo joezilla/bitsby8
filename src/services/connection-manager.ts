@@ -21,6 +21,7 @@ import { DriveSession } from '../drive-session';
 import { FdcServer } from '../server';
 import { getMountRegistry } from '../mount-registry';
 import { getClientMountRegistry } from '../client-mount-registry';
+import { INSTANCE_CLIENT_PREFIX } from './instance-manager';
 import { createDefaultConfig } from '../protocol';
 import { createLogger } from '../logger';
 
@@ -89,12 +90,16 @@ export class ConnectionManager {
   private async startServed(transport: IFdcTransport, clientId: string | null, kind: TransportKind): Promise<string> {
     const id = randomUUID();
     const writesMaster = clientId != null && clientId === this.deps.writeMaster;
+    // A VM instance owns its drives (from its profile definition); it does not
+    // inherit the shared served spindle the serial box + external clients share.
+    const inheritsGlobal = !clientId?.startsWith(INSTANCE_CLIENT_PREFIX);
     const session = new DriveSession({
       clientId,
       registry: getMountRegistry(),
       clientMounts: getClientMountRegistry(),
       database: this.deps.database,
       writesMaster,
+      inheritsGlobal,
     });
     await session.sync();
 

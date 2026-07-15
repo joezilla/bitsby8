@@ -4,10 +4,13 @@
   import { showToast } from '$lib/stores/toast';
   import { pendingRunInstance } from '$lib/stores/pendingRun';
   import { pendingClientFocus } from '$lib/stores/pendingClientFocus';
+  import { pendingProfileFocus } from '$lib/stores/pendingProfileFocus';
   import type { InstanceStatus, ClientBay } from '$lib/types/api';
   import PageHeader from '$lib/components/shared/PageHeader.svelte';
   import Button from '$lib/components/shared/Button.svelte';
   import Icon from '$lib/components/shared/Icon.svelte';
+  import StatusBadge from '$lib/components/shared/StatusBadge.svelte';
+  import EmptyState from '$lib/components/shared/EmptyState.svelte';
   import Sparkline from '$lib/components/machines/Sparkline.svelte';
   import InstanceConsole from '$lib/components/machines/InstanceConsole.svelte';
   import SnapshotsModal from '$lib/components/machines/SnapshotsModal.svelte';
@@ -15,9 +18,25 @@
   import RunView from '$lib/components/machines/RunView.svelte';
 
   interface Props {
-    onNavigate?: (page: 'terminal' | 'clients') => void;
+    onNavigate?: (page: 'terminal' | 'clients' | 'profiles' | 'disks') => void;
   }
   let { onNavigate }: Props = $props();
+
+  // Cross-page deep-links (W1): jump to a profile's editor or a disk's library
+  // entry, carrying the focus intent through the matching pending* store.
+  const isLinkableProfile = (ref: string): boolean => !!ref && ref !== 'inline';
+  function goProfile(ref: string): void {
+    if (!isLinkableProfile(ref)) return;
+    pendingProfileFocus.set(ref);
+    onNavigate?.('profiles');
+  }
+  // A mounted disk in a machine context is something you operate (swap/eject),
+  // so its name links to the owning client's drive bays on the Clients page —
+  // where those controls live — not to the read-only library entry.
+  function manageClientDrives(clientId: string): void {
+    pendingClientFocus.set(clientId);
+    onNavigate?.('clients');
+  }
 
   let instances = $state<InstanceStatus[]>([]);
   let clients = $state<ClientBay[]>([]);
@@ -26,9 +45,12 @@
   let snapshotsFor = $state<InstanceStatus | null>(null);
   let monitorFor = $state<InstanceStatus | null>(null);
   let runFor = $state<InstanceStatus | null>(null);
-  // Leave the cockpit if its machine is stopped or destroyed elsewhere.
+  // Keep the cockpit's instance object live: re-point runFor at the freshly
+  // polled instance each tick (so its disks/speed update in place), and leave the
+  // cockpit if the machine has stopped or been destroyed elsewhere.
   $effect(() => {
-    if (runFor && !instances.some((i) => i.id === runFor!.id && i.status === 'running')) runFor = null;
+    if (!runFor) return;
+    runFor = instances.find((i) => i.id === runFor!.id && i.status === 'running') ?? null;
   });
   // Open the Run cockpit for an instance requested elsewhere (e.g. the profile
   // "Launch" action) once it surfaces in the polled list. Clear the intent as
@@ -160,7 +182,12 @@
 {/snippet}
 
 {#if runFor}
-  <RunView instance={runFor} onBack={() => (runFor = null)} onChanged={load} />
+  <RunView
+    instance={runFor}
+    onBack={() => (runFor = null)}
+    onChanged={load}
+    onProfile={goProfile}
+  />
 {:else}
 <PageHeader
   eyebrow="Operate · Virtual Machines"
@@ -181,30 +208,30 @@
   </div>
 
   {#if loading}
-    <p class="muted">Loading…</p>
+    <EmptyState loading>Loading machines…</EmptyState>
   {:else if instances.length === 0 && physical.length === 0}
-    <div class="empty">
-      <Icon name="dns" size={24} />
-      <p class="muted">Nothing running. Launch a machine from a Profile, or connect a physical/external FDC client.</p>
-    </div>
+    <EmptyState icon="dns">Nothing running. Launch a machine from a Profile, or connect a physical/external FDC client.</EmptyState>
   {:else}
     <div class="grid">
       {#each instances as i (i.id)}
         <div class="card" class:running={i.status === 'running'}>
           <div class="top">
             <span class="target">virtual · 8sim</span>
-            <div class="status">
-              <span class="dot {i.status}" aria-hidden="true"></span>
-              <span class="stext">{i.status}</span>
-            </div>
+            <StatusBadge state={i.status} size="sm" />
           </div>
 
           <div class="idline">
-            <span class="pref fdc-mono" title={i.profileRef}>{i.profileRef}</span>
+            {#if isLinkableProfile(i.profileRef)}
+              <button type="button" class="pref link fdc-mono" title="Open profile {i.profileRef}" onclick={() => goProfile(i.profileRef)}>
+                {i.profileRef}<Icon name="arrow_outward" size={14} />
+              </button>
+            {:else}
+              <span class="pref fdc-mono" title={i.profileRef}>{i.profileRef}</span>
+            {/if}
           </div>
           <div class="badges">
-            {#if i.transient}<span class="badge">transient</span>{/if}
-            {#if i.headless}<span class="badge" title="Running with no console attached">headless</span>{/if}
+            {#if i.transient}<StatusBadge state="transient" size="sm" />{/if}
+            {#if i.headless}<StatusBadge state="headless" size="sm" />{/if}
             <span class="driven">driven by: {drivenBy(i.driver)}</span>
           </div>
 
@@ -240,9 +267,9 @@
               {#each i.disks as d (d.drive)}
                 <li>
                   <span class="dnum fdc-mono">D{d.drive}</span>
-                  <span class="dfile fdc-mono" title={d.filename}>{d.filename}</span>
+                  <button type="button" class="dfile link fdc-mono" title="Manage drive {d.drive} ({d.filename}) on the Clients page" onclick={() => manageClientDrives(i.clientId)}>{d.filename}</button>
                   {#if d.readonly}<Icon name="lock" size={16} />{/if}
-                  {#if d.dirty}<span class="dirty" title="Uncommitted disk writes">●</span>{/if}
+                  {#if d.dirty}<span class="rowbadge"><StatusBadge state="unsaved" size="sm" /></span>{/if}
                 </li>
               {/each}
             </ul>
@@ -268,17 +295,14 @@
         <div class="card running">
           <div class="top">
             <span class="target phys">physical · serial</span>
-            <div class="status">
-              <span class="dot running" aria-hidden="true"></span>
-              <span class="stext">connected</span>
-            </div>
+            <StatusBadge state="connected" size="sm" />
           </div>
           <div class="idline">
             <span class="pref fdc-mono" title={c.clientId}>{c.name || c.clientId}</span>
           </div>
           <div class="badges">
-            {#if c.isMaster}<span class="badge">master</span>{/if}
-            {#if c.hasSplinters}<span class="badge" title="Has copy-on-write disk writes">splinters</span>{/if}
+            {#if c.isMaster}<StatusBadge state="master" size="sm" />{/if}
+            {#if c.hasSplinters}<StatusBadge state="unsaved" label="splinters" size="sm" title="Has copy-on-write disk writes" />{/if}
             <span class="driven">external FDC client</span>
           </div>
           <div class="meta"><Icon name="schedule" size={14} /> up {uptimeFrom(c.connectedAt)}</div>
@@ -288,9 +312,9 @@
               {#each c.drives.filter((d) => d.filename) as d (d.drive)}
                 <li>
                   <span class="dnum fdc-mono">D{d.drive}</span>
-                  <span class="dfile fdc-mono" title={d.filename ?? ''}>{d.filename}</span>
+                  <button type="button" class="dfile link fdc-mono" title="Manage drive {d.drive} ({d.filename}) on the Clients page" onclick={() => manageClientDrives(c.clientId)}>{d.filename}</button>
                   {#if d.readonly}<Icon name="lock" size={16} />{/if}
-                  {#if d.dirty}<span class="dirty" title="Uncommitted disk writes">●</span>{/if}
+                  {#if d.dirty}<span class="rowbadge"><StatusBadge state="unsaved" size="sm" /></span>{/if}
                 </li>
               {/each}
             </ul>
@@ -393,27 +417,6 @@
     color: var(--info);
     border-color: color-mix(in srgb, var(--info) 35%, transparent);
   }
-  .status {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-  }
-  .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--fg-4);
-  }
-  .dot.running {
-    background: var(--success);
-    box-shadow: 0 0 6px var(--success);
-  }
-  .stext {
-    font: var(--text-label);
-    color: var(--fg-2);
-    text-transform: capitalize;
-  }
-
   .idline {
     min-width: 0;
   }
@@ -426,20 +429,52 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* Cross-page links styled as inline text, not buttons. */
+  button.pref {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    max-width: 100%;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    text-align: left;
+  }
+  button.pref :global(.icon) {
+    color: var(--fg-4);
+    transition: color var(--dur-short) var(--ease-standard);
+  }
+  .link {
+    cursor: pointer;
+  }
+  button.dfile {
+    background: none;
+    border: none;
+    padding: 0;
+    text-align: left;
+    color: var(--fg-2);
+    cursor: pointer;
+  }
+  .link:hover,
+  button.pref:hover {
+    color: var(--accent);
+    text-decoration: underline;
+  }
+  button.pref:hover :global(.icon) {
+    color: var(--accent);
+  }
+  .link:focus-visible,
+  button.pref:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-xs);
+  }
   .badges {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
     gap: 6px;
-  }
-  .badge {
-    font: var(--text-overline);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--info);
-    background: color-mix(in srgb, var(--info) 14%, transparent);
-    border-radius: var(--radius-xs);
-    padding: 1px 6px;
   }
   .driven {
     font: var(--text-overline);
@@ -528,11 +563,8 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .dirty {
-    color: var(--warning);
+  .rowbadge {
     margin-left: auto;
-    font-size: 14px;
-    line-height: 1;
   }
 
   .actions {
@@ -542,16 +574,4 @@
     flex-wrap: wrap;
   }
 
-  .muted {
-    color: var(--fg-3);
-    font: var(--text-body-sm);
-  }
-  .empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-9) var(--space-4);
-    color: var(--fg-3);
-  }
 </style>

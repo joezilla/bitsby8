@@ -61,7 +61,7 @@ export function registerScriptRoutes(router: Router, deps: Dependencies): void {
    *   get:
    *     tags: [Scripts]
    *     summary: Get script content
-   *     description: Returns script metadata and content. Text files (.txt) include content; binary files return metadata only.
+   *     description: Returns script metadata and content. Text scripts include content; binary scripts (those containing NUL bytes) return metadata only.
    *     parameters:
    *       - in: path
    *         name: name
@@ -128,12 +128,15 @@ export function registerScriptRoutes(router: Router, deps: Dependencies): void {
 
       const stat = await fs.stat(scriptPath);
 
-      // For text files, return content; for binary, return metadata only
-      if (name.endsWith('.txt')) {
-        const content = await fs.readFile(scriptPath, 'utf-8');
-        res.json({ name, content, size: stat.size, binary: false });
-      } else {
+      // Detect binary by CONTENT, not extension: a script is binary only if it
+      // holds a NUL byte (the classic text-vs-binary test). Terminal recordings
+      // and sources like hello.bas contain control bytes (CR, ESC) but no NUL,
+      // so they're correctly text — a `.txt`-only rule wrongly flagged them.
+      const buf = await fs.readFile(scriptPath);
+      if (buf.includes(0)) {
         res.json({ name, size: stat.size, binary: true });
+      } else {
+        res.json({ name, content: buf.toString('utf-8'), size: stat.size, binary: false });
       }
     } catch (error) {
       res.status(500).json({ error: safeErrorMessage(error) });
@@ -407,6 +410,23 @@ export function registerScriptRoutes(router: Router, deps: Dependencies): void {
     },
   });
 
+  // Wrap multer so its errors (wrong field, oversize, bad filename) surface as
+  // clean JSON — without this, a MulterError thrown in the middleware bypasses
+  // the route's try/catch and becomes a 500 (see the upload field-name bug).
+  const runScriptUpload = (req: Request, res: Response, next: () => void): void => {
+    scriptUpload.single('file')(req, res, (err: unknown) => {
+      if (err instanceof multer.MulterError) {
+        res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: err.message, code: err.code });
+        return;
+      }
+      if (err) {
+        res.status(400).json({ error: safeErrorMessage(err) });
+        return;
+      }
+      next();
+    });
+  };
+
   /**
    * @openapi
    * /api/scripts/upload:
@@ -455,7 +475,7 @@ export function registerScriptRoutes(router: Router, deps: Dependencies): void {
    */
   router.post(
     '/api/scripts/upload',
-    scriptUpload.single('file'),
+    runScriptUpload,
     async (req: Request, res: Response): Promise<void> => {
       try {
         if (!req.file) {

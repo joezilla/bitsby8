@@ -15,11 +15,36 @@
    and `text-fg-3` resolve and stay theme-aware via var().
    ============================================================ */
 @theme {
+  /* Accent */
   --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-press: var(--accent-press);
+  --color-accent-bg: var(--accent-bg);
+  --color-on-accent: var(--fg-on-accent);
+
+  /* Foreground hierarchy */
   --color-fg-1: var(--fg-1);
   --color-fg-2: var(--fg-2);
   --color-fg-3: var(--fg-3);
   --color-fg-4: var(--fg-4);
+
+  /* Surfaces */
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-variant: var(--surface-variant);
+
+  /* Borders (usable as border-border-2, bg-border-1, …) */
+  --color-border-1: var(--border-1);
+  --color-border-2: var(--border-2);
+  --color-border-3: var(--border-3);
+
+  /* Semantic signals — separate from the accent hue */
+  --color-success: var(--success);
+  --color-info: var(--info);
+  --color-warning: var(--warning);
+  --color-error: var(--error);
 }
 
 /* ============================================================

@@ -25,6 +25,7 @@ import {
   readInstanceConsole,
 } from '../src/services/instance-service';
 import { getMountRegistry } from '../src/mount-registry';
+import { getClientMountRegistry } from '../src/client-mount-registry';
 
 /** A fake sim whose machine exposes a console channel (id 'sio') that loops
  * RX back to TX, so console write→read round-trips through the real ConsoleHub. */
@@ -115,13 +116,21 @@ describe('instance-service', () => {
     await expect(createTransientInstance(deps, {}, 'mcp')).rejects.toMatchObject({ statusCode: 400 });
   });
 
-  test('status carries bound disks, uptime, and headless that clears on console attach', async () => {
+  test('status carries bound disks (from its own definition, not the global mount), uptime, and headless that clears on console attach', async () => {
     const deps = await makeDeps();
-    getMountRegistry().set(0, '/disks/boot.dsk', true);
+    // A served-spindle mount exists on drive 0 — an instance must NOT inherit it
+    // (Epic 6: a VM owns its drives from its own definition).
+    getMountRegistry().set(0, '/disks/served.dsk', true);
+    let clientId = '';
     try {
       const info = await createTransientInstance(deps, { profile }, 'mcp');
+      clientId = `inst:${info.id}`;
+      // The instance's own drive, as a profile startup disk is materialized at launch.
+      getClientMountRegistry().set(clientId, 1, '/disks/boot.dsk', true);
+
       const st = (await listInstanceStatus(deps))[0];
-      expect(st.disks).toEqual([{ drive: 0, filename: 'boot.dsk', readonly: true, dirty: false }]);
+      // Only its own drive 1 — the served spindle's drive 0 is not inherited.
+      expect(st.disks).toEqual([{ drive: 1, filename: 'boot.dsk', readonly: true, dirty: false }]);
       expect(st.uptimeSeconds).toBeGreaterThanOrEqual(0);
       expect(st.headless).toBe(true); // no console subscriber yet
 
@@ -133,6 +142,7 @@ describe('instance-service', () => {
       await destroyInstance(deps, info.id);
     } finally {
       getMountRegistry().clear(0);
+      if (clientId) getClientMountRegistry().clearClient(clientId);
     }
   });
 
@@ -141,6 +151,7 @@ describe('instance-service', () => {
     const info = await createTransientInstance(deps, { profile, speed: 2000000 }, 'api');
     expect(info.targetHz).toBe(2000000);
     expect(info.effectiveHz).toBe(2000000);
+    expect(info.panelBase).toBe('oct'); // inline profiles default to octal grouping
     await destroyInstance(deps, info.id);
   });
 

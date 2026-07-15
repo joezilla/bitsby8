@@ -7,22 +7,42 @@
   import Card from '$lib/components/shared/Card.svelte';
   import Button from '$lib/components/shared/Button.svelte';
   import IconButton from '$lib/components/shared/IconButton.svelte';
-  import Chip from '$lib/components/shared/Chip.svelte';
+  import StatusBadge from '$lib/components/shared/StatusBadge.svelte';
+  import EmptyState from '$lib/components/shared/EmptyState.svelte';
   import Input from '$lib/components/shared/Input.svelte';
   import Icon from '$lib/components/shared/Icon.svelte';
-  import LabelStrip from '$lib/components/shared/LabelStrip.svelte';
+  import Modal from '$lib/components/shared/Modal.svelte';
+  import DiskPicker from '$lib/components/shared/DiskPicker.svelte';
   import DriveCard from '$lib/components/shared/DriveCard.svelte';
-  import type { ClientBay, ClientDrive, DiskImageInfo } from '$lib/types/api';
+  import type { ClientBay, ClientDrive } from '$lib/types/api';
   import { pendingRunInstance } from '$lib/stores/pendingRun';
   import { pendingClientFocus } from '$lib/stores/pendingClientFocus';
+  import { pendingDiskFocus } from '$lib/stores/pendingDiskFocus';
 
   interface Props {
-    onNavigate?: (page: 'terminal' | 'machines') => void;
+    onNavigate?: (page: 'terminal' | 'machines' | 'disks' | 'drives') => void;
   }
   let { onNavigate }: Props = $props();
 
+  /** Deep-link a client's mounted disk to its library entry (inspect the image). */
+  function goDisk(filename: string): void {
+    pendingDiskFocus.set(filename);
+    onNavigate?.('disks');
+  }
+
+  /** Provenance (Epic 6.4): where a drive's mount *originates*, so you can manage
+   *  it at the source. A 'global' mount is the served spindle → Drive Bays; a
+   *  'profile' mount comes from the VM's own definition → open the machine. */
+  function driveOrigin(client: ClientBay, d: ClientDrive): (() => void) | undefined {
+    if (d.source === 'global') return () => onNavigate?.('drives');
+    if (d.source === 'profile' && client.isInstance && client.instanceExists && client.instanceId) {
+      const id = client.instanceId;
+      return () => openMachine(id);
+    }
+    return undefined;
+  }
+
   let clients = $state<ClientBay[]>([]);
-  let images = $state<DiskImageInfo[]>([]);
   let loading = $state(true);
   let newClientId = $state('');
   let focusId = $state<string | null>(null); // briefly highlighted after a deep-link
@@ -73,24 +93,11 @@
   // Modal disk picker — set/change a client drive's override image. Opened
   // from the "change disk" (swap) control on each bay.
   let diskPicker = $state<{ clientId: string; drive: number; readonly: boolean } | null>(null);
-  let diskPickerFilter = $state('');
-  let filteredPickerImages = $derived(
-    diskPickerFilter
-      ? images.filter((i) => i.name.toLowerCase().includes(diskPickerFilter.toLowerCase()))
-      : images
-  );
 
   let multiEnabled = $derived($serverStatus?.multiClient?.enabled ?? false);
 
-  function formatSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-
   function openDiskPicker(clientId: string, drive: number, readonly: boolean) {
     diskPicker = { clientId, drive, readonly };
-    diskPickerFilter = '';
   }
 
   async function pickDisk(filename: string) {
@@ -107,9 +114,7 @@
   async function load() {
     try {
       loading = true;
-      const [c, imgs] = await Promise.all([api.getClients(), api.listImagesDetailed()]);
-      clients = c.clients;
-      images = imgs.images;
+      clients = (await api.getClients()).clients;
     } catch (err: any) {
       showToast(`Failed to load clients: ${err.message}`, 'error');
     } finally {
@@ -264,6 +269,7 @@
 
   function driveStatus(d: ClientDrive): { color: 'cyan' | 'green' | 'off'; text: string } {
     if (d.source === 'override') return { color: 'cyan', text: 'Override' };
+    if (d.source === 'profile') return { color: 'green', text: 'From machine' };
     if (d.source === 'global') return { color: 'green', text: 'Inherited' };
     return { color: 'off', text: 'Empty' };
   }
@@ -299,9 +305,9 @@
   </Card>
 
   {#if loading && clients.length === 0}
-    <Card><div style="padding: 20px; color: var(--fg-3);">Loading…</div></Card>
+    <EmptyState loading>Loading clients…</EmptyState>
   {:else if clients.length === 0}
-    <Card><div style="padding: 20px; color: var(--fg-3);">No known clients yet. Connect a client with <code>?clientId=…</code> or add one above.</div></Card>
+    <EmptyState icon="devices">No known clients yet. Connect a client with <code>?clientId=…</code> or add one above.</EmptyState>
   {/if}
 
   {#if orphans.length}
@@ -325,14 +331,14 @@
               <span class="fdc-mono" style="font-size: 15px; color: var(--accent);">{client.clientId}</span>
               {#if client.isInstance}
                 {#if client.instanceExists}
-                  <Chip color="cyan" icon="dns" title="This client is a virtual machine instance">machine</Chip>
+                  <StatusBadge state="machine" />
                 {:else}
-                  <Chip color="red" icon="warning" title="The machine this client belonged to was deleted">orphan · machine deleted</Chip>
+                  <StatusBadge state="orphan" label="orphan · machine deleted" />
                 {/if}
               {/if}
-              {#if client.connected}<Chip color="green" icon="bolt">connected</Chip>{:else}<Chip color="amber">offline</Chip>{/if}
-              {#if client.isMaster}<Chip color="green" icon="edit">master</Chip>{/if}
-              {#if client.hasSplinters}<Chip color="cyan" icon="bolt" title="This client has copy-on-write disk splinters with unsaved changes">splinters</Chip>{/if}
+              {#if client.connected}<StatusBadge state="connected" />{:else}<StatusBadge state="offline" />{/if}
+              {#if client.isMaster}<StatusBadge state="master" />{/if}
+              {#if client.hasSplinters}<StatusBadge state="unsaved" label="splinters" title="This client has copy-on-write disk splinters with unsaved changes" />{/if}
             </div>
             <div style="margin-top: 6px; font: var(--text-body-sm); color: {client.name ? 'var(--fg-2)' : 'var(--fg-4)'};">
               {client.name || 'No friendly name set'}
@@ -357,7 +363,9 @@
               protectedRo={d.readonly}
               dirty={d.dirty}
               status={driveStatus(d)}
-              emptyText="Inherits global"
+              emptyText={client.isInstance ? 'Not in machine definition' : 'Inherits global'}
+              onOpenFile={goDisk}
+              onOrigin={driveOrigin(client, d)}
             >
               {#snippet actions()}
                 {#if d.filename}
@@ -426,164 +434,82 @@
 
 <!-- Edit friendly name modal -->
 {#if nameModal}
-  <div
-    role="dialog"
-    aria-modal="true"
-    aria-label="Edit friendly name"
-    tabindex="-1"
-    onkeydown={(e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !nameModalBusy) nameModal = null;
-      if (e.key === 'Enter' && !nameModalBusy) saveNameModal();
-    }}
-    style="position: fixed; inset: 0; z-index: 55; background: var(--surface-overlay); display: flex; align-items: center; justify-content: center; padding: 16px;"
-  >
-    <button
-      type="button"
-      onclick={() => { if (!nameModalBusy) nameModal = null; }}
-      aria-label="Close"
-      style="position: absolute; inset: 0; background: transparent; border: none; cursor: default;"
-    ></button>
-    <div
-      role="document"
-      style="position: relative; background: var(--surface-raised); border: 1px solid var(--border-2); border-radius: var(--radius-lg); box-shadow: var(--elev-4); width: 100%; max-width: 440px; padding: 20px; display: flex; flex-direction: column; gap: 14px;"
-    >
-      <div>
-        <LabelStrip>Friendly name</LabelStrip>
-        <p class="fdc-label-strip" style="color: var(--fg-3); margin: 6px 0 0; text-transform: none; letter-spacing: 0;">
-          A human-friendly label for
-          <span class="fdc-mono" style="color: var(--accent);">{nameModal.clientId}</span>.
-          Leave blank to clear it.
-        </p>
-      </div>
+  <Modal title="Edit friendly name" icon="badge" busy={nameModalBusy} onClose={() => (nameModal = null)}>
+    <div class="modal-keys" role="none" onkeydown={(e) => { if (e.key === 'Enter' && !nameModalBusy) saveNameModal(); }}>
+      <p class="modal-desc">
+        A human-friendly label for
+        <span class="fdc-mono" style="color: var(--accent);">{nameModal.clientId}</span>.
+        Leave blank to clear it.
+      </p>
       <div>
         <label class="fdc-label-strip" for="client-name" style="display: block; margin-bottom: 4px;">Name</label>
         <Input id="client-name" placeholder="e.g. Altair Lab 1" bind:value={nameModalValue} disabled={nameModalBusy} />
       </div>
-      <div style="display: flex; justify-content: flex-end; gap: 8px;">
-        <Button variant="ghost" disabled={nameModalBusy} onclick={() => (nameModal = null)}>Cancel</Button>
-        <Button variant="filled" icon="check" disabled={nameModalBusy} onclick={saveNameModal}>
-          {nameModalBusy ? 'Saving…' : 'Save'}
-        </Button>
-      </div>
     </div>
-  </div>
+    {#snippet footer()}
+      <Button variant="ghost" disabled={nameModalBusy} onclick={() => (nameModal = null)}>Cancel</Button>
+      <Button variant="filled" icon="check" disabled={nameModalBusy} onclick={saveNameModal}>
+        {nameModalBusy ? 'Saving…' : 'Save'}
+      </Button>
+    {/snippet}
+  </Modal>
 {/if}
 
-<!-- Disk picker modal — set/change a client drive's override image -->
+<!-- Disk picker — set/change a client drive's override image -->
 {#if diskPicker}
-  <div
-    role="dialog"
-    aria-modal="true"
-    aria-label="Choose disk image"
-    tabindex="-1"
-    onkeydown={(e: KeyboardEvent) => { if (e.key === 'Escape') diskPicker = null; }}
-    style="position: fixed; inset: 0; z-index: 55; background: var(--surface-overlay); display: flex; align-items: center; justify-content: center; padding: 16px;"
-  >
-    <button
-      type="button"
-      onclick={() => (diskPicker = null)}
-      aria-label="Close"
-      style="position: absolute; inset: 0; background: transparent; border: none; cursor: default;"
-    ></button>
-    <div
-      role="document"
-      style="position: relative; background: var(--surface-raised); border: 1px solid var(--border-2); border-radius: var(--radius-lg); box-shadow: var(--elev-4); width: 100%; max-width: 480px; max-height: 80vh; padding: 20px; display: flex; flex-direction: column; gap: 14px; overflow: hidden;"
-    >
-      <div>
-        <LabelStrip>Set disk · {diskPicker.clientId} · drive {diskPicker.drive}</LabelStrip>
-        <p class="fdc-label-strip" style="color: var(--fg-3); margin: 6px 0 0; text-transform: none; letter-spacing: 0;">
-          Pick an image to mount as this client's drive-{diskPicker.drive} override.
-        </p>
-      </div>
-      <Input variant="search" placeholder="Filter images…" bind:value={diskPickerFilter} />
-      <div style="flex: 1; min-height: 0; overflow-y: auto; border: 1px solid var(--border-1); border-radius: var(--radius-md);">
-        {#if filteredPickerImages.length === 0}
-          <div style="padding: 16px; text-align: center; font: var(--text-body-sm); color: var(--fg-3);">
-            {diskPickerFilter ? 'No images match your filter.' : 'No disk images available.'}
-          </div>
-        {:else}
-          {#each filteredPickerImages as img (img.name)}
-            <button
-              type="button"
-              onclick={() => pickDisk(img.name)}
-              style="width: 100%; text-align: left; padding: 10px 14px; background: transparent; border: none; border-bottom: 1px solid var(--border-1); color: var(--fg-1); cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 10px;"
-            >
-              <span class="fdc-mono" style="font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                {img.name}
-              </span>
-              <span class="fdc-mono" style="font-size: 11px; color: var(--fg-3); flex: 0 0 auto;">
-                {formatSize(img.size)}
-              </span>
-            </button>
-          {/each}
-        {/if}
-      </div>
-      <div style="display: flex; justify-content: flex-end;">
-        <Button variant="ghost" onclick={() => (diskPicker = null)}>Cancel</Button>
-      </div>
-    </div>
-  </div>
+  <DiskPicker
+    title="Set disk · drive {diskPicker.drive}"
+    hint={diskPicker.clientId}
+    onPick={pickDisk}
+    onClose={() => (diskPicker = null)}
+  />
 {/if}
 
 {#if splinterModal}
-  <div
-    role="dialog"
-    aria-modal="true"
-    aria-label="Keep splinter changes"
-    tabindex="-1"
-    onkeydown={(e: KeyboardEvent) => { if (e.key === 'Escape' && !splinterBusy) splinterModal = null; }}
-    style="position: fixed; inset: 0; z-index: 55; background: var(--surface-overlay); display: flex; align-items: center; justify-content: center; padding: 16px;"
+  <Modal
+    title="Keep splinter · {splinterModal.clientId} · drive {splinterModal.drive}"
+    icon="save_as"
+    busy={splinterBusy}
+    onClose={() => (splinterModal = null)}
   >
-    <button
-      type="button"
-      onclick={() => { if (!splinterBusy) splinterModal = null; }}
-      aria-label="Close"
-      style="position: absolute; inset: 0; background: transparent; border: none; cursor: default;"
-    ></button>
-    <div
-      role="document"
-      style="position: relative; background: var(--surface-raised); border: 1px solid var(--border-2); border-radius: var(--radius-lg); box-shadow: var(--elev-4); width: 100%; max-width: 480px; padding: 20px; display: flex; flex-direction: column; gap: 14px;"
-    >
-      <div>
-        <LabelStrip>Keep splinter · {splinterModal.clientId} · drive {splinterModal.drive}</LabelStrip>
-        <p class="fdc-label-strip" style="color: var(--fg-3); margin: 6px 0 0; text-transform: none; letter-spacing: 0;">
-          This client's copy-on-write splinter of
-          <span class="fdc-mono" style="color: var(--accent);">{splinterModal.filename}</span>
-          has changes. Save them as a snapshot, publish them as a new disk, or commit them
-          back onto the master image.
-        </p>
-      </div>
-      <div>
-        <label class="fdc-label-strip" for="splinter-save-label" style="display: block; margin-bottom: 4px;">Snapshot label (optional)</label>
-        <Input id="splinter-save-label" placeholder="e.g. client save" bind:value={splinterLabel} disabled={splinterBusy} />
-        <div style="margin-top: 8px;">
-          <Button variant="filled" icon="photo_camera" disabled={splinterBusy} onclick={snapshotSplinter}>
-            Save as snapshot
-          </Button>
-        </div>
-      </div>
-      <div>
-        <label class="fdc-label-strip" for="splinter-new-name" style="display: block; margin-bottom: 4px;">New disk name (non-destructive)</label>
-        <Input id="splinter-new-name" placeholder="e.g. game-edited" bind:value={splinterNewName} disabled={splinterBusy} />
-        <div style="margin-top: 8px;">
-          <Button variant="tonal" icon="save_as" disabled={splinterBusy} onclick={saveSplinterAsDisk}>
-            Save as new disk
-          </Button>
-        </div>
-      </div>
-      <div>
-        <p class="fdc-label-strip" style="color: var(--warning, var(--accent)); margin: 0 0 8px; text-transform: none; letter-spacing: 0;">
-          Committing overwrites the master and hot-swaps every attached client reading this
-          disk to the new contents. Blocked while a live master-write client (or a read-write
-          operator mount) holds the disk.
-        </p>
-        <Button variant="outline" icon="publish" disabled={splinterBusy} onclick={commitSplinter}>
-          Commit to master
+    <p class="modal-desc">
+      This client's copy-on-write splinter of
+      <span class="fdc-mono" style="color: var(--accent);">{splinterModal.filename}</span>
+      has changes. Save them as a snapshot, publish them as a new disk, or commit them
+      back onto the master image.
+    </p>
+    <div>
+      <label class="fdc-label-strip" for="splinter-save-label" style="display: block; margin-bottom: 4px;">Snapshot label (optional)</label>
+      <Input id="splinter-save-label" placeholder="e.g. client save" bind:value={splinterLabel} disabled={splinterBusy} />
+      <div style="margin-top: 8px;">
+        <Button variant="filled" icon="photo_camera" disabled={splinterBusy} onclick={snapshotSplinter}>
+          Save as snapshot
         </Button>
       </div>
-      <Button variant="ghost" disabled={splinterBusy} onclick={() => (splinterModal = null)}>Cancel</Button>
     </div>
-  </div>
+    <div>
+      <label class="fdc-label-strip" for="splinter-new-name" style="display: block; margin-bottom: 4px;">New disk name (non-destructive)</label>
+      <Input id="splinter-new-name" placeholder="e.g. game-edited" bind:value={splinterNewName} disabled={splinterBusy} />
+      <div style="margin-top: 8px;">
+        <Button variant="tonal" icon="save_as" disabled={splinterBusy} onclick={saveSplinterAsDisk}>
+          Save as new disk
+        </Button>
+      </div>
+    </div>
+    <div>
+      <p class="modal-desc" style="color: var(--warning); margin-bottom: 8px;">
+        Committing overwrites the master and hot-swaps every attached client reading this
+        disk to the new contents. Blocked while a live master-write client (or a read-write
+        operator mount) holds the disk.
+      </p>
+      <Button variant="outline" icon="publish" disabled={splinterBusy} onclick={commitSplinter}>
+        Commit to master
+      </Button>
+    </div>
+    {#snippet footer()}
+      <Button variant="ghost" disabled={splinterBusy} onclick={() => (splinterModal = null)}>Cancel</Button>
+    {/snippet}
+  </Modal>
 {/if}
 
 <style>
@@ -606,5 +532,15 @@
   }
   .client-wrap.focus {
     box-shadow: 0 0 0 2px var(--accent), 0 0 0 6px color-mix(in oklab, var(--accent) 22%, transparent);
+  }
+
+  /* Shared modal-body helpers (used with the Modal shell). */
+  .modal-keys {
+    display: contents;
+  }
+  .modal-desc {
+    margin: 0;
+    font: var(--text-body-sm);
+    color: var(--fg-3);
   }
 </style>

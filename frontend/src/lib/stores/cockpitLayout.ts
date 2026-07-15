@@ -17,9 +17,11 @@ export interface CockpitLayout {
   duo: DuoLayout;
   /** Front Panel expanded. */
   frontPanelOpen: boolean;
+  /** Drives panel expanded. */
+  drivesOpen: boolean;
 }
 
-export const DEFAULT_LAYOUT: CockpitLayout = { duo: 'both', frontPanelOpen: true };
+export const DEFAULT_LAYOUT: CockpitLayout = { duo: 'both', frontPanelOpen: true, drivesOpen: false };
 
 const STORAGE_KEY = 'fdcplus.cockpitLayout';
 const MAX_ENTRIES = 50; // bound growth from stopped/relaunched instances
