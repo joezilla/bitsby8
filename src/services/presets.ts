@@ -88,6 +88,7 @@ function videoTerminal(
   videoRef: string,
   videoCfg: Record<string, unknown>,
   ramSize = 0xc000,
+  sioBaseA = 0x10,
 ): MachineProfile {
   const rom = cdblRom();
   return {
@@ -101,7 +102,7 @@ function videoTerminal(
       { id: 'ram', ref: 'ram-card@1.0.0', config: { base: 0x0000, size: ramSize } },
       { id: 'video', ref: videoRef, config: videoCfg },
       { id: 'kbd', ref: 'ascii-keyboard@1.0.0', config: { dataPort: 0x01, statusPort: 0x00 } },
-      { id: 'sio', ref: 'imsai-sio2@1.0.0', config: { basePortA: 0x10, boardCtrlPort: 0x16 } },
+      { id: 'sio', ref: 'imsai-sio2@1.0.0', config: { basePortA: sioBaseA, boardCtrlPort: 0x16 } },
       { id: 'boot', ref: 'eprom-card@1.0.0', config: { base: 0xff00, size: rom.length } },
       { id: 'dcdd', ref: 'mits-88-dcdd@1.0.0' },
     ],
@@ -228,7 +229,9 @@ export const PRESETS: MachinePreset[] = [
     name: 'VDM-1 Video Terminal',
     description: 'CPU + 51K RAM + VDM-1 character display + ASCII keyboard + serial + boot EPROM + floppy. Boots the JX monitor from drive 0.',
     // RAM runs 0x0000-0xCBFF, right up to the VDM-1 video RAM window at 0xCC00.
-    build: () => videoTerminal('vdm-1-video@1.0.0', { base: 0xcc00 }, 0xcc00),
+    // JX polls the SIO-2 console at 0x12/0x13 — not the ASCII keyboard card — so
+    // the serial console (not the kbd card) is the keyboard path for this OS.
+    build: () => videoTerminal('vdm-1-video@1.0.0', { base: 0xcc00 }, 0xcc00, 0x12),
     disks: [{ drive: 0, filename: 'jx-monitor.dsk' }],
   },
   {
