@@ -47,22 +47,29 @@
   let runFor = $state<InstanceStatus | null>(null);
   // Keep the cockpit's instance object live: re-point runFor at the freshly
   // polled instance each tick (so its disks/speed update in place), and leave the
-  // cockpit if the machine has stopped or been destroyed elsewhere.
+  // cockpit if the machine has stopped or been destroyed elsewhere. A freshly
+  // launched machine polls back as 'defined' for a beat before it flips to
+  // 'running' — keep the cockpit through that start window (close only on
+  // 'stopped' or when the instance is gone), else auto-open races the transition.
   $effect(() => {
     if (!runFor) return;
-    runFor = instances.find((i) => i.id === runFor!.id && i.status === 'running') ?? null;
+    const cur = instances.find((i) => i.id === runFor!.id);
+    runFor = !cur || cur.status === 'stopped' ? null : cur;
   });
   // Open the Run cockpit for an instance requested elsewhere (e.g. the profile
-  // "Launch" action) once it surfaces in the polled list. Clear the intent as
-  // soon as the instance appears so a failed launch can't reopen it later.
+  // "Launch" action) once it surfaces in the polled list. launchTransient
+  // resolves before the backend reports the instance as 'running', so match on
+  // presence (any non-stopped status) rather than waiting to catch a 'running'
+  // poll — otherwise the intent can slip between ticks and the cockpit never
+  // opens. Consume the intent as soon as the instance appears (even if it came
+  // up stopped) so a failed launch can't reopen it later.
   $effect(() => {
     const wantId = $pendingRunInstance;
     if (!wantId) return;
-    const inst = instances.find((i) => i.id === wantId && i.status === 'running');
-    if (inst) {
-      runFor = inst;
-      pendingRunInstance.set(null);
-    }
+    const inst = instances.find((i) => i.id === wantId);
+    if (!inst) return;
+    pendingRunInstance.set(null);
+    if (inst.status !== 'stopped') runFor = inst;
   });
   let sparkData = $state<Record<string, number[]>>({}); // per-instance effectiveHz ring
   // Toast only on the ok→fail edge so a rate-limit blip doesn't spam the corner.
