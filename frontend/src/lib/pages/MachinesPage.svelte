@@ -68,6 +68,13 @@
   // Toast only on the ok→fail edge so a rate-limit blip doesn't spam the corner.
   let loadOk = true;
 
+  // Cockpit vs list, as a *boolean* — the poll effect keys off this, not off
+  // runFor's identity. Effect A re-points runFor at a fresh object every poll;
+  // depending on that object directly would tear down and re-fire the poll on
+  // each response, spinning /api/instances at fetch speed. The derived only
+  // propagates on the null↔non-null edge, so the interval survives.
+  let inCockpit = $derived(runFor !== null);
+
   let running = $derived(instances.filter((i) => i.status === 'running'));
   let aggregateMHz = $derived(running.reduce((s, i) => s + (i.effectiveHz ?? 0), 0) / 1e6);
   // Physical/external FDC clients — connected clients that aren't virtual instances.
@@ -171,7 +178,6 @@
   // the interval down entirely.
   $effect(() => {
     if (!$pageVisible) return;
-    const inCockpit = runFor !== null;
     const tick = inCockpit ? loadInstances : load;
     tick();
     const id = setInterval(tick, inCockpit ? 8000 : 2000);
