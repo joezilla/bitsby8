@@ -13,8 +13,11 @@
     onClose?: () => void;
     /** Embedded in the Run cockpit (no modal chrome; fills its container). */
     embedded?: boolean;
+    /** Grab focus on mount. Off when the cockpit routes the keyboard elsewhere,
+     * so the xterm doesn't steal keystrokes meant for a keyboard card. */
+    autofocus?: boolean;
   }
-  let { instanceId, title, onClose = () => {}, embedded = false }: Props = $props();
+  let { instanceId, title, onClose = () => {}, embedded = false, autofocus = true }: Props = $props();
 
   let containerEl: HTMLDivElement;
   let term: Terminal | null = null;
@@ -56,7 +59,7 @@
 
     resizeObserver = new ResizeObserver(() => fitAddon?.fit());
     resizeObserver.observe(containerEl);
-    term.focus();
+    if (autofocus) term.focus();
   });
 
   onDestroy(() => {

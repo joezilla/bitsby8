@@ -65,10 +65,20 @@ export function setupSecurityMiddleware(
   );
 
   // Rate limiting: general /api/*
+  //
+  // This is a LAN/localhost appliance (see the Helmet HSTS note above): the
+  // operator's browser drives the cockpit from a private address, and a live
+  // Run cockpit legitimately polls its instance heartbeat plus bursts a handful
+  // of reads on every page load. The old skip exempted ONLY loopback, so an
+  // operator on 10.x/192.168.x shared one 200/min bucket across every tab,
+  // reload, and reconnect — and when it emptied, the essential GET /api/instances
+  // poll 429'd and the cockpit surfaced "too many requests" with no user input.
+  // Trust the private LAN (already fully trusted here — auth still applies) and
+  // reserve the limiter for routed/public origins, the actual abuse vector.
   const apiLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 200,
-    skip: (req) => req.ip === '127.0.0.1' || req.ip === '::1',
+    skip: (req) => isTrustedLanIp(req.ip),
     standardHeaders: true,
     legacyHeaders: false,
   });
@@ -120,6 +130,40 @@ export function setupSecurityMiddleware(
     }
     generalJson(req, res, next);
   });
+}
+
+/**
+ * True for loopback and private/LAN client addresses — the trusted origins for
+ * this appliance. Used to exempt the operator's own network from the general
+ * API rate limiter (the strict login limiter deliberately does NOT skip).
+ *
+ * Covers IPv4 loopback/private/link-local (incl. IPv4-mapped IPv6 like
+ * `::ffff:10.1.1.94`) and IPv6 loopback/unique-local/link-local. Anything else
+ * — a routed/public address — stays rate limited.
+ */
+export function isTrustedLanIp(ip: string | undefined): boolean {
+  if (!ip) return false;
+  // Normalize IPv4-mapped IPv6 (`::ffff:a.b.c.d`) down to the bare IPv4.
+  const v4 = ip.startsWith('::ffff:') ? ip.slice(7) : ip;
+
+  if (v4.includes('.')) {
+    const o = v4.split('.').map(Number);
+    if (o.length !== 4 || o.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false;
+    const [a, b] = o;
+    if (a === 127) return true; // loopback 127.0.0.0/8
+    if (a === 10) return true; // private 10.0.0.0/8
+    if (a === 172 && b >= 16 && b <= 31) return true; // private 172.16.0.0/12
+    if (a === 192 && b === 168) return true; // private 192.168.0.0/16
+    if (a === 169 && b === 254) return true; // link-local 169.254.0.0/16
+    return false;
+  }
+
+  // IPv6.
+  const v6 = ip.toLowerCase();
+  if (v6 === '::1') return true; // loopback
+  if (v6.startsWith('fe80:')) return true; // link-local fe80::/10
+  if (v6.startsWith('fc') || v6.startsWith('fd')) return true; // unique-local fc00::/7
+  return false;
 }
 
 export function buildAllowedOrigins(config: WebServerConfig): string[] {

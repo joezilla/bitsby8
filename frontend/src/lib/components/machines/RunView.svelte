@@ -11,6 +11,7 @@
   import MonitorPanel from '$lib/components/machines/MonitorPanel.svelte';
   import FrontPanel from '$lib/components/machines/FrontPanel.svelte';
   import { getCockpitLayout, setCockpitLayout } from '$lib/stores/cockpitLayout';
+  import { getKeyboardRoute, setKeyboardRoute, AUTO_ROUTE } from '$lib/stores/keyboardRoute';
   import { onMount } from 'svelte';
 
   interface Props {
@@ -75,16 +76,36 @@
     setCockpitLayout(instance.id, { duo, frontPanelOpen, drivesOpen });
   });
 
-  // Does this machine have a keyboard input card? If so, physical keystrokes
-  // feed the guest's keyboard port (a serial-less video terminal) instead of
-  // the serial console (5.9).
-  let hasKeyboard = $state(false);
+  // Keyboard routing. By default the cockpit derives the target ('auto'); the
+  // operator can pin it to the serial console or a specific keyboard card, and
+  // the choice is remembered per profile. The card list drives the picker.
+  let keyboards = $state<{ cardId: string; pending: number }[]>([]);
+  const hasKeyboard = $derived(keyboards.length > 0);
+  // svelte-ignore state_referenced_locally -- one-time seed; validated once cards load
+  let route = $state<string>(getKeyboardRoute(instance.profileRef));
+
+  // Picker options: Auto, the single serial console, then every keyboard card.
+  // (Multiple *serial* ports as distinct targets aren't wired for input yet —
+  // only the designated console is.)
+  const routeOptions = $derived([
+    { value: AUTO_ROUTE, label: 'Auto' },
+    { value: 'serial', label: 'Serial console' },
+    ...keyboards.map((k) => ({ value: `kbd:${k.cardId}`, label: `Keyboard · ${k.cardId}` })),
+  ]);
+
   onMount(async () => {
     try {
-      hasKeyboard = (await api.listInstanceKeyboards(instance.id)).keyboards.length > 0;
+      keyboards = (await api.listInstanceKeyboards(instance.id)).keyboards;
     } catch {
       /* not running / no keyboard */
     }
+    // A stored kbd:<cardId> can go stale if the profile was re-carded — fall back.
+    if (!routeOptions.some((o) => o.value === route)) route = AUTO_ROUTE;
+  });
+
+  // Remember the choice per profile (survives re-spun transient instances).
+  $effect(() => {
+    setKeyboardRoute(instance.profileRef, route);
   });
 
   async function stop() {
@@ -101,10 +122,17 @@
     }
   }
 
+  const toSerial = (data: string) =>
+    socket.emit('instance:console:write', { instanceId: instance.id, data });
+  const toKeyboard = (byte: number, cardId?: string) =>
+    api.sendInstanceKey(instance.id, { byte, cardId }).catch(() => {});
+
   // Physical-keyboard routing. When the serial console's xterm is focused it
-  // captures input directly (the TEXTAREA guard below bails). Otherwise: a
-  // machine with a keyboard card gets the keystroke fed into its keyboard port;
-  // a serial-only machine forwards to the console when it's collapsed to a rail.
+  // captures input directly (the TEXTAREA guard below bails), so focus always
+  // wins for the console pane. Otherwise the `route` decides: an explicit
+  // 'serial'/'kbd:<cardId>' override, or 'auto' — a machine with a keyboard card
+  // feeds its keyboard port, a serial-only machine forwards to the console when
+  // the monitor is maximized.
   function onKey(e: KeyboardEvent) {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const t = e.target as HTMLElement | null;
@@ -119,13 +147,12 @@
     else if (e.key.length === 1) data = e.key;
     else return;
     e.preventDefault();
-    if (hasKeyboard) {
-      api.sendInstanceKey(instance.id, { byte: data.charCodeAt(0) }).catch(() => {});
-      return;
-    }
-    if (duo === 'mmax') {
-      socket.emit('instance:console:write', { instanceId: instance.id, data });
-    }
+    // Explicit override wins over the auto heuristic.
+    if (route === 'serial') return void toSerial(data);
+    if (route.startsWith('kbd:')) return void toKeyboard(data.charCodeAt(0), route.slice(4));
+    // route === 'auto'
+    if (hasKeyboard) return void toKeyboard(data.charCodeAt(0));
+    if (duo === 'mmax') toSerial(data);
   }
 
   const hz = $derived(
@@ -150,7 +177,14 @@
       <span class="meta">
         {#if hz}<span class="chip">{hz}</span>{/if}
         <span class="chip run">running</span>
-        <span class="chip kb">⌨ → {hasKeyboard ? 'keyboard' : 'serial'}</span>
+        <label class="kbroute" title="Where your keyboard is delivered to this machine">
+          <span class="kbicon">⌨ →</span>
+          <select bind:value={route} aria-label="Keyboard routing">
+            {#each routeOptions as opt (opt.value)}
+              <option value={opt.value}>{opt.label}</option>
+            {/each}
+          </select>
+        </label>
       </span>
     </div>
     <div class="actions">
@@ -204,7 +238,7 @@
             <button class="mx" title="Maximize monitor" onclick={() => (duo = 'mmax')}>❮ hide</button>
           </span>
         </div>
-        <div class="pbody"><InstanceConsole instanceId={instance.id} title={instance.profileRef} embedded /></div>
+        <div class="pbody"><InstanceConsole instanceId={instance.id} title={instance.profileRef} embedded autofocus={route === AUTO_ROUTE} /></div>
         <button class="rail" onclick={() => (duo = 'both')}>
           <span class="exp">❯</span><span class="railtxt">CONSOLE</span><span class="kbmini">⌨</span>
         </button>
@@ -223,10 +257,14 @@
     </div>
     <p class="kbcap">
       <Icon name="keyboard" size={14} />
-      {#if hasKeyboard}
-        Keyboard feeds this machine's keyboard card — type anywhere outside the console to hit its data port.
+      {#if route === 'serial'}
+        Keyboard pinned to the serial console — typing hits the console port even when the monitor is maximized.
+      {:else if route.startsWith('kbd:')}
+        Keyboard pinned to card <span class="fdc-mono">{route.slice(4)}</span> — type anywhere outside the console to hit its data port.
+      {:else if hasKeyboard}
+        Auto: keyboard feeds this machine's keyboard card — type anywhere outside the console to hit its data port. Focus the console pane to talk to the serial port instead.
       {:else}
-        Keyboard routes to the serial console — typing hits the SIO port even when the monitor is maximized.
+        Auto: keyboard routes to the serial console — typing hits the console port even when the monitor is maximized.
       {/if}
     </p>
   </div>
@@ -257,7 +295,14 @@
     background: var(--surface-variant); border: 1px solid var(--border-1); padding: 2px 9px; border-radius: 999px; }
   .link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-xs); }
   .chip.run { color: var(--success); background: rgba(34, 192, 143, 0.1); border-color: rgba(34, 192, 143, 0.28); }
-  .chip.kb { color: var(--accent); background: var(--accent-bg); border-color: rgba(255, 176, 32, 0.3); }
+  .kbroute { display: inline-flex; align-items: center; gap: 5px; color: var(--accent); background: var(--accent-bg);
+    border: 1px solid rgba(255, 176, 32, 0.3); padding: 1px 6px 1px 9px; border-radius: 999px;
+    font-family: var(--font-mono, monospace); font-size: 11.5px; }
+  .kbroute .kbicon { flex: none; }
+  .kbroute select { appearance: none; -webkit-appearance: none; background: none; border: none; color: var(--accent);
+    font: inherit; padding: 1px 2px; cursor: pointer; outline: none; }
+  .kbroute select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--radius-xs); }
+  .kbroute :global(option) { color: var(--fg-1); background: var(--surface); }
   .actions { display: flex; gap: var(--space-2); }
   .stack { display: flex; flex-direction: column; gap: var(--space-3); }
 
