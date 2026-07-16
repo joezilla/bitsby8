@@ -164,15 +164,17 @@
   }
 
   // Poll while the tab is visible. Inside the cockpit the monitor/front-panel
-  // stream over the socket, so we only need a slow instances-only poll to
-  // notice an external stop; on the list we refresh instances + clients at 1s.
-  // Backgrounding the tab tears the interval down entirely.
+  // stream over the socket, so the instances-only poll exists only to notice
+  // out-of-band changes (external stop, disk swap, speed) — none of which move
+  // fast — so it runs slow (8s). Only cosmetic effectiveHz lags at that rate.
+  // The list refreshes instances + clients at 2s. Backgrounding the tab tears
+  // the interval down entirely.
   $effect(() => {
     if (!$pageVisible) return;
     const inCockpit = runFor !== null;
     const tick = inCockpit ? loadInstances : load;
     tick();
-    const id = setInterval(tick, inCockpit ? 2000 : 1000);
+    const id = setInterval(tick, inCockpit ? 8000 : 2000);
     return () => clearInterval(id);
   });
 </script>
