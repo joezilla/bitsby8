@@ -59,6 +59,11 @@
     const rows = Number(d.descriptor.rows ?? 16);
     const attrBit = Number(d.descriptor.attrBit ?? 7);
     const bytes = b64ToBytes(d.frame);
+    // VDM-1 hardware scroll: the DSTAT "Beginning Display Line" (low nibble,
+    // surfaced as state.scroll) picks which memory row is shown at the top.
+    // SOLOS writes new text into successive rows and bumps this instead of
+    // moving characters, so visible row r must show memory row (scroll + r)%rows.
+    const scroll = Number(d.state.scroll ?? 0);
     const w = cols * CELL_W * SCALE;
     const h = rows * CELL_H * SCALE;
     if (canvas!.width !== w || canvas!.height !== h) {
@@ -70,8 +75,9 @@
     ctx.fillRect(0, 0, w, h);
 
     for (let r = 0; r < rows; r++) {
+      const memRow = (scroll + r) % rows;
       for (let c = 0; c < cols; c++) {
-        const byte = bytes[r * cols + c] ?? 0x20;
+        const byte = bytes[memRow * cols + c] ?? 0x20;
         const inverse = (byte & (1 << attrBit)) !== 0;
         const glyph = vdmGlyph(byte);
         const x0 = c * CELL_W * SCALE;
