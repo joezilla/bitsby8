@@ -8,8 +8,6 @@ It serves virtual floppy and hard-disk images to a real Altair through its **FDC
 
 **Version:** 3.0.0-alpha · **License:** GPL-3.0 · **Platforms:** Linux (Raspberry Pi & x86), macOS
 
-> **Note:** BitsBy8 is the product name. The Debian package and systemd service are now named `bitsby8` (the CLI is `bitsby8`, with an `fdcsds` alias kept for backward compatibility). The source repo is still `fdcplus-web`.
-
 ![BitsBy8 web UI — the Drives & Library page: four drive bays across the top, disk-image library below.](images/ui-disks.png)
 
 ---
