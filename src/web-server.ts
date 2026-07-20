@@ -18,7 +18,7 @@ import { ConfigFile } from './config';
 import { FdcServer } from './server';
 import { Database } from './database';
 import { WebServerConfig, PreferredTerminalSettings, Dependencies } from './types';
-import { buildAllowedOrigins, setupSecurityMiddleware } from './middleware/security';
+import { isAllowedOrigin, setupSecurityMiddleware } from './middleware/security';
 import { setupStaticMiddleware } from './middleware/static';
 import { MAX_DISK_IMAGE_SIZE } from './utils/disk-image-validation';
 import { setupWebSocket } from './websocket/handlers';
@@ -90,11 +90,13 @@ export class WebServer {
     this.app = express();
     this.httpServer = createServer(this.app);
 
-    // Create Socket.IO server
-    const allowedOrigins = buildAllowedOrigins(config);
+    // Create Socket.IO server. Match the API's live per-request origin check
+    // (isAllowedOrigin) rather than a list frozen at construction — otherwise a
+    // late-binding NIC (WiFi DHCP racing daemon startup) leaves the operator's
+    // own LAN origin unable to open the websocket even after the API accepts it.
     this.io = new SocketIOServer(this.httpServer, {
       cors: {
-        origin: allowedOrigins,
+        origin: (origin, callback) => callback(null, isAllowedOrigin(origin, config)),
         methods: ['GET', 'POST'],
       },
     });
