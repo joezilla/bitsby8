@@ -74,6 +74,10 @@ coverage/
 .env.*.local
 
 # Local SQLite database
+bitsby8.db
+bitsby8.db-journal
+bitsby8.db-wal
+bitsby8.db-shm
 fdcplus.db
 fdcplus.db-journal
 fdcplus.db-wal
