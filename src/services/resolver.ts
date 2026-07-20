@@ -88,9 +88,29 @@ export async function resolveProfile(
       );
     }
 
+    // A boot-rom card (the autoboot/phantom ROM overlay) owns its window and
+    // attaches the overlay itself (like the bank-RAM MMU), so its `rom` region is
+    // NOT a static spec region. Consume it: inject the ROM bytes — the burned
+    // `<cardId>/rom` override, or the card's own emit if unburned — into the card
+    // config, and drop that region from the memory map so buildMachine doesn't
+    // also attach a plain Rom over the card-owned window. `type: 'boot-rom'` is
+    // the kernel's marker (an authored io card inherits its kernel's type).
+    const isBootRom = (bundle.manifest as { type?: string }).type === 'boot-rom';
+    if (isBootRom && bundle.memory) {
+      const romRegion = bundle.memory(cfg).find((r) => r.kind === 'rom');
+      if (romRegion) {
+        const nsId = `${inst.id}/${romRegion.id}`;
+        const override = memory.find((m) => m.id === nsId);
+        cfg.image = override?.image ?? romRegion.image;
+        for (let i = memory.length - 1; i >= 0; i--) {
+          if (memory[i]!.id === nsId) memory.splice(i, 1);
+        }
+      }
+    }
+
     cards.push({ id: inst.id, factory: bundle.cardFactory, config: cfg, claims: bundle.claims(cfg) });
 
-    if (bundle.memory) {
+    if (bundle.memory && !isBootRom) {
       for (const region of bundle.memory(cfg)) {
         const nsId = `${inst.id}/${region.id}`;
         // A profile-declared region with this id overrides the card's default

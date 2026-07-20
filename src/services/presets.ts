@@ -177,6 +177,55 @@ function sol20Machine(): MachineProfile {
 }
 
 /**
+ * Boot-ROM overlay demonstrator — the S-100 autoboot trick (Cromemco 64FDC /
+ * IMSAI MPU-B) modeled by the boot-rom card. A tiny monitor overlays the
+ * 0xF000 window at reset; the CPU runs it straight out of reset, it copies an
+ * 8-byte stub down to 0x0000 and jumps there, and the stub writes the control
+ * port (0x40) to page the overlay out from under itself — execution then
+ * continues from the card's shadow RAM, which the ROM was hiding. RAM sits below
+ * the window (0x0000-0xEFFF); the window is owned solely by the boot-rom card,
+ * since the Bus is first-region-wins and can't shadow across regions.
+ *
+ * The monitor writes a 0x55 sentinel to 0x0200 then HLTs (no console/disk) — the
+ * machine reaches `halted`, proving the autoboot→page-out sequence end to end
+ * (the same sequence the bootrom-overlay integration test in @joezilla/8sim
+ * asserts). A real page-out-aware OS ROM would continue booting instead of
+ * halting; this ships the mechanism as an addable, startable machine.
+ */
+function bootRomOverlayDemo(): MachineProfile {
+  const WINDOW = 0xf000;
+  const monitor = new Uint8Array([
+    0x21, 0x13, 0xf0, // LXI H,0xF013  (stub source in ROM)
+    0x11, 0x00, 0x00, // LXI D,0x0000  (dest in RAM)
+    0x0e, 0x08,       // MVI C,8
+    0x7e,             // MOV A,M   <-- copy loop @0xF008
+    0x12,             // STAX D
+    0x23,             // INX H
+    0x13,             // INX D
+    0x0d,             // DCR C
+    0xc2, 0x08, 0xf0, // JNZ 0xF008
+    0xc3, 0x00, 0x00, // JMP 0x0000
+    0xd3, 0x40,       // OUT 0x40   (stub: page the overlay out)
+    0x3e, 0x55,       // MVI A,0x55
+    0x32, 0x00, 0x02, // STA 0x0200
+    0x76,             // HLT
+  ]);
+  return {
+    cpuKind: 'i8080',
+    clock: 'max',
+    resetVector: WINDOW,
+    // The monitor bytes ride in the `boot/rom` override; the resolver consumes it
+    // into the boot-rom card's config (the card owns the overlay window itself).
+    memory: [{ id: 'boot/rom', base: WINDOW, size: 0x100, kind: 'rom', image: monitor }],
+    cards: [
+      { id: 'cpu', ref: 'i8080-cpu@1.0.0', config: { resetVector: WINDOW } },
+      { id: 'ram', ref: 'ram-card@1.0.0', config: { base: 0x0000, size: WINDOW } }, // 0x0000-0xEFFF
+      { id: 'boot', ref: 'boot-rom@1.0.0', config: { window: WINDOW, size: 0x100, controlPort: 0x40 } },
+    ],
+  };
+}
+
+/**
  * IMSAI 8080: the MPU-A monitor/boot EPROM (@0xD800) whose power-on entry checks
  * drive 0 and bootstraps the OS, an IMSAI SIO-2 serial console (channel A at
  * 0x02/0x03, board control 0x08), and the DMA-capable FIF floppy controller on
@@ -252,6 +301,13 @@ export const PRESETS: MachinePreset[] = [
     build: sol20Machine,
     // SOLOS accepts only upper case — fold typed a–z to A–Z at the console input.
     uppercaseInput: true,
+  },
+  {
+    id: 'bootrom-overlay-demo',
+    name: 'Boot ROM Overlay Demo',
+    description:
+      'A boot-ROM overlay (0xF000) that autoboots at reset, then pages itself out via the control port (0x40) to reveal RAM — the Cromemco 64FDC / IMSAI MPU-B autoboot trick. Runs to HALT.',
+    build: bootRomOverlayDemo,
   },
   {
     id: 'imsai-fif-imdos',

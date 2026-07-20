@@ -13,7 +13,7 @@ describe('machine presets', () => {
   test('lists every built-in preset with id/name/description (no build fn leaked)', () => {
     const ids = listPresets().map((p) => p.id).sort();
     expect(ids).toEqual(
-      ['altair-bank-rtc', 'altair-cpm', 'blank', 'dazzler-station', 'imsai-cpm', 'imsai-fif-imdos', 'sol20-solos', 'vdm-terminal'].sort(),
+      ['altair-bank-rtc', 'altair-cpm', 'blank', 'bootrom-overlay-demo', 'dazzler-station', 'imsai-cpm', 'imsai-fif-imdos', 'sol20-solos', 'vdm-terminal'].sort(),
     );
     for (const p of listPresets()) {
       expect(typeof p.name).toBe('string');
@@ -56,6 +56,24 @@ describe('machine presets', () => {
     const refs = p.cards.map((c) => c.ref);
     expect(refs).toContain('bank-ram@1.0.0');
     expect(refs).toContain('mm58167-rtc@1.0.0');
+  });
+
+  test('bootrom-overlay-demo: a boot-rom overlay @0xF000 over RAM, self-paging monitor burned in', () => {
+    const p = getPreset('bootrom-overlay-demo')!.build();
+    expect(p.cpuKind).toBe('i8080');
+    expect(p.resetVector).toBe(0xf000);
+    const boot = p.cards.find((c) => c.id === 'boot')!;
+    expect(boot.ref).toBe('boot-rom@1.0.0');
+    expect(boot.config).toMatchObject({ window: 0xf000, controlPort: 0x40 });
+    // RAM sits below the window (the overlay window must be clear of other memory).
+    const ram = p.cards.find((c) => c.id === 'ram')!;
+    expect(ram.config).toMatchObject({ base: 0x0000, size: 0xf000 });
+    // The monitor rides in the boot/rom override (the resolver consumes it into config).
+    const rom = p.memory[0];
+    expect(rom.id).toBe('boot/rom');
+    expect(rom.base).toBe(0xf000);
+    expect(rom.image![0]).toBe(0x21); // LXI H — the copy-loop's first opcode
+    expect(rom.image!).toContain(0xd3); // OUT — the control-port page-out
   });
 
   test('sol20-solos: SOLOS ROM @0xC000 driving a VDM-1 display + active-low Sol keyboard, with 3P+S and Helios', () => {

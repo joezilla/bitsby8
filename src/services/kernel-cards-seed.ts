@@ -30,6 +30,7 @@ const KERNEL_CARDS: BuiltinKernelCard[] = [
   { name: 'ascii-keyboard', kernel: 'keyboard', maker: 'generic', summary: 'Parallel ASCII keyboard input port (data + status).' },
   { name: 'mm58167-rtc', kernel: 'mm58167-rtc', maker: 'National', summary: 'MM58167 real-time clock — BCD time on a 32-register I/O window.' },
   { name: 'bank-ram', kernel: 'bank-ram', maker: 'generic', summary: 'Bank-switching RAM — N banks behind a fixed window (MMU).' },
+  { name: 'boot-rom', kernel: 'boot-rom', maker: 'generic', summary: 'Boot/phantom ROM overlay — shadows a window at reset, pages out on a control-port write.' },
 ];
 
 /** Register the built-in kernel cards into the Catalog. Non-fatal + idempotent. */

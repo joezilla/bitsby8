@@ -64,6 +64,24 @@ const fakeSim: SimModule = {
       claims: () => ({ ports: [] }),
       cpu: (cfg) => ({ kind: 'z80', resetVector: Number(cfg.resetVector) }),
     },
+    {
+      // A boot-rom overlay card: emits a `rom` descriptor region (burn geometry)
+      // that the resolver CONSUMES — the card owns the window, so its image is
+      // injected into config and the region is dropped from the memory map.
+      manifest: {
+        name: 'boot-rom',
+        version: '1.0.0',
+        type: 'boot-rom' as unknown as CardManifest['type'],
+        configSchema: {
+          window: { type: 'u16', default: 0xf000, min: 0, max: 0xffff },
+          size: { type: 'u16', default: 0x100, min: 1, max: 0xffff },
+          controlPort: { type: 'u8', default: 0x40, min: 0, max: 0xff },
+        },
+      },
+      cardFactory: (id) => ({ id, reset() {}, attach() {} }),
+      claims: (cfg) => ({ ports: [Number(cfg.controlPort)] }),
+      memory: (cfg) => [{ id: 'rom', base: Number(cfg.window), size: Number(cfg.size), kind: 'rom' }],
+    },
   ],
   withDefaults: (manifest, config = {}) => {
     const out: Record<string, unknown> = {};
@@ -116,6 +134,42 @@ describe('resolver: resolveProfile', () => {
     // Profile ROM + the card's RAM region, namespaced.
     expect(spec.memory.map((m) => m.id)).toEqual(['rom', 'ram0/ram']);
     expect(spec.memory.find((m) => m.id === 'ram0/ram')).toMatchObject({ base: 0x0000, size: 0x8000, kind: 'ram' });
+  });
+
+  test('a boot-rom card consumes its burned ROM override into config, dropping the region', async () => {
+    const deps = await makeDeps();
+    const image = new Uint8Array([0x21, 0x13, 0xf0, 0x76]);
+    const { spec } = await resolveProfile(deps, {
+      cpuKind: 'i8080',
+      clock: 'max',
+      resetVector: 0xf000,
+      memory: [{ id: 'boot/rom', base: 0xf000, size: 0x100, kind: 'rom', image }],
+      cards: [
+        { id: 'ram', ref: 'ram-card@1.0.0', config: { base: 0x0000, size: 0xf000 } },
+        { id: 'boot', ref: 'boot-rom@1.0.0', config: { window: 0xf000, size: 0x100, controlPort: 0x40 } },
+      ],
+    });
+    // The card owns the window, so the ROM region must NOT be a static spec region.
+    expect(spec.memory.find((m) => m.id === 'boot/rom')).toBeUndefined();
+    expect(spec.memory.map((m) => m.id)).toEqual(['ram/ram']);
+    // The burned bytes are injected into the boot card's config for its overlay.
+    const boot = spec.cards.find((c) => c.id === 'boot');
+    expect(boot?.config?.image).toBe(image);
+    expect(boot?.claims?.ports).toContain(0x40);
+  });
+
+  test('an unburned boot-rom card resolves with no image and no ROM region', async () => {
+    const deps = await makeDeps();
+    const { spec } = await resolveProfile(deps, {
+      cpuKind: 'i8080',
+      clock: 'max',
+      resetVector: 0xf000,
+      memory: [],
+      cards: [{ id: 'boot', ref: 'boot-rom@1.0.0', config: { window: 0xf000, size: 0x100 } }],
+    });
+    expect(spec.memory.some((m) => m.id === 'boot/rom')).toBe(false);
+    const boot = spec.cards.find((c) => c.id === 'boot');
+    expect(boot?.config?.image).toBeUndefined();
   });
 
   test('listCpus surfaces seed CPU cards, with the engine kinds as a floor (Story 5.3)', async () => {
