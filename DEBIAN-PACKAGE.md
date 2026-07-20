@@ -1,6 +1,10 @@
 # Debian Package Installation Guide
 
-This guide explains how to build and install the FDC+ Serial Drive Server as a Debian package on Raspbian/Raspberry Pi OS.
+This guide explains how to build and install the BitsBy8 Serial Drive Server as a Debian package on Raspbian/Raspberry Pi OS.
+
+> **Command name:** the installed CLI is `bitsby8`. A `fdcsds` alias is also
+> installed and still works, so older instructions and scripts keep running —
+> but `bitsby8` is the canonical command going forward.
 
 ## Table of Contents
 
@@ -29,10 +33,14 @@ The Debian package provides:
 
 ### Package Details
 
-- **Package Name:** `fdcsds`
-- **Version:** 2.0.0-1
+- **Package Name:** `bitsby8`
+- **Version:** 3.0.0-alpha
 - **Architecture:** all (platform-independent)
 - **Dependencies:** nodejs (>= 18.0.0)
+
+> Renamed from `fdcsds`: the package now declares `Conflicts`/`Replaces`/`Provides:
+> fdcsds`, so installing `bitsby8` cleanly supersedes an older `fdcsds` install.
+> See [Upgrading](#upgrading) for how existing data is migrated.
 
 ---
 
@@ -87,12 +95,12 @@ This will:
 4. **Verify the build:**
 
 ```bash
-ls -lh ../fdcsds_*.deb
+ls -lh ../bitsby8_*.deb
 ```
 
-You should see:
+You should see something like:
 ```
-../fdcsds_2.0.0-1_all.deb
+../bitsby8_3.0.0~alpha-1_all.deb
 ```
 
 ---
@@ -104,7 +112,7 @@ You should see:
 Install the package using `dpkg`:
 
 ```bash
-sudo dpkg -i ../fdcsds_2.0.0-1_all.deb
+sudo dpkg -i ../bitsby8_*_all.deb
 ```
 
 If there are dependency issues, fix them with:
@@ -126,35 +134,35 @@ make quick-install
 After installation, you'll see a summary message with next steps:
 
 ```
-======================================================================
-  FDC+ Serial Drive Server (fdcsds) has been installed successfully!
-======================================================================
+========================================================================
+  BitsBy8 Serial Drive Server (bitsby8) has been installed successfully!
+========================================================================
 
 Next steps:
 
 1. Edit the configuration file:
-   sudo nano /etc/fdcsds/fdcsds.config.json
+   sudo nano /etc/bitsby8/bitsby8.config.json
 
 2. Configure your serial ports and disk images
 
 3. Start the service:
-   sudo systemctl start fdcsds
+   sudo systemctl start bitsby8
 
 4. Enable automatic startup on boot:
-   sudo systemctl enable fdcsds
+   sudo systemctl enable bitsby8
 
 5. Check service status:
-   sudo systemctl status fdcsds
+   sudo systemctl status bitsby8
 
 6. View logs:
-   sudo journalctl -u fdcsds -f
+   sudo journalctl -u bitsby8 -f
 
 7. Access the web interface (if enabled):
    http://raspberrypi.local:3000
 
-Documentation: /usr/share/doc/fdcsds/
-Sample disk images: /usr/share/fdcsds/disks/
-======================================================================
+Documentation: /usr/share/doc/bitsby8/
+Sample disk images: /usr/share/bitsby8/disks/
+========================================================================
 ```
 
 ---
@@ -166,7 +174,7 @@ Sample disk images: /usr/share/fdcsds/disks/
 The main configuration file is located at:
 
 ```
-/etc/fdcsds/fdcsds.config.json
+/etc/bitsby8/bitsby8.config.json
 ```
 
 ### Default Settings (Raspbian-optimized)
@@ -175,7 +183,7 @@ The main configuration file is located at:
 {
   "port": "/dev/ttyUSB0",
   "baud": 230400,
-  "drive0": "/usr/share/fdcsds/disks/cpm22.dsk",
+  "drive0": "/usr/share/bitsby8/disks/cpm22.dsk",
   "drive1": null,
   "drive2": null,
   "drive3": null,
@@ -194,13 +202,13 @@ The main configuration file is located at:
 ### Editing Configuration
 
 ```bash
-sudo nano /etc/fdcsds/fdcsds.config.json
+sudo nano /etc/bitsby8/bitsby8.config.json
 ```
 
 **Important:** After editing, restart the service:
 
 ```bash
-sudo systemctl restart fdcsds
+sudo systemctl restart bitsby8
 ```
 
 ### Configuration Preservation
@@ -214,7 +222,7 @@ The configuration file is marked as a **conffile**, meaning:
 An example configuration is available at:
 
 ```
-/etc/fdcsds/fdcsds.config.example
+/etc/bitsby8/bitsby8.config.example
 ```
 
 ---
@@ -227,56 +235,56 @@ The package includes a systemd service for automatic management.
 
 **Start the service:**
 ```bash
-sudo systemctl start fdcsds
+sudo systemctl start bitsby8
 ```
 
 **Stop the service:**
 ```bash
-sudo systemctl stop fdcsds
+sudo systemctl stop bitsby8
 ```
 
 **Restart the service:**
 ```bash
-sudo systemctl restart fdcsds
+sudo systemctl restart bitsby8
 ```
 
 **Check status:**
 ```bash
-sudo systemctl status fdcsds
+sudo systemctl status bitsby8
 ```
 
 **Enable automatic startup:**
 ```bash
-sudo systemctl enable fdcsds
+sudo systemctl enable bitsby8
 ```
 
 **Disable automatic startup:**
 ```bash
-sudo systemctl disable fdcsds
+sudo systemctl disable bitsby8
 ```
 
 ### Viewing Logs
 
 **Real-time logs:**
 ```bash
-sudo journalctl -u fdcsds -f
+sudo journalctl -u bitsby8 -f
 ```
 
 **Recent logs:**
 ```bash
-sudo journalctl -u fdcsds -n 50
+sudo journalctl -u bitsby8 -n 50
 ```
 
 **Logs since last boot:**
 ```bash
-sudo journalctl -u fdcsds -b
+sudo journalctl -u bitsby8 -b
 ```
 
 ### Service User
 
-The service runs as the `fdcsds` system user with:
+The service runs as the `bitsby8` system user with:
 - Membership in the `dialout` group (for serial port access)
-- Home directory: `/var/lib/fdcsds`
+- Home directory: `/var/lib/bitsby8`
 - No login shell (security)
 
 ---
@@ -287,52 +295,53 @@ The service runs as the `fdcsds` system user with:
 
 | Path | Description |
 |------|-------------|
-| `/usr/bin/fdcsds` | Main executable (symlink) |
-| `/usr/lib/fdcsds/` | Application installation directory |
-| `/usr/lib/fdcsds/dist/` | Compiled JavaScript |
-| `/usr/lib/fdcsds/frontend/dist/` | Web interface files (Svelte build) |
-| `/usr/lib/fdcsds/node_modules/` | Node.js dependencies |
+| `/usr/bin/bitsby8` | Main executable (symlink) |
+| `/usr/bin/fdcsds` | Backward-compatibility alias (same target) |
+| `/usr/lib/bitsby8/` | Application installation directory |
+| `/usr/lib/bitsby8/dist/` | Compiled JavaScript |
+| `/usr/lib/bitsby8/frontend/dist/` | Web interface files (Svelte build) |
+| `/usr/lib/bitsby8/node_modules/` | Node.js dependencies |
 
 ### Configuration Files
 
 | Path | Description |
 |------|-------------|
-| `/etc/fdcsds/fdcsds.config.json` | Main configuration file (conffile) |
-| `/etc/fdcsds/fdcsds.config.example` | Example configuration |
-| `/etc/default/fdcsds` | Environment variables (conffile) |
+| `/etc/bitsby8/bitsby8.config.json` | Main configuration file (conffile) |
+| `/etc/bitsby8/bitsby8.config.example` | Example configuration |
+| `/etc/default/bitsby8` | Environment variables (conffile) |
 
 ### Runtime Files
 
 | Path | Description |
 |------|-------------|
-| `/var/lib/fdcsds/` | Working directory (owned by fdcsds user) |
-| `/var/log/fdcsds/` | Log directory (owned by fdcsds user) |
+| `/var/lib/bitsby8/` | Working directory (owned by bitsby8 user) |
+| `/var/log/bitsby8/` | Log directory (owned by bitsby8 user) |
 
 ### Documentation
 
 | Path | Description |
 |------|-------------|
-| `/usr/share/doc/fdcsds/` | Documentation directory |
-| `/usr/share/doc/fdcsds/README.md` | Main documentation (includes Quickstart section) |
-| `/usr/share/doc/fdcsds/WEB-INTERFACE.md` | Web interface guide |
+| `/usr/share/doc/bitsby8/` | Documentation directory |
+| `/usr/share/doc/bitsby8/README.md` | Main documentation (includes Quickstart section) |
+| `/usr/share/doc/bitsby8/WEB-INTERFACE.md` | Web interface guide |
 
 ### Sample Files
 
 | Path | Description |
 |------|-------------|
-| `/usr/share/fdcsds/disks/` | Sample disk images |
+| `/usr/share/bitsby8/disks/` | Sample disk images |
 
 ### System Integration
 
 | Path | Description |
 |------|-------------|
-| `/lib/systemd/system/fdcsds.service` | systemd service unit |
+| `/lib/systemd/system/bitsby8.service` | systemd service unit |
 
 ---
 
 ## Upgrading
 
-### Upgrade Process
+### From a previous `bitsby8` release
 
 When a new version is released:
 
@@ -347,7 +356,7 @@ make deb
 2. **Install the upgrade:**
 
 ```bash
-sudo dpkg -i ../fdcsds_2.0.1-1_all.deb
+sudo dpkg -i ../bitsby8_*_all.deb
 ```
 
 3. **Review configuration changes (if prompted):**
@@ -357,14 +366,40 @@ The installer will ask if you want to keep your existing configuration or use th
 4. **Restart the service:**
 
 ```bash
-sudo systemctl restart fdcsds
+sudo systemctl restart bitsby8
 ```
+
+### From an older `fdcsds` install (automatic migration)
+
+Installing `bitsby8` over a legacy `fdcsds` package is a supported upgrade — apt
+supersedes `fdcsds` via `Conflicts`/`Replaces`, and the maintainer scripts carry
+your data across:
+
+- **Config** at `/etc/fdcsds/fdcsds.config.json` (and `/etc/default/fdcsds`) is
+  seeded into `/etc/bitsby8/…` before the new conffile is unpacked, so your edits
+  survive.
+- **Data and logs** at `/var/lib/fdcsds` and `/var/log/fdcsds` are moved to
+  `/var/lib/bitsby8` and `/var/log/bitsby8`, with backward-compatibility symlinks
+  left at the old paths.
+- **Database and runtime override** (`fdcplus.db`, `fdcsds.overrides.json`) are
+  renamed to `bitsby8.db` / `bitsby8.overrides.json` in place the first time the
+  daemon starts.
+
+```bash
+# on a box that currently has fdcsds installed
+sudo apt-get install ./bitsby8_*_all.deb    # or: sudo dpkg -i … ; sudo apt-get install -f
+sudo systemctl enable --now bitsby8
+```
+
+Nothing else is required — the old `fdcsds` service is stopped and removed as part
+of the upgrade, and the `/usr/bin/fdcsds` alias keeps any of your own scripts
+working.
 
 ### Configuration Handling During Upgrade
 
-- Your `/etc/fdcsds/fdcsds.config.json` is preserved
+- Your `/etc/bitsby8/bitsby8.config.json` is preserved
 - If the packaged version changes, dpkg will prompt you with options
-- Your disk images in `/var/lib/fdcsds/` are never touched
+- Your disk images in `/var/lib/bitsby8/` are never touched
 
 ---
 
@@ -373,25 +408,25 @@ sudo systemctl restart fdcsds
 ### Remove Package (Keep Configuration)
 
 ```bash
-sudo apt-get remove fdcsds
+sudo apt-get remove bitsby8
 ```
 
 This removes the application but keeps:
-- Configuration files in `/etc/fdcsds/`
-- User data in `/var/lib/fdcsds/`
-- The `fdcsds` system user
+- Configuration files in `/etc/bitsby8/`
+- User data in `/var/lib/bitsby8/`
+- The `bitsby8` system user
 
 ### Purge (Complete Removal)
 
 ```bash
-sudo apt-get purge fdcsds
+sudo apt-get purge bitsby8
 ```
 
 This completely removes:
 - All application files
 - All configuration files
 - All user data and logs
-- The `fdcsds` system user and group
+- The `bitsby8` system user and group
 
 **Warning:** Purging deletes all your configuration and data. Make backups first!
 
@@ -417,19 +452,19 @@ sudo chown -R $USER:$USER .
 **Check serial port permissions:**
 ```bash
 ls -l /dev/ttyUSB0
-sudo usermod -a -G dialout fdcsds
-sudo systemctl restart fdcsds
+sudo usermod -a -G dialout bitsby8
+sudo systemctl restart bitsby8
 ```
 
 **Check configuration syntax:**
 ```bash
 # Test JSON syntax
-python3 -m json.tool /etc/fdcsds/fdcsds.config.json
+python3 -m json.tool /etc/bitsby8/bitsby8.config.json
 ```
 
 **Check logs:**
 ```bash
-sudo journalctl -u fdcsds -n 50
+sudo journalctl -u bitsby8 -n 50
 ```
 
 ### Serial Port Not Found
@@ -445,16 +480,16 @@ ls -l /dev/tty* /dev/cu*
 
 **Update configuration:**
 ```bash
-sudo nano /etc/fdcsds/fdcsds.config.json
+sudo nano /etc/bitsby8/bitsby8.config.json
 # Change "port" to your actual device
-sudo systemctl restart fdcsds
+sudo systemctl restart bitsby8
 ```
 
 ### Web Interface Not Accessible
 
 **Check if web interface is enabled:**
 ```bash
-grep '"web"' /etc/fdcsds/fdcsds.config.json
+grep '"web"' /etc/bitsby8/bitsby8.config.json
 # Should show: "web": true
 ```
 
@@ -510,39 +545,39 @@ cat debian/*.log
 
 ### Permission Denied Errors
 
-The `fdcsds` user needs access to serial ports:
+The `bitsby8` user needs access to serial ports:
 
 ```bash
 # Verify dialout group membership
-groups fdcsds
+groups bitsby8
 
-# Should show: fdcsds : fdcsds dialout
+# Should show: bitsby8 : bitsby8 dialout
 
 # If not, add manually:
-sudo usermod -a -G dialout fdcsds
-sudo systemctl restart fdcsds
+sudo usermod -a -G dialout bitsby8
+sudo systemctl restart bitsby8
 ```
 
 ### Disk Image Issues
 
 **Verify disk image paths:**
 ```bash
-ls -l /usr/share/fdcsds/disks/
+ls -l /usr/share/bitsby8/disks/
 ```
 
 **Use custom disk images:**
 ```bash
 # Copy your images
-sudo mkdir -p /var/lib/fdcsds/disks
-sudo cp my-disk.dsk /var/lib/fdcsds/disks/
-sudo chown fdcsds:fdcsds /var/lib/fdcsds/disks/my-disk.dsk
+sudo mkdir -p /var/lib/bitsby8/disks
+sudo cp my-disk.dsk /var/lib/bitsby8/disks/
+sudo chown bitsby8:bitsby8 /var/lib/bitsby8/disks/my-disk.dsk
 
 # Update config
-sudo nano /etc/fdcsds/fdcsds.config.json
-# Change "drive0" to "/var/lib/fdcsds/disks/my-disk.dsk"
+sudo nano /etc/bitsby8/bitsby8.config.json
+# Change "drive0" to "/var/lib/bitsby8/disks/my-disk.dsk"
 
 # Restart
-sudo systemctl restart fdcsds
+sudo systemctl restart bitsby8
 ```
 
 ---
@@ -555,20 +590,20 @@ You can run multiple instances by:
 
 1. **Create separate configuration files:**
 ```bash
-sudo cp /etc/fdcsds/fdcsds.config.json /etc/fdcsds/fdcsds-2.config.json
+sudo cp /etc/bitsby8/bitsby8.config.json /etc/bitsby8/bitsby8-2.config.json
 ```
 
 2. **Create a new systemd service:**
 ```bash
-sudo cp /lib/systemd/system/fdcsds.service /etc/systemd/system/fdcsds-2.service
-sudo nano /etc/systemd/system/fdcsds-2.service
+sudo cp /lib/systemd/system/bitsby8.service /etc/systemd/system/bitsby8-2.service
+sudo nano /etc/systemd/system/bitsby8-2.service
 # Change --config path and webPort
 ```
 
 3. **Start the second instance:**
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl start fdcsds-2
+sudo systemctl start bitsby8-2
 ```
 
 ### Development and Testing
@@ -578,38 +613,38 @@ sudo systemctl start fdcsds-2
 npm install
 npm run build
 sudo npm link
-fdcsds --help
+bitsby8 --help      # the `fdcsds` alias also works
 ```
 
 **Run without systemd:**
 ```bash
-/usr/bin/fdcsds --config /etc/fdcsds/fdcsds.config.json
+/usr/bin/bitsby8 --config /etc/bitsby8/bitsby8.config.json
 ```
 
 ### Package Validation
 
 **Check package contents:**
 ```bash
-dpkg -L fdcsds
+dpkg -L bitsby8
 ```
 
 **Check package info:**
 ```bash
-dpkg -s fdcsds
+dpkg -s bitsby8
 ```
 
 **Verify files:**
 ```bash
-debsums fdcsds
+debsums bitsby8
 ```
 
 ---
 
 ## Additional Resources
 
-- **Main Documentation:** `/usr/share/doc/fdcsds/README.md` (includes `## Quickstart`)
-- **Web Interface Guide:** `/usr/share/doc/fdcsds/WEB-INTERFACE.md`
-- **Troubleshooting:** `/usr/share/doc/fdcsds/TROUBLESHOOTING.md`
+- **Main Documentation:** `/usr/share/doc/bitsby8/README.md` (includes `## Quickstart`)
+- **Web Interface Guide:** `/usr/share/doc/bitsby8/WEB-INTERFACE.md`
+- **Troubleshooting:** `/usr/share/doc/bitsby8/TROUBLESHOOTING.md`
 
 ---
 
@@ -617,8 +652,8 @@ debsums fdcsds
 
 For issues and questions:
 
-1. Check the logs: `sudo journalctl -u fdcsds -n 100`
-2. Review documentation in `/usr/share/doc/fdcsds/`
+1. Check the logs: `sudo journalctl -u bitsby8 -n 100`
+2. Review documentation in `/usr/share/doc/bitsby8/`
 3. Visit the project repository for updates
 
 ---
@@ -636,13 +671,13 @@ make deb
 
 2. **Copy to a shared location:**
 ```bash
-scp ../fdcsds_2.0.0-1_all.deb pi@other-pi:/tmp/
+scp ../bitsby8_*_all.deb pi@other-pi:/tmp/
 ```
 
 3. **Install on other systems:**
 ```bash
 ssh pi@other-pi
-sudo dpkg -i /tmp/fdcsds_2.0.0-1_all.deb
+sudo dpkg -i /tmp/bitsby8_*_all.deb
 sudo apt-get install -f
 ```
 
@@ -653,18 +688,18 @@ Set up a local APT repository for easy distribution:
 ```bash
 # On the build server
 mkdir -p ~/apt-repo
-cp ../fdcsds_2.0.0-1_all.deb ~/apt-repo/
+cp ../bitsby8_*_all.deb ~/apt-repo/
 cd ~/apt-repo
 dpkg-scanpackages . /dev/null | gzip -9c > Packages.gz
 
 # On Raspberry Pis
 echo "deb [trusted=yes] http://build-server/apt-repo ./" | \
-  sudo tee /etc/apt/sources.list.d/fdcsds.list
+  sudo tee /etc/apt/sources.list.d/bitsby8.list
 sudo apt-get update
-sudo apt-get install fdcsds
+sudo apt-get install bitsby8
 ```
 
 ---
 
-**Version:** 2.0.0
-**Last Updated:** 2025-11-17
+**Version:** 3.0.0-alpha
+**Last Updated:** 2026-07-20

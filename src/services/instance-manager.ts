@@ -51,6 +51,8 @@ interface RunningInstance {
   profile: MachineProfile;
   /** Run-cockpit LED grouping default, from the profile's metadata (not the spec). */
   panelBase: 'oct' | 'hex';
+  /** Fold operator a–z input to A–Z at the RX boundary (SOLOS-class machines). */
+  uppercaseInput: boolean;
   machine?: Machine;
   channel?: WebSocketLike;
   channelConnId?: string;
@@ -106,6 +108,22 @@ export interface InstanceInfo {
   panelBase: 'oct' | 'hex';
 }
 
+/** Fold ASCII a–z (0x61–0x7a) to A–Z for machines that accept only upper case
+ *  (e.g. the SOL-20 SOLOS). Only lower-case letters shift; everything else —
+ *  digits, symbols, control bytes — passes through untouched. */
+function foldUpperByte(b: number): number {
+  return b >= 0x61 && b <= 0x7a ? b - 0x20 : b;
+}
+
+function foldUpperInput(data: Uint8Array | string): Uint8Array | string {
+  if (typeof data === 'string') {
+    return data.replace(/[a-z]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x20));
+  }
+  const out = new Uint8Array(data.length);
+  for (let i = 0; i < data.length; i++) out[i] = foldUpperByte(data[i]);
+  return out;
+}
+
 export class InstanceManager {
   private instances = new Map<string, RunningInstance>();
 
@@ -126,8 +144,9 @@ export class InstanceManager {
     driver: InstanceDriver = 'api',
     speed?: CpuSpeed,
     panelBase: 'oct' | 'hex' = 'oct',
+    uppercaseInput = false,
   ): Promise<InstanceInfo> {
-    const inst = this.register(profile, profileRef, false, driver, speed, panelBase);
+    const inst = this.register(profile, profileRef, false, driver, speed, panelBase, uppercaseInput);
     await this.deps.database.upsertMachineInstance({
       id: inst.id,
       profile_ref: profileRef,
@@ -145,8 +164,9 @@ export class InstanceManager {
     driver: InstanceDriver = 'api',
     speed?: CpuSpeed,
     panelBase: 'oct' | 'hex' = 'oct',
+    uppercaseInput = false,
   ): Promise<InstanceInfo> {
-    const inst = this.register(profile, profileRef, true, driver, speed, panelBase);
+    const inst = this.register(profile, profileRef, true, driver, speed, panelBase, uppercaseInput);
     await this.startInstance(inst);
     return this.info(inst);
   }
@@ -208,6 +228,7 @@ export class InstanceManager {
     driver: InstanceDriver,
     speed?: CpuSpeed,
     panelBase: 'oct' | 'hex' = 'oct',
+    uppercaseInput = false,
   ): RunningInstance {
     const id = randomUUID();
     const inst: RunningInstance = {
@@ -220,6 +241,7 @@ export class InstanceManager {
       speed,
       profile,
       panelBase,
+      uppercaseInput,
     };
     this.instances.set(id, inst);
     return inst;
@@ -375,7 +397,8 @@ export class InstanceManager {
     }
     let sent = 0;
     for (const b of bytes) {
-      target.press(b & 0xff);
+      const byte = b & 0xff;
+      target.press(inst.uppercaseInput ? foldUpperByte(byte) : byte);
       sent++;
     }
     return { cardId: targetId, sent };
@@ -429,9 +452,12 @@ export class InstanceManager {
     });
   }
 
-  /** Send input to a running instance's console (RX). */
+  /** Send input to a running instance's console (RX). Upper-case-only machines
+   *  (SOLOS-class) fold operator a–z to A–Z here, covering every serial-console
+   *  source in one place: web Console, cockpit routing, REST, and both MCP tools. */
   writeConsole(id: string, data: Uint8Array | string): void {
-    this.getConsole(id).write(data);
+    const inst = this.require(id);
+    this.getConsole(id).write(inst.uppercaseInput ? foldUpperInput(data) : data);
   }
 
   /** Read accumulated console output since `cursor` (request/response, for MCP). */

@@ -5,10 +5,10 @@ case "$1" in
     remove|upgrade|deconfigure)
         # Stop the service if it's running
         if [ -d /run/systemd/system ]; then
-            systemctl stop fdcsds >/dev/null 2>&1 || true
+            systemctl stop bitsby8 >/dev/null 2>&1 || true
             # Disable service on removal (not upgrade)
             if [ "$1" = "remove" ]; then
-                systemctl disable fdcsds >/dev/null 2>&1 || true
+                systemctl disable bitsby8 >/dev/null 2>&1 || true
             fi
         fi
         ;;

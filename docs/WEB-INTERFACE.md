@@ -1,8 +1,8 @@
-# FDC+ Serial Drive Server - Web Interface
+# BitsBy8 Serial Drive Server - Web Interface
 
 ## 🌐 Overview
 
-The web interface provides real-time monitoring and remote management of the FDC+ Serial Drive Server through your web browser. You can view drive status, mount/unmount disk images, and change drive settings - all in real-time!
+The web interface provides real-time monitoring and remote management of the BitsBy8 Serial Drive Server through your web browser. You can view drive status, mount/unmount disk images, and change drive settings - all in real-time!
 
 ---
 
@@ -33,7 +33,7 @@ npm run dev -- -p /dev/cu.usbserial-114110 -0 disks/test.dsk -w
 npm start -- -p /dev/cu.usbserial-114110 -0 disks/test.dsk -w
 
 # Using the launcher script
-./fdcsds.sh -p /dev/cu.usbserial-114110 -0 disks/test.dsk -w
+./bitsby8.sh -p /dev/cu.usbserial-114110 -0 disks/test.dsk -w
 ```
 
 ### **Access the Interface**
@@ -52,7 +52,7 @@ That's it! You'll see the live status of all drives.
 ### **Custom Port**
 
 ```bash
-./fdcsds.sh -p /dev/cu.usbserial-114110 -w --web-port 8080
+./bitsby8.sh -p /dev/cu.usbserial-114110 -w --web-port 8080
 ```
 
 Access at: `http://localhost:8080`
@@ -60,7 +60,7 @@ Access at: `http://localhost:8080`
 ### **Custom Host**
 
 ```bash
-./fdcsds.sh -p /dev/cu.usbserial-114110 -w --web-host 0.0.0.0 --web-port 3000
+./bitsby8.sh -p /dev/cu.usbserial-114110 -w --web-host 0.0.0.0 --web-port 3000
 ```
 
 Access from any device on your network at: `http://your-ip:3000`
@@ -68,7 +68,7 @@ Access from any device on your network at: `http://your-ip:3000`
 ### **All Options**
 
 ```bash
-./fdcsds.sh \
+./bitsby8.sh \
   -p /dev/cu.usbserial-114110 \
   -0 disks/cpm22.dsk \
   -w \
@@ -400,7 +400,7 @@ By default, the server binds to `localhost` (127.0.0.1), making it accessible on
 To allow access from other devices:
 
 ```bash
-./fdcsds.sh -p /dev/cu.usbserial-114110 -w --web-host 0.0.0.0
+./bitsby8.sh -p /dev/cu.usbserial-114110 -w --web-host 0.0.0.0
 ```
 
 **⚠️ Warning:** This exposes the server to your entire network. Anyone on your network can:
@@ -425,7 +425,7 @@ To allow access from other devices:
 
 The web interface lists files from:
 ```
-/path/to/fds-ts/disks/
+/path/to/fdcplus-web/disks/
 ```
 
 ### **Supported File Types**
@@ -439,7 +439,7 @@ The web interface lists files from:
 Just copy files to the `disks/` directory:
 
 ```bash
-cp my-disk.dsk /path/to/fds-ts/disks/
+cp my-disk.dsk /path/to/fdcplus-web/disks/
 ```
 
 Refresh the web page to see the new image in the dropdowns.
@@ -453,7 +453,7 @@ Refresh the web page to see the new image in the dropdowns.
 **Check if server is running with `-w` flag:**
 ```bash
 # Must include -w or --web
-./fdcsds.sh -p /dev/cu.usbserial-114110 -0 disks/test.dsk -w
+./bitsby8.sh -p /dev/cu.usbserial-114110 -0 disks/test.dsk -w
 ```
 
 **Check the port:**
@@ -472,7 +472,7 @@ curl http://localhost:3000/api/health
 
 ```bash
 # Use a different port
-./fdcsds.sh -p /dev/cu.usbserial-114110 -w --web-port 8080
+./bitsby8.sh -p /dev/cu.usbserial-114110 -w --web-port 8080
 ```
 
 ### **Can't Mount Disk Images**

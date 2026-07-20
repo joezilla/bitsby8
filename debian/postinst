@@ -6,12 +6,31 @@ set -e
 
 case "$1" in
     configure)
-        # Create fdcsds system user if it doesn't exist
-        if ! getent passwd fdcsds >/dev/null; then
-            adduser --system --group --home /var/lib/fdcsds \
+        # --- Migrate runtime data from a legacy fdcsds install ------------
+        # Move the operator's data/logs to the bitsby8 paths and leave a
+        # backward-compatibility symlink behind. Fires only when the target
+        # is absent and the source is a real directory (not already a
+        # symlink), so it's idempotent and no-ops on fresh installs. The
+        # runtime dirs are intentionally not shipped in the package (see
+        # debian/rules) so the target is genuinely absent on upgrade.
+        # The SQLite DB (fdcplus.db) and override file are renamed
+        # in-process by the daemon on first start — that path also covers
+        # docker/source installs the .deb never touches.
+        if [ ! -e /var/lib/bitsby8 ] && [ -d /var/lib/fdcsds ] && [ ! -L /var/lib/fdcsds ]; then
+            mv /var/lib/fdcsds /var/lib/bitsby8
+            ln -s /var/lib/bitsby8 /var/lib/fdcsds
+        fi
+        if [ ! -e /var/log/bitsby8 ] && [ -d /var/log/fdcsds ] && [ ! -L /var/log/fdcsds ]; then
+            mv /var/log/fdcsds /var/log/bitsby8
+            ln -s /var/log/bitsby8 /var/log/fdcsds
+        fi
+
+        # Create bitsby8 system user if it doesn't exist
+        if ! getent passwd bitsby8 >/dev/null; then
+            adduser --system --group --home /var/lib/bitsby8 \
                     --no-create-home --disabled-password \
                     --shell /usr/sbin/nologin \
-                    --gecos "FDC+ Serial Drive Server" fdcsds
+                    --gecos "BitsBy8 Serial Drive Server" bitsby8
         fi
 
         # Create gpio group if it doesn't exist
@@ -19,51 +38,51 @@ case "$1" in
             addgroup --system gpio
         fi
 
-        # Add fdcsds user to gpio group for GPIO access
+        # Add bitsby8 user to gpio group for GPIO access
         if getent group gpio >/dev/null; then
-            adduser fdcsds gpio >/dev/null || true
+            adduser bitsby8 gpio >/dev/null || true
         fi
 
-        # Add fdcsds user to dialout group for serial port access
+        # Add bitsby8 user to dialout group for serial port access
         if getent group dialout >/dev/null; then
-            adduser fdcsds dialout >/dev/null || true
+            adduser bitsby8 dialout >/dev/null || true
         fi
 
-        # Set ownership and permissions on runtime directories
-        chown -R fdcsds:fdcsds /var/lib/fdcsds
-        chown -R fdcsds:fdcsds /var/log/fdcsds
-        chmod 755 /var/lib/fdcsds
-        chmod 755 /var/log/fdcsds
-
-        # Create data subdirectories
+        # Ensure runtime directories exist (fresh install, or belt-and-
+        # suspenders after a migration) and set ownership/permissions.
+        # chown -R re-homes migrated data from the old fdcsds uid to the
+        # freshly created bitsby8 uid.
+        mkdir -p /var/lib/bitsby8 /var/log/bitsby8
         for dir in disks scripts uploads cassettes; do
-            mkdir -p /var/lib/fdcsds/$dir
+            mkdir -p /var/lib/bitsby8/$dir
         done
-        chown -R fdcsds:fdcsds /var/lib/fdcsds
+        chown -R bitsby8:bitsby8 /var/lib/bitsby8
+        chown -R bitsby8:bitsby8 /var/log/bitsby8
+        chmod 755 /var/lib/bitsby8
+        chmod 755 /var/log/bitsby8
 
         # Copy sample disk images to writable data directory (skip if already present)
-        if [ -d /usr/share/fdcsds/disks ]; then
-            for img in /usr/share/fdcsds/disks/*; do
+        if [ -d /usr/share/bitsby8/disks ]; then
+            for img in /usr/share/bitsby8/disks/*; do
                 [ -f "$img" ] || continue
                 base=$(basename "$img")
-                if [ ! -f "/var/lib/fdcsds/disks/$base" ]; then
-                    cp "$img" "/var/lib/fdcsds/disks/$base"
-                    chown fdcsds:fdcsds "/var/lib/fdcsds/disks/$base"
+                if [ ! -f "/var/lib/bitsby8/disks/$base" ]; then
+                    cp "$img" "/var/lib/bitsby8/disks/$base"
+                    chown bitsby8:bitsby8 "/var/lib/bitsby8/disks/$base"
                 fi
             done
         fi
 
-        # The baseline lives at /etc/fdcsds/fdcsds.config.json and is
+        # The baseline lives at /etc/bitsby8/bitsby8.config.json and is
         # shipped by the package (dpkg-managed conffile). It's read-only
         # from the daemon's POV — UI-driven changes are persisted to
-        # /var/lib/fdcsds/fdcsds.overrides.json instead. Force
+        # /var/lib/bitsby8/bitsby8.overrides.json instead. Force
         # root:root 0644 on every install/upgrade so past packages that
-        # gave the fdcsds user write-permission (RC ≤ 2.0.1) are
-        # normalised back to admin-managed. `|| true` covers unusual
-        # permission states — the daemon still reads and the override
-        # layer works either way.
-        chown root:root /etc/fdcsds/fdcsds.config.json 2>/dev/null || true
-        chmod 644 /etc/fdcsds/fdcsds.config.json 2>/dev/null || true
+        # gave the service user write-permission are normalised back to
+        # admin-managed. `|| true` covers unusual permission states — the
+        # daemon still reads and the override layer works either way.
+        chown root:root /etc/bitsby8/bitsby8.config.json 2>/dev/null || true
+        chmod 644 /etc/bitsby8/bitsby8.config.json 2>/dev/null || true
 
         # Rebuild native modules against the target system's Node ABI.
         # The .deb is built once (usually on a Pi with Node 20) but pnpm's
@@ -79,7 +98,7 @@ case "$1" in
         # for the top-level symlink at node_modules/<pkg>/.
         if command -v npm >/dev/null 2>&1; then
             for pkg in better-sqlite3; do
-                pkg_dir=$(find /usr/lib/fdcsds/node_modules/.pnpm -maxdepth 1 \
+                pkg_dir=$(find /usr/lib/bitsby8/node_modules/.pnpm -maxdepth 1 \
                     -type d -name "${pkg}@*" 2>/dev/null | head -1)
                 if [ -n "$pkg_dir" ] && [ -d "$pkg_dir/node_modules/$pkg" ]; then
                     echo "Rebuilding $pkg for local Node ABI..."
@@ -90,7 +109,7 @@ case "$1" in
         else
             echo "WARNING: npm not on PATH — cannot rebuild native modules."
             echo "         If the DB fails to init, install npm and run:"
-            echo "         cd /usr/lib/fdcsds/node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3 && npm rebuild"
+            echo "         cd /usr/lib/bitsby8/node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3 && npm rebuild"
         fi
 
         # Reload systemd daemon to recognize new service
@@ -101,33 +120,33 @@ case "$1" in
         # Display post-installation message
         echo ""
         echo "========================================================================"
-        echo "  FDC+ Serial Drive Server (fdcsds) has been installed successfully!"
+        echo "  BitsBy8 Serial Drive Server (bitsby8) has been installed successfully!"
         echo "========================================================================"
         echo ""
         echo "Next steps:"
         echo ""
         echo "1. Edit the configuration file:"
-        echo "   sudo nano /etc/fdcsds/fdcsds.config.json"
+        echo "   sudo nano /etc/bitsby8/bitsby8.config.json"
         echo ""
         echo "2. Configure your serial ports and disk images"
         echo ""
         echo "3. Start the service:"
-        echo "   sudo systemctl start fdcsds"
+        echo "   sudo systemctl start bitsby8"
         echo ""
         echo "4. Enable automatic startup on boot:"
-        echo "   sudo systemctl enable fdcsds"
+        echo "   sudo systemctl enable bitsby8"
         echo ""
         echo "5. Check service status:"
-        echo "   sudo systemctl status fdcsds"
+        echo "   sudo systemctl status bitsby8"
         echo ""
         echo "6. View logs:"
-        echo "   sudo journalctl -u fdcsds -f"
+        echo "   sudo journalctl -u bitsby8 -f"
         echo ""
         echo "7. Access the web interface (if enabled):"
         echo "   http://$(hostname -I | awk '{print $1}'):3000"
         echo ""
-        echo "Documentation: /usr/share/doc/fdcsds/"
-        echo "Sample disk images: /usr/share/fdcsds/disks/"
+        echo "Documentation: /usr/share/doc/bitsby8/"
+        echo "Sample disk images: /usr/share/bitsby8/disks/"
         echo "========================================================================"
         echo ""
         ;;

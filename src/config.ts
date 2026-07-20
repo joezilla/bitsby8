@@ -137,10 +137,16 @@ export type ConfigFile = z.infer<typeof ConfigSchema>;
 // ---------------------------------------------------------------------------
 
 export const DEFAULT_CONFIG_LOCATIONS = [
+  '.bitsby8.config',
+  '.config/bitsby8.json',
+  'bitsby8.config.json',
+  '/etc/bitsby8/bitsby8.config', // System-wide default (new name)
+  // Legacy fallbacks — a box installed before the bitsby8 rename keeps
+  // working until the operator migrates its config to the new names.
   '.fdcsds.config',
   '.config/fdcsds.json',
   'fdcsds.config.json',
-  '/etc/fdcplus/fdcsds.config', // System-wide default (lowest priority)
+  '/etc/fdcplus/fdcsds.config', // Legacy system-wide default (lowest priority)
 ];
 
 /**
@@ -252,7 +258,45 @@ function parseConfigContent(content: string, filePath: string): ConfigFile {
  * a dev-mode override in the repo CWD is never re-detected as a
  * baseline on the next startup.
  */
-export const OVERRIDE_FILENAME = 'fdcsds.overrides.json';
+export const OVERRIDE_FILENAME = 'bitsby8.overrides.json';
+
+/** Pre-rename override filename, self-healed on startup by {@link migrateLegacyOverride}. */
+export const LEGACY_OVERRIDE_FILENAME = 'fdcsds.overrides.json';
+
+/**
+ * One-time rename of a legacy `fdcsds.overrides.json` (plus its rotating
+ * `.bak.1..3` backups) to the current `bitsby8.overrides.json` name inside
+ * `dataDir`. Fires only when the new file is absent and the legacy one is
+ * present — idempotent, and a no-op on fresh installs and post-migration
+ * boots. Runs for every install shape, not just the .deb.
+ */
+export async function migrateLegacyOverride(dataDir: string): Promise<void> {
+  const target = path.join(dataDir, OVERRIDE_FILENAME);
+  const legacy = path.join(dataDir, LEGACY_OVERRIDE_FILENAME);
+  try {
+    await fs.access(target);
+    return; // new file already present — nothing to migrate
+  } catch {
+    /* new file absent — attempt migration below */
+  }
+  try {
+    await fs.access(legacy);
+  } catch {
+    return; // no legacy file either — fresh install
+  }
+  for (const suffix of ['', '.bak.1', '.bak.2', '.bak.3']) {
+    try {
+      await fs.rename(legacy + suffix, target + suffix);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.warn(
+          `Could not migrate legacy override file ${legacy + suffix}: ${(err as Error).message}`,
+        );
+      }
+    }
+  }
+  console.log(`Migrated legacy override ${LEGACY_OVERRIDE_FILENAME} → ${OVERRIDE_FILENAME}`);
+}
 
 /**
  * A parsed override document. Fields are all optional — an override

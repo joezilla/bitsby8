@@ -7,7 +7,13 @@
  */
 
 import BetterSqlite3 from 'better-sqlite3';
-import { chmodSync } from 'fs';
+import { chmodSync, existsSync, renameSync } from 'fs';
+import * as path from 'path';
+
+/** Current on-disk SQLite database filename (inside `dataDir`). */
+export const DB_FILENAME = 'bitsby8.db';
+/** Pre-rename filename, self-healed to {@link DB_FILENAME} on startup. */
+export const LEGACY_DB_FILENAME = 'fdcplus.db';
 
 export interface DiskNote {
   filename: string;
@@ -126,6 +132,9 @@ export interface MachineProfileRecord {
   notes: string | null;
   /** Run-cockpit LED grouping default ('oct' | 'hex') — metadata, not digested. */
   panel_base: string;
+  /** Fold operator a–z keystrokes to A–Z at the console RX (SOLOS-class machines
+   * that accept only upper case) — metadata (0/1), not digested. */
+  uppercase_input: number;
   source: string; // 'user' | 'preset' | 'imported'
   created_at: string;
 }
@@ -297,6 +306,12 @@ const MIGRATIONS: string[] = [
   // hardware: stored alongside `notes`, OUTSIDE the content digest, so it never
   // rebuilds the profile's identity or reaches the 8sim spec.
   `ALTER TABLE machine_profiles ADD COLUMN panel_base TEXT NOT NULL DEFAULT 'oct';`,
+
+  // Migration 12: per-profile uppercase-only console input. Machines like the
+  // SOL-20 SOLOS accept only upper-case ASCII; when set, the operator's a–z
+  // keystrokes are folded to A–Z at the RX boundary. Metadata, not hardware —
+  // stored alongside panel_base, OUTSIDE the content digest and the 8sim spec.
+  `ALTER TABLE machine_profiles ADD COLUMN uppercase_input INTEGER NOT NULL DEFAULT 0;`,
 ];
 
 export class Database {
@@ -909,9 +924,9 @@ export class Database {
     this.ensureInitialized();
     // Versions are immutable — a colliding (name, version) is a conflict, not an upsert.
     this.db!.prepare(
-      `INSERT INTO machine_profiles (id, name, version, digest, cpu_kind, profile, notes, panel_base, source, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
-    ).run(rec.id, rec.name, rec.version, rec.digest, rec.cpu_kind, rec.profile, rec.notes, rec.panel_base, rec.source);
+      `INSERT INTO machine_profiles (id, name, version, digest, cpu_kind, profile, notes, panel_base, uppercase_input, source, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+    ).run(rec.id, rec.name, rec.version, rec.digest, rec.cpu_kind, rec.profile, rec.notes, rec.panel_base, rec.uppercase_input, rec.source);
   }
 
   async getMachineProfileById(id: string): Promise<MachineProfileRecord | undefined> {
@@ -925,12 +940,12 @@ export class Database {
    * version. Used only for preset templates, which are living, not versioned. */
   async updateMachineProfileContent(
     id: string,
-    fields: { digest: string; cpu_kind: string; profile: string; notes: string | null; panel_base: string },
+    fields: { digest: string; cpu_kind: string; profile: string; notes: string | null; panel_base: string; uppercase_input: number },
   ): Promise<void> {
     this.ensureInitialized();
     this.db!.prepare(
-      'UPDATE machine_profiles SET digest = ?, cpu_kind = ?, profile = ?, notes = ?, panel_base = ? WHERE id = ?'
-    ).run(fields.digest, fields.cpu_kind, fields.profile, fields.notes, fields.panel_base, id);
+      'UPDATE machine_profiles SET digest = ?, cpu_kind = ?, profile = ?, notes = ?, panel_base = ?, uppercase_input = ? WHERE id = ?'
+    ).run(fields.digest, fields.cpu_kind, fields.profile, fields.notes, fields.panel_base, fields.uppercase_input, id);
   }
 
   /** All versions of a profile name, newest-created first. `rowid` is a
@@ -1031,6 +1046,38 @@ export class Database {
       throw new Error('Database not initialized');
     }
   }
+}
+
+/**
+ * Resolve the SQLite database path inside `dataDir`, self-healing a
+ * legacy `fdcplus.db` to the current `bitsby8.db` name on first startup.
+ *
+ * The rename covers SQLite's WAL sidecars (`-wal`/`-shm`) so a legacy
+ * daemon's in-flight WAL isn't orphaned. It fires only when the new file
+ * is absent and the legacy one is present, so it's idempotent and a no-op
+ * on fresh installs and post-migration boots. Keying off the file (not the
+ * packaging) means every install shape — .deb, docker, source — migrates.
+ */
+export function resolveDbPath(dataDir: string): string {
+  const target = path.join(dataDir, DB_FILENAME);
+  const legacy = path.join(dataDir, LEGACY_DB_FILENAME);
+  if (!existsSync(target) && existsSync(legacy)) {
+    for (const suffix of ['', '-wal', '-shm']) {
+      try {
+        if (existsSync(legacy + suffix)) {
+          renameSync(legacy + suffix, target + suffix);
+        }
+      } catch (err) {
+        console.warn(
+          `Could not migrate legacy database file ${legacy + suffix} → ${target + suffix}: ${(err as Error).message}`,
+        );
+      }
+    }
+    if (existsSync(target)) {
+      console.log(`Migrated legacy database ${LEGACY_DB_FILENAME} → ${DB_FILENAME}`);
+    }
+  }
+  return target;
 }
 
 // Singleton instance

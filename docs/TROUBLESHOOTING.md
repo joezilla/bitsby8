@@ -1,4 +1,4 @@
-# FDC+ Serial Drive Server - Troubleshooting Guide
+# BitsBy8 Serial Drive Server - Troubleshooting Guide
 
 ## 🔧 Debugging Tools
 
@@ -146,10 +146,10 @@ chmod 666 disks/test.dsk
 **B. File Path Issues**
 ```bash
 # Use absolute path
-npm run dev -- -p /dev/cu.usbserial-FTE90ZVP -0 /Users/mreppot/src/fds-ts/disks/test.dsk -v
+npm run dev -- -p /dev/cu.usbserial-FTE90ZVP -0 /Users/mreppot/src/fdcplus-web/disks/test.dsk -v
 
 # Or ensure you're in the right directory
-cd /Users/mreppot/src/fds-ts
+cd /Users/mreppot/src/fdcplus-web
 npm run dev -- -p /dev/cu.usbserial-FTE90ZVP -0 disks/test.dsk -v
 ```
 

@@ -18,6 +18,9 @@ import { _setSimForTests, SimModule } from '../src/services/bundle-registry';
 import { getClientMountRegistry } from '../src/client-mount-registry';
 
 const closedChannels: string[] = [];
+/** Every byte the fake keyboard card received, in order — lets tests assert the
+ *  exact bytes after per-machine transforms (e.g. upper-case folding). */
+const kbPresses: number[] = [];
 
 function makeRunner() {
   let running = false;
@@ -62,7 +65,7 @@ const fakeSim = {
       reset() { kbQueue.length = 0; },
       attach() {},
       keyboard: {
-        press: (b: number) => kbQueue.push(b & 0xff),
+        press: (b: number) => { kbQueue.push(b & 0xff); kbPresses.push(b & 0xff); },
         type: (t: string) => { for (const ch of t) kbQueue.push(ch.charCodeAt(0)); },
         get pending() { return kbQueue.length; },
       },
@@ -105,6 +108,7 @@ const profile: MachineProfile = {
 beforeEach(() => {
   _setSimForTests(fakeSim);
   closedChannels.length = 0;
+  kbPresses.length = 0;
 });
 afterEach(() => _setSimForTests(null));
 
@@ -196,6 +200,20 @@ describe('InstanceManager keyboard cards (Story 5.9)', () => {
     const r = im.sendKeys(info.id, [0x48, 0x49]); // "HI"
     expect(r).toEqual({ cardId: 'kbd', sent: 2 });
     expect(im.listKeyboards(info.id)[0].pending).toBe(2);
+  });
+
+  test('uppercase-only machine folds a–z to A–Z at sendKeys; others pass through', async () => {
+    const deps = await makeDeps();
+    const im = new InstanceManager(deps);
+    // uppercaseInput = true (last positional arg on createTransient).
+    const up = await im.createTransient(profile, 'inline', 'api', undefined, 'oct', true);
+    im.sendKeys(up.id, [0x61, 0x7a, 0x35, 0x0d]); // 'a' 'z' '5' CR
+    expect(kbPresses).toEqual([0x41, 0x5a, 0x35, 0x0d]); // 'A' 'Z' '5' CR — only letters shift
+
+    kbPresses.length = 0;
+    const raw = await im.createTransient(profile); // uppercaseInput defaults to false
+    im.sendKeys(raw.id, [0x61, 0x7a]); // 'a' 'z'
+    expect(kbPresses).toEqual([0x61, 0x7a]); // unchanged
   });
 
   test('sendKeys throws 404 for an unknown card id', async () => {

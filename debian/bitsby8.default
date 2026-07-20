@@ -1,4 +1,4 @@
-# Default configuration for FDC+ Serial Drive Server
+# Default configuration for BitsBy8 Serial Drive Server
 # This file is sourced by the systemd service
 
 # Node.js environment
@@ -9,12 +9,12 @@ NODE_ENV=production
 ENABLED=yes
 
 # Additional command-line options
-# These will override settings in /etc/fdcsds/fdcsds.config.json
+# These will override settings in /etc/bitsby8/bitsby8.config.json
 # Examples:
-#   FDCSDS_OPTS="--verbose"
-#   FDCSDS_OPTS="--debug --verbose"
-#   FDCSDS_OPTS="--web-port 8080"
-FDCSDS_OPTS=""
+#   BITSBY8_OPTS="--verbose"
+#   BITSBY8_OPTS="--debug --verbose"
+#   BITSBY8_OPTS="--web-port 8080"
+BITSBY8_OPTS=""
 
 # Node.js options (e.g., memory limits)
 # Examples:

@@ -1,5 +1,5 @@
 {
-  "dataDir": "/var/lib/fdcsds",
+  "dataDir": "/var/lib/bitsby8",
   "port": "/dev/ttyUSB0",
   "baud": 230400,
   "drive0": "disks/cpm22.dsk",

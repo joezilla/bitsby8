@@ -210,6 +210,9 @@ export interface MachineProfile {
   notes: string | null;
   /** Run-cockpit front-panel LED grouping default (metadata, not hardware). */
   panelBase: 'oct' | 'hex';
+  /** Fold operator a–z keystrokes to A–Z at the console RX for upper-case-only
+   *  machines (SOLOS-class). Metadata, not hardware. */
+  uppercaseInput: boolean;
   source: string;
   createdAt: string;
 }

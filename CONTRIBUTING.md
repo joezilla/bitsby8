@@ -1,4 +1,4 @@
-# Contributing to FDC+ Serial Drive Server
+# Contributing to BitsBy8 Serial Drive Server
 
 Thank you for considering a contribution. This project is a small, hobbyist-and-Pi-operator-targeted codebase, so the contribution process is deliberately lightweight.
 

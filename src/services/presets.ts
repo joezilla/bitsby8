@@ -52,6 +52,10 @@ export interface MachinePreset {
   name: string;
   description: string;
   build(): MachineProfile;
+  /** Ship the profile with upper-case-only console input folding on — for
+   * SOLOS-class machines that accept only upper case (the SOL-20). Metadata, not
+   * part of build()'s hardware spec; defaults off. */
+  uppercaseInput?: boolean;
   /** Boot/startup disks bound to the seeded profile (overlay on the global
    * mounts). Empty/absent for presets that ship without media. */
   disks?: PresetDisk[];
@@ -246,6 +250,8 @@ export const PRESETS: MachinePreset[] = [
     description:
       '8080 + SOLOS personality ROM (0xC000) driving the built-in VDM-1 display + Sol keyboard console, plus a 3P+S serial card and the Helios II disk system (F0-F7).',
     build: sol20Machine,
+    // SOLOS accepts only upper case — fold typed a–z to A–Z at the console input.
+    uppercaseInput: true,
   },
   {
     id: 'imsai-fif-imdos',

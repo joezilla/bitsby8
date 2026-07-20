@@ -14,14 +14,16 @@ Svelte web UI, a REST API, and an MCP server.
 
 Settings live at two layers, and the layer decides *where* they are managed:
 
-- **Global defaults → CLI flags + config files** (`/etc/fdcsds/fdcsds.config`,
-  `{dataDir}/fdcsds.overrides.json`). Treat these as **installation-time
+- **Global defaults → CLI flags + config files** (`/etc/bitsby8/bitsby8.config`,
+  `{dataDir}/bitsby8.overrides.json`; legacy `fdcsds`/`fdcplus` names are still
+  read as fallbacks). Treat these as **installation-time
   defaults**. Section PUTs (`PUT /api/config/:section`) persist to the override
   file and are **restart-required** — they do not live-mutate the running
   daemon. Do not reach for the CLI/config file to change day-to-day behavior;
   it's for provisioning the box.
 - **Runtime, operator-facing settings → the web UI + REST/MCP**, backed by the
-  SQLite database (`{dataDir}/fdcplus.db`). These apply live. Per-image settings
+  SQLite database (`{dataDir}/bitsby8.db`; a legacy `fdcplus.db` is renamed on
+  first start). These apply live. Per-image settings
   (notes, read-only-write policy, snapshots) live here and override the global
   default.
 

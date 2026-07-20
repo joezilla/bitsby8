@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
 
 #
-# FDC+ Serial Drive Server Launcher Script
+# BitsBy8 Serial Drive Server Launcher Script
 # Convenience wrapper for running the TypeScript implementation
 #
 # Usage:
-#   ./run-server.sh [options]
-#   ./run-server.sh --dev [options]        # Run in development mode
-#   ./run-server.sh --rebuild [options]    # Force rebuild
-#   ./run-server.sh -c <config> [options]  # Use config file
+#   ./bitsby8.sh [options]
+#   ./bitsby8.sh --dev [options]        # Run in development mode
+#   ./bitsby8.sh --rebuild [options]    # Force rebuild
+#   ./bitsby8.sh -c <config> [options]  # Use config file
 #
 # Config file support:
-#   The server automatically searches for config files in:
-#     - .fdcsds.config
-#     - .config/fdcsds.json
-#     - fdcsds.config.json
+#   The server automatically searches for config files in (new names
+#   first, legacy fdcsds.* names still honored as fallbacks):
+#     - .bitsby8.config     (legacy: .fdcsds.config)
+#     - .config/bitsby8.json (legacy: .config/fdcsds.json)
+#     - bitsby8.config.json (legacy: fdcsds.config.json)
 #   Or specify a custom config file with: -c <path> or --config <path>
 #
 # Examples:
