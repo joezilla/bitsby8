@@ -12,6 +12,7 @@ import { Database } from '../src/database';
 import { Dependencies } from '../src/types';
 import { registerCardDefinition } from '../src/services/catalog';
 import { resolveProfile } from '../src/services/resolver';
+import { getPreset } from '../src/services/presets';
 import { validateProfile } from '../src/services/collision-validator';
 import { _setSimForTests, SimModule } from '../src/services/bundle-registry';
 import {
@@ -365,5 +366,46 @@ describe('profile-service: panel base (display metadata, not hardware)', () => {
     const src = await createProfile(deps, { name: 'panel-src', panelBase: 'hex', ...content });
     const clone = await cloneProfile(deps, src.id, 'panel-clone');
     expect(clone.panelBase).toBe('hex');
+  });
+});
+
+describe('profile-service: uppercase input (SOLOS-class keyboard metadata)', () => {
+  test('defaults to false; stores an explicit flag; NOT part of the content digest', async () => {
+    const deps = await makeDeps();
+    const off = await createProfile(deps, { name: 'uc-off', ...content });
+    expect(off.uppercaseInput).toBe(false);
+
+    const on = await createProfile(deps, { name: 'uc-on', uppercaseInput: true, ...content });
+    expect(on.uppercaseInput).toBe(true);
+    // Same hardware, different input massaging ⇒ identical content digest.
+    expect(on.digest).toBe(off.digest);
+  });
+
+  test('changing only uppercaseInput makes a new version with the same digest', async () => {
+    const deps = await makeDeps();
+    const v1 = await createProfile(deps, { name: 'uc-upd', ...content });
+    expect(v1.uppercaseInput).toBe(false);
+    const v2 = await updateProfile(deps, v1.id, { uppercaseInput: true });
+    expect(v2.uppercaseInput).toBe(true);
+    expect(v2.version).not.toBe(v1.version); // versions immutably
+    expect(v2.digest).toBe(v1.digest); // hardware identity unchanged
+  });
+
+  test('clone preserves the source uppercaseInput', async () => {
+    const deps = await makeDeps();
+    const src = await createProfile(deps, { name: 'uc-src', uppercaseInput: true, ...content });
+    const clone = await cloneProfile(deps, src.id, 'uc-clone');
+    expect(clone.uppercaseInput).toBe(true);
+  });
+
+  test('the SOL-20 preset ships upper-case-only; a plain preset does not', async () => {
+    const deps = await makeDeps();
+    // The shipped definition carries the flag (SOL-20's video/keyboard cards
+    // aren't in this fixture's catalog, so assert the definition directly)...
+    expect(getPreset('sol20-solos')?.uppercaseInput).toBe(true);
+    expect(getPreset('imsai-cpm')?.uppercaseInput ?? false).toBe(false);
+    // ...and it flows through createProfileFromPreset for a catalog-seeded preset.
+    const imsai = await createProfileFromPreset(deps, 'imsai-cpm', 'my-imsai');
+    expect(imsai.uppercaseInput).toBe(false);
   });
 });

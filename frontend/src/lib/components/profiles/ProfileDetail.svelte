@@ -37,6 +37,7 @@
   let cpus = $state<CpuInfo[]>([]);
   let notes = $state('');
   let panelBase = $state<'oct' | 'hex'>('oct');
+  let uppercaseInput = $state(false);
   let editCards = $state<ProfileCardInstance[]>([]);
 
   const catalogTypeOf = (ref: string) =>
@@ -98,6 +99,7 @@
       cpuKind !== profile.cpuKind ||
       (notes ?? '') !== (profile.notes ?? '') ||
       panelBase !== profile.panelBase ||
+      uppercaseInput !== profile.uppercaseInput ||
       cardsChanged
     );
   });
@@ -109,6 +111,7 @@
     cpuKind = p.cpuKind;
     notes = p.notes ?? '';
     panelBase = p.panelBase ?? 'oct';
+    uppercaseInput = p.uppercaseInput ?? false;
     editCards = structuredClone(p.cards);
   }
 
@@ -144,6 +147,7 @@
         cpuKind,
         notes,
         panelBase,
+        uppercaseInput,
         cards: editCards,
       };
       const { profile: np } = await api.updateProfile(profile.id, patch);
@@ -456,6 +460,12 @@
             <label><input type="radio" bind:group={panelBase} value="oct" /> octal</label>
             <label><input type="radio" bind:group={panelBase} value="hex" /> hex</label>
           </div>
+        </div>
+      </div>
+      <div class="spec-cell" title="Fold typed a–z to A–Z at the console input for machines that accept only upper case (e.g. SOL-20 SOLOS)">
+        <div class="spec-lab">Keyboard</div>
+        <div class="spec-val">
+          <label><input type="checkbox" bind:checked={uppercaseInput} /> upper-case only</label>
         </div>
       </div>
     </div>

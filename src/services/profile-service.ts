@@ -49,6 +49,10 @@ export interface ProfileDoc extends ProfileContent {
   digest: string;
   notes: string | null;
   panelBase: PanelBase;
+  /** Fold operator a–z keystrokes to A–Z at the console RX for SOLOS-class
+   *  machines that accept only upper case. Metadata, not hardware: never enters
+   *  the content digest or the 8sim spec (same rules as `panelBase`). */
+  uppercaseInput: boolean;
   source: string;
   createdAt: string;
 }
@@ -100,6 +104,7 @@ function toDoc(rec: MachineProfileRecord): ProfileDoc {
     digest: rec.digest,
     notes: rec.notes,
     panelBase: rec.panel_base === 'hex' ? 'hex' : 'oct',
+    uppercaseInput: !!rec.uppercase_input,
     source: rec.source,
     createdAt: rec.created_at,
     ...contentOf(rec),
@@ -184,6 +189,7 @@ async function persist(
   source: string,
   notes: string | null,
   panelBase: PanelBase,
+  uppercaseInput: boolean,
 ): Promise<ProfileDoc> {
   validateContent(content);
   const id = `${name}@${version}`;
@@ -196,6 +202,7 @@ async function persist(
     profile: JSON.stringify(content),
     notes,
     panel_base: panelBase === 'hex' ? 'hex' : 'oct', // coerce untrusted input
+    uppercase_input: uppercaseInput ? 1 : 0, // coerce untrusted input
     source,
   });
   const rec = await deps.database.getMachineProfileById(id);
@@ -206,18 +213,18 @@ async function persist(
 /** Create a Profile from an explicit content body (version 1.0.0). */
 export async function createProfile(
   deps: Dependencies,
-  input: { name: string; notes?: string; panelBase?: PanelBase } & ProfileContent,
+  input: { name: string; notes?: string; panelBase?: PanelBase; uppercaseInput?: boolean } & ProfileContent,
 ): Promise<ProfileDoc> {
   validateName(input.name);
   const name = input.name.trim();
   if ((await deps.database.listMachineProfileVersions(name)).length > 0) {
     throw new ServiceError(`A profile named "${name}" already exists`, 409);
   }
-  const { name: _n, notes, panelBase, ...rest } = input;
+  const { name: _n, notes, panelBase, uppercaseInput, ...rest } = input;
   const content = rest as ProfileContent;
   // Validate + fill defaults for each Card Instance against its Config Schema.
   content.cards = await resolveProfileCards(deps, content.cards ?? []);
-  return persist(deps, name, '1.0.0', content, 'user', notes ?? null, panelBase ?? 'oct');
+  return persist(deps, name, '1.0.0', content, 'user', notes ?? null, panelBase ?? 'oct', uppercaseInput ?? false);
 }
 
 /** Create a Profile seeded from a built-in machine preset (carries ROM + cards). */
@@ -239,7 +246,7 @@ export async function createProfileFromPreset(
   // does — so a preset-derived profile is byte-identical (and content-addresses
   // the same) as the same machine created or imported any other way.
   content.cards = await resolveProfileCards(deps, content.cards);
-  return persist(deps, trimmed, '1.0.0', content, 'preset', notes ?? null, 'oct');
+  return persist(deps, trimmed, '1.0.0', content, 'preset', notes ?? null, 'oct', preset.uppercaseInput ?? false);
 }
 
 export async function getProfile(deps: Dependencies, id: string): Promise<ProfileDoc> {
@@ -270,10 +277,10 @@ export async function listProfileVersions(deps: Dependencies, name: string): Pro
 export async function updateProfile(
   deps: Dependencies,
   id: string,
-  patch: Partial<ProfileContent> & { notes?: string; panelBase?: PanelBase },
+  patch: Partial<ProfileContent> & { notes?: string; panelBase?: PanelBase; uppercaseInput?: boolean },
 ): Promise<ProfileDoc> {
   const base = await getProfile(deps, id);
-  const { notes: patchNotes, panelBase: patchPanelBase, ...contentPatch } = patch;
+  const { notes: patchNotes, panelBase: patchPanelBase, uppercaseInput: patchUppercase, ...contentPatch } = patch;
   // A cards patch is re-validated against each card's Config Schema; unchanged
   // cards carry over already-validated.
   const cards = contentPatch.cards
@@ -290,7 +297,14 @@ export async function updateProfile(
   const newNotes = patchNotes !== undefined ? patchNotes : base.notes;
   const newPanelBase: PanelBase =
     patchPanelBase !== undefined ? (patchPanelBase === 'hex' ? 'hex' : 'oct') : base.panelBase;
-  if (digestOf(newContent) === base.digest && newNotes === base.notes && newPanelBase === base.panelBase) {
+  const newUppercase: boolean =
+    patchUppercase !== undefined ? !!patchUppercase : base.uppercaseInput;
+  if (
+    digestOf(newContent) === base.digest &&
+    newNotes === base.notes &&
+    newPanelBase === base.panelBase &&
+    newUppercase === base.uppercaseInput
+  ) {
     return base; // nothing changed → no new version
   }
   // A preset is a living template: editing it updates the row in place (no
@@ -303,10 +317,11 @@ export async function updateProfile(
       profile: JSON.stringify(newContent),
       notes: newNotes ?? null,
       panel_base: newPanelBase,
+      uppercase_input: newUppercase ? 1 : 0,
     });
     return getProfile(deps, base.id);
   }
-  return persist(deps, base.name, await nextVersion(deps, base.name), newContent, 'user', newNotes ?? null, newPanelBase);
+  return persist(deps, base.name, await nextVersion(deps, base.name), newContent, 'user', newNotes ?? null, newPanelBase, newUppercase);
 }
 
 /** Seed (or reset) a preset as a source:'preset' profile. Resolves card configs
@@ -317,6 +332,7 @@ export async function upsertPresetProfile(
   name: string,
   built: MachineProfile,
   notes: string | null,
+  uppercaseInput = false,
 ): Promise<ProfileDoc> {
   const content = fromMachineProfile(built);
   content.cards = await resolveProfileCards(deps, content.cards);
@@ -329,10 +345,13 @@ export async function upsertPresetProfile(
       profile: JSON.stringify(content),
       notes,
       panel_base: existing.panel_base === 'hex' ? 'hex' : 'oct',
+      // reset-to-default restores the shipped keyboard default (unlike panel_base,
+      // a pure display pref that stays as the operator left it).
+      uppercase_input: uppercaseInput ? 1 : 0,
     });
     return getProfile(deps, existing.id);
   }
-  return persist(deps, name, '1.0.0', content, 'preset', notes, 'oct');
+  return persist(deps, name, '1.0.0', content, 'preset', notes, 'oct', uppercaseInput);
 }
 
 /** Clone a Profile into an independent one under a new name (version 1.0.0). */
@@ -348,8 +367,8 @@ export async function cloneProfile(
   if ((await deps.database.listMachineProfileVersions(trimmed)).length > 0) {
     throw new ServiceError(`A profile named "${trimmed}" already exists`, 409);
   }
-  const { id: _i, name: _n, version: _v, digest: _d, createdAt: _c, source: _s, notes: _no, panelBase, ...content } = src;
-  return persist(deps, trimmed, '1.0.0', content as ProfileContent, 'user', notes ?? null, panelBase);
+  const { id: _i, name: _n, version: _v, digest: _d, createdAt: _c, source: _s, notes: _no, panelBase, uppercaseInput, ...content } = src;
+  return persist(deps, trimmed, '1.0.0', content as ProfileContent, 'user', notes ?? null, panelBase, uppercaseInput);
 }
 
 /**

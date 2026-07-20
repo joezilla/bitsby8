@@ -1,10 +1,10 @@
-# Makefile for FDC+ Serial Drive Server
+# Makefile for BitsBy8 Serial Drive Server
 # This provides convenience targets for Debian package building
 
 .PHONY: all build clean install deb deb-clean deb-source help
 
 # Package information
-PACKAGE_NAME := fdcsds
+PACKAGE_NAME := bitsby8
 ARCH := all
 
 # Version is derived from git so every commit produces a distinct, monotonic
@@ -71,7 +71,7 @@ clean:
 
 # Install the application (for local testing)
 install: build
-	@echo "Installing fdcsds locally..."
+	@echo "Installing bitsby8 locally..."
 	npm install -g .
 
 # Directory where collected dpkg-buildpackage output lands.
@@ -175,7 +175,7 @@ deb-source:
 # Clean Debian build artifacts
 deb-clean:
 	@echo "Cleaning Debian build artifacts..."
-	rm -rf debian/fdcsds
+	rm -rf debian/bitsby8
 	rm -rf debian/.debhelper
 	rm -f debian/debhelper-build-stamp
 	rm -f debian/files
@@ -239,7 +239,7 @@ info:
 
 # Help target
 help:
-	@echo "FDC+ Serial Drive Server - Makefile targets:"
+	@echo "BitsBy8 Serial Drive Server - Makefile targets:"
 	@echo ""
 	@echo "Building:"
 	@echo "  make build              - Build TypeScript project"

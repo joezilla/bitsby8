@@ -403,13 +403,13 @@ export const api = {
   getApiKey: () => request<{ apiKey: string | null }>('/api/config/web/apikey'),
   getConfigSchema: () => request<any>('/api/config/schema'),
   putSerialConfig: (patch: Partial<SerialSection>, ifMatch?: string) =>
-    request<{ success: true; config: ConfigDoc; mtimeMs: number }>('/api/config/serial', {
+    request<{ success: true; config: ConfigDoc; mtimeMs: number; restartRequired: boolean }>('/api/config/serial', {
       method: 'PUT',
       body: JSON.stringify(patch),
       headers: ifMatch ? { 'If-Match': ifMatch } : {},
     }),
   putWebConfig: (patch: Partial<WebSection>, ifMatch?: string) =>
-    request<{ success: true; config: ConfigDoc; mtimeMs: number }>('/api/config/web', {
+    request<{ success: true; config: ConfigDoc; mtimeMs: number; restartRequired: boolean }>('/api/config/web', {
       method: 'PUT',
       body: JSON.stringify(patch),
       headers: ifMatch ? { 'If-Match': ifMatch } : {},
@@ -433,13 +433,13 @@ export const api = {
       },
     ),
   putTerminalConfig: (patch: Partial<TerminalSection>, ifMatch?: string) =>
-    request<{ success: true; config: ConfigDoc; mtimeMs: number }>('/api/config/terminal', {
+    request<{ success: true; config: ConfigDoc; mtimeMs: number; restartRequired: boolean }>('/api/config/terminal', {
       method: 'PUT',
       body: JSON.stringify(patch),
       headers: ifMatch ? { 'If-Match': ifMatch } : {},
     }),
   putLoggingConfig: (patch: Partial<LoggingSection>, ifMatch?: string) =>
-    request<{ success: true; config: ConfigDoc; mtimeMs: number }>('/api/config/logging', {
+    request<{ success: true; config: ConfigDoc; mtimeMs: number; restartRequired: boolean }>('/api/config/logging', {
       method: 'PUT',
       body: JSON.stringify(patch),
       headers: ifMatch ? { 'If-Match': ifMatch } : {},

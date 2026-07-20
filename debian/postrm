@@ -4,32 +4,38 @@ set -e
 case "$1" in
     purge)
         # Remove runtime directories and their contents on purge
-        rm -rf /var/lib/fdcsds
-        rm -rf /var/log/fdcsds
+        rm -rf /var/lib/bitsby8
+        rm -rf /var/log/bitsby8
+
+        # Drop the backward-compatibility symlinks left by a migrated
+        # fdcsds install (only if they are still symlinks — never touch a
+        # real directory a co-installed package might own).
+        [ -L /var/lib/fdcsds ] && rm -f /var/lib/fdcsds || true
+        [ -L /var/log/fdcsds ] && rm -f /var/log/fdcsds || true
 
         # Remove configuration directory on purge
-        rm -rf /etc/fdcsds
+        rm -rf /etc/bitsby8
 
         # Remove user and group on purge
-        if getent passwd fdcsds >/dev/null; then
-            deluser --system fdcsds >/dev/null 2>&1 || true
+        if getent passwd bitsby8 >/dev/null; then
+            deluser --system bitsby8 >/dev/null 2>&1 || true
         fi
 
-        if getent group fdcsds >/dev/null; then
-            delgroup --system fdcsds >/dev/null 2>&1 || true
+        if getent group bitsby8 >/dev/null; then
+            delgroup --system bitsby8 >/dev/null 2>&1 || true
         fi
 
         echo ""
-        echo "FDC+ Serial Drive Server has been completely removed."
+        echo "BitsBy8 Serial Drive Server has been completely removed."
         echo ""
         ;;
 
     remove)
         # On remove (not purge), keep config files and user data
         echo ""
-        echo "FDC+ Serial Drive Server has been removed."
+        echo "BitsBy8 Serial Drive Server has been removed."
         echo "Configuration files and user data have been preserved."
-        echo "To completely remove all data, run: sudo apt-get purge fdcsds"
+        echo "To completely remove all data, run: sudo apt-get purge bitsby8"
         echo ""
         ;;
 

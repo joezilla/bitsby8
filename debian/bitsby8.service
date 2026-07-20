@@ -1,20 +1,20 @@
 [Unit]
-Description=FDC+ Serial Drive Server
-Documentation=file:///usr/share/doc/fdcsds/README.md
+Description=BitsBy8 Serial Drive Server
+Documentation=file:///usr/share/doc/bitsby8/README.md
 After=network.target
 
 [Service]
 Type=simple
-User=fdcsds
-Group=fdcsds
+User=bitsby8
+Group=bitsby8
 SupplementaryGroups=dialout gpio
 
 # Environment
-EnvironmentFile=-/etc/default/fdcsds
-WorkingDirectory=/var/lib/fdcsds
+EnvironmentFile=-/etc/default/bitsby8
+WorkingDirectory=/var/lib/bitsby8
 
 # Command
-ExecStart=/usr/bin/node /usr/lib/fdcsds/dist/index.js --config /etc/fdcsds/fdcsds.config.json
+ExecStart=/usr/bin/node /usr/lib/bitsby8/dist/index.js --config /etc/bitsby8/bitsby8.config.json
 
 # Restart policy — always, not just on-failure. The web UI's
 # "Restart now" button calls process.exit(0) after a config save;
@@ -32,11 +32,11 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-# The daemon reads /etc/fdcsds/fdcsds.config.json (baseline / dpkg
+# The daemon reads /etc/bitsby8/bitsby8.config.json (baseline / dpkg
 # conffile) and writes UI-driven changes to
-# /var/lib/fdcsds/fdcsds.overrides.json — /etc stays read-only under
+# /var/lib/bitsby8/bitsby8.overrides.json — /etc stays read-only under
 # ProtectSystem=strict, as intended.
-ReadWritePaths=/var/lib/fdcsds /var/log/fdcsds
+ReadWritePaths=/var/lib/bitsby8 /var/log/bitsby8
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
@@ -46,7 +46,7 @@ RestrictNamespaces=true
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=fdcsds
+SyslogIdentifier=bitsby8
 
 [Install]
 WantedBy=multi-user.target

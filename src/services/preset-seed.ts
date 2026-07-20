@@ -29,7 +29,7 @@ export async function loadSeedPresets(deps: Dependencies): Promise<number> {
     const existing = await deps.database.listMachineProfileVersions(def.name).catch(() => []);
     if (existing.length > 0) continue; // already present — don't overwrite on boot
     try {
-      await upsertPresetProfile(deps, def.name, def.build(), def.description);
+      await upsertPresetProfile(deps, def.name, def.build(), def.description, def.uppercaseInput ?? false);
       await seedPresetDisks(deps, def);
       n++;
     } catch (err) {
@@ -44,7 +44,7 @@ export async function loadSeedPresets(deps: Dependencies): Promise<number> {
 export async function resetPreset(deps: Dependencies, name: string): Promise<void> {
   const def = PRESETS.find((p) => p.name === name);
   if (!def) throw new ServiceError(`"${name}" is not a built-in preset`, 404);
-  await upsertPresetProfile(deps, def.name, def.build(), def.description);
+  await upsertPresetProfile(deps, def.name, def.build(), def.description, def.uppercaseInput ?? false);
   await seedPresetDisks(deps, def);
 }
 

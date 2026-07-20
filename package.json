@@ -1,24 +1,25 @@
 {
-  "name": "fds-ts",
+  "name": "bitsby8",
   "version": "3.0.0-alpha",
   "description": "FDC+ Serial Drive Server in TypeScript",
   "main": "dist/index.js",
   "bin": {
+    "bitsby8": "./dist/index.js",
     "fdcsds": "./dist/index.js",
     "create-boot-disk": "./create-boot-disk.js"
   },
   "scripts": {
     "build": "tsc && pnpm run docs",
-    "build:all": "pnpm run build && pnpm --filter fdcplus-frontend build",
+    "build:all": "pnpm run build && pnpm --filter bitsby8-frontend build",
     "docs": "ts-node scripts/generate-openapi.ts",
     "docs:check": "ts-node scripts/generate-openapi.ts --check",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "dev:all": "concurrently -n backend,frontend -c blue,magenta \"pnpm run dev\" \"pnpm --filter fdcplus-frontend dev\"",
+    "dev:all": "concurrently -n backend,frontend -c blue,magenta \"pnpm run dev\" \"pnpm --filter bitsby8-frontend dev\"",
     "test": "jest --runInBand",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'lint: no ESLint configured (see cleanup-epic; project-context requires discussion before introducing a linter)' && exit 0",
-    "check": "pnpm run typecheck && pnpm run lint && pnpm run docs:check && pnpm run test && pnpm --filter fdcplus-frontend check",
+    "check": "pnpm run typecheck && pnpm run lint && pnpm run docs:check && pnpm run test && pnpm --filter bitsby8-frontend check",
     "clean": "rm -rf dist coverage frontend/dist"
   },
   "keywords": [

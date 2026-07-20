@@ -1,7 +1,7 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: fdcsds
+Upstream-Name: bitsby8
 Upstream-Contact: 2025 Joe Toppe <mreppot@gmail.com>
-Source: https://github.com/yourusername/fdcplus-web
+Source: https://github.com/joezilla/bitsby8
 
 Files: *
 Copyright: 2025 Joe Toppe

@@ -1,13 +1,13 @@
-# FDC+ Serial Drive Server - Launcher Script Usage
+# BitsBy8 Serial Drive Server - Launcher Script Usage
 
 ## 🚀 Quick Start
 
-The `fdcsds.sh` launcher script makes it easy to run the server.
+The `bitsby8.sh` launcher script makes it easy to run the server.
 
 ### **Basic Usage**
 
 ```bash
-./fdcsds.sh -p /dev/cu.usbserial-114110 -0 disks/test.dsk
+./bitsby8.sh -p /dev/cu.usbserial-114110 -0 disks/test.dsk
 ```
 
 ---
@@ -17,19 +17,19 @@ The `fdcsds.sh` launcher script makes it easy to run the server.
 ### **1. Production Mode (Default)**
 Runs the compiled JavaScript (fastest):
 ```bash
-./fdcsds.sh -p /dev/cu.usbserial-114110 -0 disks/test.dsk
+./bitsby8.sh -p /dev/cu.usbserial-114110 -0 disks/test.dsk
 ```
 
 ### **2. Development Mode**
 Runs TypeScript directly with ts-node (for development):
 ```bash
-./fdcsds.sh --dev -p /dev/cu.usbserial-114110 -0 disks/test.dsk
+./bitsby8.sh --dev -p /dev/cu.usbserial-114110 -0 disks/test.dsk
 ```
 
 ### **3. Rebuild Mode**
 Forces a fresh build before running:
 ```bash
-./fdcsds.sh --rebuild -p /dev/cu.usbserial-114110 -0 disks/test.dsk
+./bitsby8.sh --rebuild -p /dev/cu.usbserial-114110 -0 disks/test.dsk
 ```
 
 ---
@@ -38,12 +38,12 @@ Forces a fresh build before running:
 
 ### **Mount a Single Disk**
 ```bash
-./fdcsds.sh -p /dev/cu.usbserial-114110 -0 disks/test.dsk
+./bitsby8.sh -p /dev/cu.usbserial-114110 -0 disks/test.dsk
 ```
 
 ### **Mount Multiple Disks**
 ```bash
-./fdcsds.sh \
+./bitsby8.sh \
   -p /dev/cu.usbserial-114110 \
   -0 disks/cpm22.dsk \
   -1 disks/altdos.dsk \
@@ -52,27 +52,27 @@ Forces a fresh build before running:
 
 ### **Read-Only Drive**
 ```bash
-./fdcsds.sh -p /dev/cu.usbserial-114110 -0 disks/cpm22.dsk -r 0
+./bitsby8.sh -p /dev/cu.usbserial-114110 -0 disks/cpm22.dsk -r 0
 ```
 
 ### **Custom Baud Rate**
 ```bash
-./fdcsds.sh -p /dev/cu.usbserial-114110 -b 460800 -0 disks/test.dsk
+./bitsby8.sh -p /dev/cu.usbserial-114110 -b 460800 -0 disks/test.dsk
 ```
 
 ### **Verbose Mode**
 ```bash
-./fdcsds.sh -p /dev/cu.usbserial-114110 -0 disks/test.dsk -v
+./bitsby8.sh -p /dev/cu.usbserial-114110 -0 disks/test.dsk -v
 ```
 
 ### **Debug Mode**
 ```bash
-./fdcsds.sh -p /dev/cu.usbserial-114110 -0 disks/test.dsk -v -d
+./bitsby8.sh -p /dev/cu.usbserial-114110 -0 disks/test.dsk -v -d
 ```
 
 ### **Development Mode (Live Reload)**
 ```bash
-./fdcsds.sh --dev -p /dev/cu.usbserial-114110 -0 disks/test.dsk
+./bitsby8.sh --dev -p /dev/cu.usbserial-114110 -0 disks/test.dsk
 ```
 
 ---
@@ -91,15 +91,15 @@ The script automatically:
 
 ### **Option 1: Run from Project Directory**
 ```bash
-cd /Users/mreppot/src/fds-ts
-./fdcsds.sh -p /dev/cu.usbserial-114110 -0 disks/test.dsk
+cd /Users/mreppot/src/fdcplus-web
+./bitsby8.sh -p /dev/cu.usbserial-114110 -0 disks/test.dsk
 ```
 
 ### **Option 2: Add to PATH**
 
 Add to your `~/.bashrc` or `~/.zshrc`:
 ```bash
-export PATH="/Users/mreppot/src/fds-ts:$PATH"
+export PATH="/Users/mreppot/src/fdcplus-web:$PATH"
 ```
 
 Then reload your shell:
@@ -109,29 +109,29 @@ source ~/.bashrc  # or source ~/.zshrc
 
 Now run from anywhere:
 ```bash
-fdcsds.sh -p /dev/cu.usbserial-114110 -0 disks/test.dsk
+bitsby8.sh -p /dev/cu.usbserial-114110 -0 disks/test.dsk
 ```
 
 ### **Option 3: Create Symlink in /usr/local/bin**
 ```bash
-sudo ln -s /Users/mreppot/src/fds-ts/fdcsds.sh /usr/local/bin/fdcsds
+sudo ln -s /Users/mreppot/src/fdcplus-web/bitsby8.sh /usr/local/bin/bitsby8
 ```
 
 Then run from anywhere:
 ```bash
-fdcsds -p /dev/cu.usbserial-114110 -0 disks/test.dsk
+bitsby8 -p /dev/cu.usbserial-114110 -0 disks/test.dsk
 ```
 
 ### **Option 4: Create Shell Alias**
 
 Add to your `~/.bashrc` or `~/.zshrc`:
 ```bash
-alias fdcsds='/Users/mreppot/src/fds-ts/fdcsds.sh'
+alias bitsby8='/Users/mreppot/src/fdcplus-web/bitsby8.sh'
 ```
 
 Reload and use:
 ```bash
-fdcsds -p /dev/cu.usbserial-114110 -0 disks/test.dsk
+bitsby8 -p /dev/cu.usbserial-114110 -0 disks/test.dsk
 ```
 
 ---
@@ -140,7 +140,7 @@ fdcsds -p /dev/cu.usbserial-114110 -0 disks/test.dsk
 
 ### **Script Not Executable**
 ```bash
-chmod +x fdcsds.sh
+chmod +x bitsby8.sh
 ```
 
 ### **Node.js Not Found**
@@ -161,7 +161,7 @@ npm run build
 
 Or use the rebuild flag:
 ```bash
-./fdcsds.sh --rebuild -p /dev/cu.usbserial-114110 -0 disks/test.dsk
+./bitsby8.sh --rebuild -p /dev/cu.usbserial-114110 -0 disks/test.dsk
 ```
 
 ### **Serial Port Permission Denied**
@@ -183,7 +183,7 @@ sudo usermod -a -G dialout $USER
 groups
 
 # Or run with sudo (not recommended)
-sudo ./fdcsds.sh -p /dev/ttyUSB0 -0 disks/test.dsk
+sudo ./bitsby8.sh -p /dev/ttyUSB0 -0 disks/test.dsk
 ```
 
 ---
@@ -192,12 +192,12 @@ sudo ./fdcsds.sh -p /dev/ttyUSB0 -0 disks/test.dsk
 
 ### **Show Help**
 ```bash
-./fdcsds.sh -h
+./bitsby8.sh -h
 ```
 
 ### **Show Version**
 ```bash
-./fdcsds.sh --version
+./bitsby8.sh --version
 ```
 
 ### **Check Node.js Version**
@@ -246,9 +246,9 @@ Once running:
 
 | Task | Shell Script | npm Command |
 |------|-------------|-------------|
-| Run production | `./fdcsds.sh -p ...` | `npm start -- -p ...` |
-| Run development | `./fdcsds.sh --dev -p ...` | `npm run dev -- -p ...` |
-| Force rebuild | `./fdcsds.sh --rebuild -p ...` | `npm run build && npm start -- -p ...` |
+| Run production | `./bitsby8.sh -p ...` | `npm start -- -p ...` |
+| Run development | `./bitsby8.sh --dev -p ...` | `npm run dev -- -p ...` |
+| Force rebuild | `./bitsby8.sh --rebuild -p ...` | `npm run build && npm start -- -p ...` |
 | Auto-install deps | ✅ Automatic | ❌ Manual `npm install` |
 | Auto-build | ✅ Automatic | ❌ Manual `npm run build` |
 | Shorter command | ✅ Yes | ❌ Longer |
@@ -259,19 +259,19 @@ Once running:
 
 1. **Use TAB completion** for file paths
    ```bash
-   ./fdcsds.sh -p /dev/cu.usb<TAB> -0 disks/test<TAB>
+   ./bitsby8.sh -p /dev/cu.usb<TAB> -0 disks/test<TAB>
    ```
 
 2. **Find serial ports quickly**
    ```bash
-   ./fdcsds.sh -p $(ls /dev/cu.usbserial-* | head -1) -0 disks/test.dsk
+   ./bitsby8.sh -p $(ls /dev/cu.usbserial-* | head -1) -0 disks/test.dsk
    ```
 
 3. **Create a test script**
    ```bash
    cat > test-server.sh <<'EOF'
    #!/bin/bash
-   ./fdcsds.sh -p /dev/cu.usbserial-114110 -0 disks/test.dsk -v
+   ./bitsby8.sh -p /dev/cu.usbserial-114110 -0 disks/test.dsk -v
    EOF
    chmod +x test-server.sh
    ./test-server.sh
@@ -280,7 +280,7 @@ Once running:
 4. **Use with watch for auto-restart during development**
    ```bash
    # Install watchexec: brew install watchexec
-   watchexec -r -e ts './fdcsds.sh --dev -p /dev/cu.usbserial-114110 -0 disks/test.dsk'
+   watchexec -r -e ts './bitsby8.sh --dev -p /dev/cu.usbserial-114110 -0 disks/test.dsk'
    ```
 
 ---
@@ -289,7 +289,7 @@ Once running:
 
 ### **Run in Background**
 ```bash
-./fdcsds.sh -p /dev/cu.usbserial-114110 -0 disks/test.dsk > server.log 2>&1 &
+./bitsby8.sh -p /dev/cu.usbserial-114110 -0 disks/test.dsk > server.log 2>&1 &
 echo $! > server.pid
 ```
 
@@ -300,7 +300,7 @@ kill $(cat server.pid)
 
 ### **Check if Running**
 ```bash
-ps aux | grep fdcsds
+ps aux | grep bitsby8
 ```
 
 ### **Monitor Logs**

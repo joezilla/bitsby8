@@ -45,7 +45,7 @@ jobs:
         run: pnpm run typecheck
 
       - name: Typecheck (frontend / svelte-check)
-        run: pnpm --filter fdcplus-frontend typecheck
+        run: pnpm --filter bitsby8-frontend typecheck
 
       # The serial-mock test suite has a known intermittent race (see
       # cleanup-epic deferred-work). Retry once before failing the build.

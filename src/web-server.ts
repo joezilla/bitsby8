@@ -10,13 +10,12 @@ import express from 'express';
 import { createServer, IncomingMessage } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { WebSocketServer } from 'ws';
-import * as path from 'path';
 import { DriveManager } from './drive';
 import { SerialPortManager } from './serial';
 import { TerminalSerialManager } from './terminal-serial';
 import { ConfigFile } from './config';
 import { FdcServer } from './server';
-import { Database } from './database';
+import { Database, resolveDbPath } from './database';
 import { WebServerConfig, PreferredTerminalSettings, Dependencies } from './types';
 import { isAllowedOrigin, setupSecurityMiddleware } from './middleware/security';
 import { setupStaticMiddleware } from './middleware/static';
@@ -106,7 +105,7 @@ export class WebServer {
     if (options?.database) {
       database = options.database;
     } else {
-      const dbPath = path.join(config.dataDir || process.cwd(), 'fdcplus.db');
+      const dbPath = resolveDbPath(config.dataDir || process.cwd());
       database = new Database(dbPath);
     }
 

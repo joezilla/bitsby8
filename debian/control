@@ -1,4 +1,4 @@
-Source: fdcsds
+Source: bitsby8
 Section: electronics
 Priority: optional
 Maintainer: Joe Toppe <mreppot@gmail.com>
@@ -10,15 +10,21 @@ Build-Depends: debhelper (>= 10),
 # apt-installed packages, so listing them here would force apt-nodejs
 # on the build host even when a newer Node is already available.
 Standards-Version: 4.1.2
-Homepage: https://github.com/yourusername/fdcplus-web
-Vcs-Git: https://github.com/yourusername/fdcplus-web.git
+Homepage: https://github.com/joezilla/bitsby8
+Vcs-Git: https://github.com/joezilla/bitsby8.git
 
-Package: fdcsds
+Package: bitsby8
 Architecture: all
 Depends: ${misc:Depends},
          nodejs (>= 18.0.0),
          adduser
-Description: FDC+ Serial Drive Server for Altair 8800
+# Package rename: bitsby8 supersedes fdcsds. Conflicts+Replaces make apt
+# remove the old package and take over its files; Provides keeps any local
+# operator scripts that still reference `fdcsds` satisfiable.
+Replaces: fdcsds
+Conflicts: fdcsds
+Provides: fdcsds
+Description: BitsBy8 Serial Drive Server for Altair 8800
  A Serial Disk Server compatible with the FDC+ Enhanced Floppy Disk
  Controller for the Altair 8800 vintage computer.
  .

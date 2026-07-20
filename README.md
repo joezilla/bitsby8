@@ -8,7 +8,7 @@ It serves virtual floppy and hard-disk images to a real Altair through its **FDC
 
 **Version:** 3.0.0-alpha · **License:** GPL-3.0 · **Platforms:** Linux (Raspberry Pi & x86), macOS
 
-> **Note:** BitsBy8 is the product name. The systemd service and Debian package are still named `fdcsds`, and the source repo is `fdcplus-web` — these keep their current names for now while the rename is in progress.
+> **Note:** BitsBy8 is the product name. The Debian package and systemd service are now named `bitsby8` (the CLI is `bitsby8`, with an `fdcsds` alias kept for backward compatibility). The source repo is still `fdcplus-web`.
 
 ![BitsBy8 web UI — the Drives & Library page: four drive bays across the top, disk-image library below.](images/ui-disks.png)
 
@@ -56,12 +56,15 @@ Build and install the `.deb`, then run it as a systemd service:
 
 ```bash
 make deb
-sudo dpkg -i ../fdcsds_*.deb
+sudo dpkg -i ../bitsby8_*.deb
 sudo apt-get install -f            # pull in any missing dependencies
 
-sudo nano /etc/fdcsds/fdcsds.config.json   # set your serial port, drives, etc.
-sudo systemctl enable --now fdcsds         # start on boot and now
+sudo nano /etc/bitsby8/bitsby8.config.json   # set your serial port, drives, etc.
+sudo systemctl enable --now bitsby8          # start on boot and now
 ```
+
+Upgrading from an older `fdcsds` install is automatic — apt supersedes it and
+your config, data, and database are migrated. 
 
 The web UI is then at `http://<pi-hostname>:3000`. See [DEBIAN-PACKAGE.md](DEBIAN-PACKAGE.md) for the full packaging guide.
 
@@ -79,7 +82,7 @@ Configuration and data persist in the mounted volume; see [`docker-compose.yml`]
 git clone <repo-url> fdcplus-web && cd fdcplus-web
 pnpm install
 pnpm build:all            # compile backend + build the web UI
-pnpm start -- --web       # or: fdcsds --web  (if installed globally)
+pnpm start -- --web       # or: bitsby8 --web  (if installed globally)
 ```
 
 ---
@@ -89,7 +92,7 @@ pnpm start -- --web       # or: fdcsds --web  (if installed globally)
 Wire the FDC+ controller to a USB serial adapter and point BitsBy8 at that port:
 
 ```bash
-fdcsds -p /dev/ttyUSB0 -0 disks/cpm22.dsk -w
+bitsby8 -p /dev/ttyUSB0 -0 disks/cpm22.dsk -w
 # -p  serial port for the FDC+     -0..-3  mount a disk to a drive
 # -w  enable the web interface     -b <rate>  set baud (default 230400)
 ```
@@ -97,17 +100,17 @@ fdcsds -p /dev/ttyUSB0 -0 disks/cpm22.dsk -w
 A second serial port can drive an interactive **console terminal** in the web UI:
 
 ```bash
-fdcsds -p /dev/ttyUSB0 -0 disks/cpm22.dsk \
+bitsby8 -p /dev/ttyUSB0 -0 disks/cpm22.dsk \
   --terminal-port /dev/ttyUSB1 --terminal-baud 9600 -w
 ```
 
 A few setup notes:
 
 - **Serial permissions (Linux):** add your user to the `dialout` group (`sudo usermod -aG dialout $USER`, then log out and back in).
-- **Stable port names:** USB port names like `/dev/ttyUSB0` can shuffle across reboots. Run `fdcsds --show-persistent-paths` to get a stable `/dev/serial/by-id/...` path for your config.
+- **Stable port names:** USB port names like `/dev/ttyUSB0` can shuffle across reboots. Run `bitsby8 --show-persistent-paths` to get a stable `/dev/serial/by-id/...` path for your config.
 - **No physical FDC+?** An Altair *simulator* can connect over WebSocket instead of serial — see [docs/WS-FDC-TRANSPORT.md](docs/WS-FDC-TRANSPORT.md).
 
-Generate a starter config any time with `fdcsds --example-config > .fdcsds.config`, and run `fdcsds --help` for the full option list.
+Generate a starter config any time with `bitsby8 --example-config > .bitsby8.config`, and run `bitsby8 --help` for the full option list.
 
 ---
 
@@ -134,9 +137,9 @@ More detail in [docs/WEB-INTERFACE.md](docs/WEB-INTERFACE.md).
 
 BitsBy8 ships a [Model Context Protocol](https://modelcontextprotocol.io/) server exposing 90+ tools — mount disks, drive machines, read/write CP/M files, run the terminal — to assistants like Claude Code. It's **off by default**; opt in per transport:
 
-- **Local (stdio):** point your assistant at `fdcsds --mcp`:
+- **Local (stdio):** point your assistant at `bitsby8 --mcp`:
   ```json
-  { "mcpServers": { "bitsby8": { "command": "fdcsds", "args": ["--mcp", "--data-dir", "/path/to/data"] } } }
+  { "mcpServers": { "bitsby8": { "command": "bitsby8", "args": ["--mcp", "--data-dir", "/path/to/data"] } } }
   ```
 - **Over the LAN (HTTP):** set an API key, then enable MCP-over-HTTP in *Config → MCP server* (or `--mcp-http`). It requires a bearer token and is intended for trusted networks — put TLS in front if you expose it.
 
@@ -148,10 +151,10 @@ The tools can read and **write** disk images and send bytes to real hardware, so
 
 Settings live at two layers:
 
-- **Install-time defaults** — a config file (`/etc/fdcsds/fdcsds.config.json`, or `.fdcsds.config` from source) plus CLI flags. These set up the box; changes take effect on restart.
+- **Install-time defaults** — a config file (`/etc/bitsby8/bitsby8.config.json`, or `.bitsby8.config` from source) plus CLI flags. These set up the box; changes take effect on restart.
 - **Day-to-day settings** — managed live from the web UI (and REST/MCP), stored in a SQLite database in the data directory. Per-image settings like notes, write policy, and snapshots live here and apply immediately.
 
-The data directory (`/var/lib/fdcsds` on a `.deb` install) holds your disk library, uploads, cassettes, and the database.
+The data directory (`/var/lib/bitsby8` on a `.deb` install) holds your disk library, uploads, cassettes, and the database.
 
 ---
 

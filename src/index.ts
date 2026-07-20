@@ -31,6 +31,7 @@ import {
   getExampleConfig,
   DEFAULT_CONFIG_LOCATIONS,
   OVERRIDE_FILENAME,
+  migrateLegacyOverride,
   resolveDataDir,
   resolveDrivePath,
 } from './config';
@@ -249,6 +250,8 @@ async function main(): Promise<void> {
   // Resolve dataDir before loading the override — the override file
   // lives inside dataDir. CLI --data-dir wins over the baseline value.
   const preliminaryDataDir = resolveDataDir(options.dataDir ?? baselineConfig?.dataDir ?? null);
+  // Self-heal a legacy fdcsds.overrides.json before we resolve the path.
+  await migrateLegacyOverride(preliminaryDataDir);
   const overrideConfigFilePath = path.join(preliminaryDataDir, OVERRIDE_FILENAME);
 
   // Load the runtime override. Fresh installs return null cleanly.
@@ -434,8 +437,8 @@ async function main(): Promise<void> {
   }
 
   // Initialize database and load saved drive assignments
-  const { Database } = await import('./database');
-  const dbPath = path.join(dataDir, 'fdcplus.db');
+  const { Database, resolveDbPath } = await import('./database');
+  const dbPath = resolveDbPath(dataDir);
   let database: InstanceType<typeof Database> | undefined;
 
   try {
