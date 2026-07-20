@@ -4,11 +4,12 @@ bitsby8 (3.0.0~alpha-1) unstable; urgency=medium
     move from `fdcsds` to `bitsby8` (/usr/lib, /etc, /var/lib, /var/log,
     /usr/share). The package declares Conflicts/Replaces/Provides: fdcsds so
     apt cleanly supersedes the old package on upgrade.
-  * Migration: on upgrade from fdcsds, config under /etc/fdcsds is seeded
-    into /etc/bitsby8 (preinst), and /var/lib/fdcsds + /var/log/fdcsds are
-    moved to the bitsby8 paths with backward-compatibility symlinks left
-    behind (postinst). The SQLite database (fdcplus.db) and runtime override
-    file are renamed in-process on first startup.
+  * Migration: on upgrade from fdcsds, the legacy /etc/fdcsds config is
+    adopted into /etc/bitsby8 on first install (postinst, after dpkg unpacks
+    the default conffile), and /var/lib/fdcsds + /var/log/fdcsds are moved to
+    the bitsby8 paths with backward-compatibility symlinks left behind. The
+    SQLite database (fdcplus.db) and runtime override file are renamed
+    in-process on first startup.
   * A /usr/bin/fdcsds compatibility symlink is retained alongside
     /usr/bin/bitsby8.
 

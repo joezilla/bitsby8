@@ -25,6 +25,24 @@ case "$1" in
             ln -s /var/log/bitsby8 /var/log/fdcsds
         fi
 
+        # --- Adopt config from a legacy fdcsds install (first install only) --
+        # dpkg has already unpacked the pristine default conffiles by the time
+        # postinst runs, so this is where legacy config must be adopted — a
+        # preinst pre-seed gets clobbered by the conffile unpack (which is why
+        # earlier bitsby8 packages came up on the shipped default and lost the
+        # operator's serial port). Gated on the FIRST configure of bitsby8
+        # ("$2" empty) so a later operator edit is never overwritten on
+        # subsequent upgrades, and only when a legacy file actually exists.
+        if [ -z "$2" ]; then
+            if [ -e /etc/fdcsds/fdcsds.config.json ]; then
+                cp -p /etc/fdcsds/fdcsds.config.json /etc/bitsby8/bitsby8.config.json
+                echo "Adopted configuration from legacy /etc/fdcsds/fdcsds.config.json"
+            fi
+            if [ -e /etc/default/fdcsds ]; then
+                cp -p /etc/default/fdcsds /etc/default/bitsby8
+            fi
+        fi
+
         # Create bitsby8 system user if it doesn't exist
         if ! getent passwd bitsby8 >/dev/null; then
             adduser --system --group --home /var/lib/bitsby8 \
