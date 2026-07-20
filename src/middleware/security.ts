@@ -47,12 +47,17 @@ export function setupSecurityMiddleware(
     })
   );
 
-  // CORS
-  const allowedOrigins = buildAllowedOrigins(config);
+  // CORS. The allow decision is made PER REQUEST (see isAllowedOrigin), not
+  // from a list frozen at startup: this box is typically on WiFi and the
+  // systemd unit only waits for network.target, so the daemon can boot and
+  // build its origin set a second or two before wlan0 gets its DHCP address —
+  // the operator's own `http://<lan-ip>:3000` would then be rejected until the
+  // next restart. Evaluating the origin live also survives a DHCP renewal onto
+  // a new address without a restart.
   app.use(
     cors({
       origin: (origin, callback) => {
-        if (!origin || allowedOrigins.includes(origin)) {
+        if (isAllowedOrigin(origin, config)) {
           callback(null, true);
         } else {
           callback(new Error('Not allowed by CORS'));
@@ -166,36 +171,47 @@ export function isTrustedLanIp(ip: string | undefined): boolean {
   return false;
 }
 
-export function buildAllowedOrigins(config: WebServerConfig): string[] {
-  const port = config.port;
-  const origins = new Set<string>([
-    `http://${config.host}:${port}`,
-    `http://localhost:${port}`,
-    `http://127.0.0.1:${port}`,
-  ]);
+/**
+ * Live CORS gate. Returns true when `origin` may drive this appliance's API.
+ *
+ * Unlike a list snapshotted at startup, this is evaluated per request, so it
+ * does not depend on which interfaces had an address when the daemon booted
+ * (the WiFi-DHCP-vs-network.target race that left `http://<lan-ip>:3000`
+ * rejected) and it tracks DHCP address changes without a restart.
+ *
+ * An origin is allowed when its port matches the web port AND its host is one
+ * of: `localhost`, this machine's hostname (+ `.local` alias), the configured
+ * bind host, or any loopback/private/LAN IP literal (the appliance already
+ * trusts its LAN — auth still applies). A missing Origin (same-origin
+ * navigations, curl/MCP) is always allowed.
+ */
+export function isAllowedOrigin(origin: string | undefined, config: WebServerConfig): boolean {
+  if (!origin) return true;
 
-  // Always add the machine's hostname and mDNS alias — users often browse to
-  // http://raspberrypi.local:3000/ instead of the numeric IP.
-  const host = os.hostname();
-  if (host) {
-    origins.add(`http://${host}:${port}`);
-    if (!host.endsWith('.local')) {
-      origins.add(`http://${host}.local:${port}`);
-    }
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    return false;
   }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
 
-  // When bound to 0.0.0.0 / ::, the server is reachable at every LAN interface.
-  // Add each non-internal address so browsers hitting the machine by its LAN
-  // IP (e.g. http://10.1.1.94:3000/) pass CORS.
-  if (config.host === '0.0.0.0' || config.host === '::' || config.host === '') {
-    for (const ifaces of Object.values(os.networkInterfaces())) {
-      for (const iface of ifaces ?? []) {
-        if (iface.internal) continue;
-        const addr = iface.family === 'IPv6' ? `[${iface.address}]` : iface.address;
-        origins.add(`http://${addr}:${port}`);
-      }
-    }
-  }
+  // Port must match the web port. URL.port is '' for the scheme default.
+  const originPort = url.port || (url.protocol === 'https:' ? '443' : '80');
+  if (originPort !== String(config.port)) return false;
 
-  return [...origins];
+  // URL.hostname keeps IPv6 in brackets (`[::1]`); strip them for comparison
+  // and for the IP-literal check below.
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+
+  if (host === 'localhost') return true;
+  if (config.host && host === config.host) return true;
+
+  const machine = os.hostname();
+  if (machine && (host === machine || host === `${machine}.local`)) return true;
+
+  // Any loopback/private/LAN address bound (now or later) on this box.
+  if (isTrustedLanIp(host)) return true;
+
+  return false;
 }
