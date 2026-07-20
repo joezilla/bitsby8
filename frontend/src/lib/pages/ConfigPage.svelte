@@ -12,6 +12,7 @@
   import PageHeader from '$lib/components/shared/PageHeader.svelte';
   import RestartBanner from '$lib/components/shared/RestartBanner.svelte';
   import { showToast } from '$lib/stores/toast';
+  import { setRestartPending } from '$lib/stores/configDirty';
   import type { SerialPortInfo, ConfigDoc, ConfigStatus } from '$lib/types/api';
 
   let config = $state<ConfigDoc | null>(null);
@@ -233,6 +234,7 @@
     try {
       if (serialDirty) {
         const r = await api.putSerialConfig({ port: serialForm.port.trim(), baud: serialForm.baud }, etag);
+        setRestartPending('serial', r.restartRequired);
         etag = etagFor(r.mtimeMs);
       }
       if (terminalDirty) {
@@ -241,6 +243,7 @@
           terminalBaud: terminalForm.terminalBaud,
           terminalAutoconnect: terminalForm.terminalAutoconnect,
         }, etag);
+        setRestartPending('terminal', r.restartRequired);
         etag = etagFor(r.mtimeMs);
       }
       if (webDirty) {
@@ -252,6 +255,7 @@
         if (webForm.apiKey.trim()) patch.apiKey = webForm.apiKey.trim();
         if (webForm.adminPassword.length > 0) patch.adminPassword = webForm.adminPassword;
         const r = await api.putWebConfig(patch as any, etag);
+        setRestartPending('web', r.restartRequired);
         etag = etagFor(r.mtimeMs);
       }
       if (loggingDirty) {
@@ -260,6 +264,7 @@
           debug: loggingForm.debug,
           logFile: trimStrOrNull(loggingForm.logFile),
         }, etag);
+        setRestartPending('logging', r.restartRequired);
         etag = etagFor(r.mtimeMs);
       }
       await loadConfig(true);
@@ -565,12 +570,12 @@
   async function doShutdown() {
     if (!canPower || restarting || shuttingDown) return;
     if (!confirm(
-      'Stop the FDC+ daemon? It will NOT restart automatically — you must start it again from the host (sudo systemctl start fdcsds).',
+      'Stop the FDC+ daemon? It will NOT restart automatically — you must start it again from the host (sudo systemctl start bitsby8).',
     )) return;
     shuttingDown = true;
     try {
       await api.shutdownDaemon();
-      showToast('Daemon stopping. Restart it from the host: sudo systemctl start fdcsds', 'info');
+      showToast('Daemon stopping. Restart it from the host: sudo systemctl start bitsby8', 'info');
     } catch (err) {
       showToast(`Shutdown failed: ${(err as Error).message}`, 'error');
       shuttingDown = false;
@@ -612,7 +617,7 @@
     variant="outline"
     icon="restart_alt"
     disabled={restarting || shuttingDown || !canPower}
-    title={canPower ? 'Restart the daemon' : 'Not systemd-managed — restart from the host: sudo systemctl restart fdcsds'}
+    title={canPower ? 'Restart the daemon' : 'Not systemd-managed — restart from the host: sudo systemctl restart bitsby8'}
     onclick={doRestart}
   >
     {restarting ? 'Restarting…' : 'Restart'}
@@ -622,7 +627,7 @@
     danger
     icon="power_settings_new"
     disabled={restarting || shuttingDown || !canPower}
-    title={canPower ? 'Stop the daemon (does not auto-restart)' : 'Not systemd-managed — stop from the host: sudo systemctl stop fdcsds'}
+    title={canPower ? 'Stop the daemon (does not auto-restart)' : 'Not systemd-managed — stop from the host: sudo systemctl stop bitsby8'}
     onclick={doShutdown}
   >
     {shuttingDown ? 'Stopping…' : 'Shutdown'}

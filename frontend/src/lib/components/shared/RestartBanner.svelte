@@ -85,7 +85,7 @@
   async function pollForRestart(oldEpoch: number, attempt = 0) {
     if (attempt > 30) {
       showToast(
-        'Restart taking longer than expected — check `journalctl -u fdcsds`.',
+        'Restart taking longer than expected — check `journalctl -u bitsby8`.',
         'warning',
         8000,
       );
@@ -145,7 +145,7 @@
           class="fdc-label-strip"
           style="color: var(--fg-3); text-transform: none; letter-spacing: 0;"
         >
-          — not systemd-managed; run <code>sudo systemctl restart fdcsds</code> manually.
+          — not systemd-managed; run <code>sudo systemctl restart bitsby8</code> manually.
         </span>
       {/if}
     </div>
